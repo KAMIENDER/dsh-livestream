@@ -17,3 +17,23 @@ describe('livehime sign', () => {
     expect(sign).toBe('dd376801c64db312404ebb9e0c702790');
   });
 });
+
+describe('cover size', () => {
+  it('reads JPEG and PNG dimensions without decoding', async () => {
+    const { imageSize } = await import('../src/body/biliRoom');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const dir = path.join(__dirname, '..', 'assets', 'templates', 'default');
+    const jpg = fs.readdirSync(dir).find((f: string) => f.endsWith('.jpg'));
+    if (jpg) {
+      const size = imageSize(new Uint8Array(fs.readFileSync(path.join(dir, jpg))));
+      expect(size?.width).toBeGreaterThan(0);
+      expect(size?.height).toBeGreaterThan(0);
+    }
+    const png = new Uint8Array(32);
+    png.set([0x89, 0x50, 0x4e, 0x47], 0);
+    new DataView(png.buffer).setUint32(16, 1600);
+    new DataView(png.buffer).setUint32(20, 1200);
+    expect(imageSize(png)).toEqual({ width: 1600, height: 1200 });
+  });
+});

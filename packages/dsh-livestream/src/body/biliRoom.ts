@@ -3,6 +3,7 @@
  *
  *   开通直播间  POST xlive/app-blink/v1/preLive/CreateRoom          （账号还没有直播间时）
  *   改标题分区  POST room/v1/Room/update
+ *   换封面      POST x/upload/web/image（bucket=live）→ preLive/UpdatePreLiveInfo（封面要过 B 站审核）
  *   开播        POST room/v1/Room/startLive → data.rtmp.addr / code（推流地址和推流码）
  *   下播        POST room/v1/Room/stopLive
  *
@@ -34,6 +35,28 @@ export type StartResult =
   | { kind: 'face'; qr: string; message: string }
   /** 风控验证（60043）：要用官方直播姬或 B 站 App 过一次 */
   | { kind: 'verify'; message: string };
+
+/** B 站直播封面的最大宽度（像素） */
+export const COVER_MAX_WIDTH = 1024;
+
+/** 读 PNG / JPEG 的宽高（不解码）；认不出返回 null */
+export function imageSize(data: Uint8Array): { width: number; height: number } | null {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.length > 24 && data[0] === 0x89 && data[1] === 0x50) return { width: view.getUint32(16), height: view.getUint32(20) };
+  if (data[0] !== 0xff || data[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < data.length) {
+    if (data[i] !== 0xff) { i++; continue; }
+    const marker = data[i + 1];
+    const length = view.getUint16(i + 2);
+    // SOF0–SOF15（除了 DHT、JPG、DAC）：帧头里有高和宽
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: view.getUint16(i + 5), width: view.getUint16(i + 7) };
+    }
+    i += 2 + length;
+  }
+  return null;
+}
 
 export class BiliRoomError extends Error {
   constructor(readonly code: number, message: string) {
@@ -126,6 +149,31 @@ export class BiliRoom {
     if (patch.areaId !== undefined) form.area_id = patch.areaId;
     const r = await this.call('https://api.live.bilibili.com/room/v1/Room/update', form);
     if (r.code !== 0) throw new BiliRoomError(r.code, `改直播间信息失败：${r.message}`);
+  }
+
+  /** 换直播间封面：传图到 B 站图床，再设成直播间封面；返回图片地址 */
+  async setCover(data: Uint8Array, mime: string): Promise<string> {
+    const size = imageSize(data);
+    // 实测（2026-10）：宽 1024 能传，1280 被拒「宽像素不合法」
+    if (size && size.width > COVER_MAX_WIDTH) throw new BiliRoomError(-1, `封面太宽了（${size.width}×${size.height}）：B 站直播封面宽度不能超过 ${COVER_MAX_WIDTH}，缩小一点再用，比如 1024×768（4:3）`);
+    const form = new FormData();
+    form.append('bucket', 'live');
+    form.append('dir', 'new_room_cover');
+    form.append('file', new Blob([new Uint8Array(data)], { type: mime }), 'blob');
+    const res = await fetch(`https://api.bilibili.com/x/upload/web/image?csrf=${this.csrf}`, {
+      method: 'POST',
+      headers: { 'User-Agent': UA, Referer: 'https://link.bilibili.com/', Origin: 'https://link.bilibili.com', Cookie: this.cookie },
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const up = (await res.json()) as { code: number; message: string; data?: { location?: string } };
+    if (up.code !== 0 || !up.data?.location) throw new BiliRoomError(up.code, `上传封面失败：${up.message}`);
+    const r = await this.call('https://api.live.bilibili.com/xlive/app-blink/v1/preLive/UpdatePreLiveInfo', {
+      platform: 'pc_link', mobi_app: 'pc_link', build: '1', cover: up.data.location, coverVertical: '', liveDirectionType: '1',
+      csrf: this.csrf, csrf_token: this.csrf, visit_id: '',
+    });
+    if (r.code !== 0) throw new BiliRoomError(r.code, `设置封面失败：${r.message}`);
+    return up.data.location;
   }
 
   /** 开播：拿推流地址和推流码；要人脸认证时返回扫码链接 */

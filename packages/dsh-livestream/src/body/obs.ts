@@ -13,7 +13,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const OBS_NAME = 'dsh-livestream';
@@ -112,6 +112,20 @@ export async function connectObs(launch = true): Promise<Obs> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 配置文件的目录：OBS 按名字生成目录名（会去掉「-」之类的字符，dsh-livestream → dshlivestream），
+ * 所以按 basic.ini 里的 Name= 找，不猜目录名
+ */
+function profileDir(name: string): string | null {
+  const root = join(OBS_DIR, 'basic', 'profiles');
+  if (!existsSync(root)) return null;
+  for (const dir of readdirSync(root)) {
+    const ini = join(root, dir, 'basic.ini');
+    if (existsSync(ini) && /^Name=(.*)$/m.exec(readFileSync(ini, 'utf8').replace(/^\uFEFF/, ''))?.[1]?.trim() === name) return join(root, dir);
+  }
+  return null;
+}
+
 /** 切到自己的配置文件和场景集合，设好画质；舞台页当浏览器源 */
 export async function prepareObs(obs: Obs, stageUrl: string, kbps = STREAM_ENCODER.bitrate): Promise<void> {
   // 配置文件：画质、声音
@@ -139,8 +153,8 @@ export async function prepareObs(obs: Obs, stageUrl: string, kbps = STREAM_ENCOD
   }
   await obs.call('SetVideoSettings', { fpsNumerator: 30, fpsDenominator: 1, baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080 });
   // 编码器参数在配置文件目录的 streamEncoder.json 里：写好后切走再切回来，让 OBS 重新读
-  const dir = join(OBS_DIR, 'basic', 'profiles', OBS_NAME);
-  mkdirSync(dir, { recursive: true });
+  const dir = profileDir(OBS_NAME);
+  if (!dir) throw new Error('找不到 OBS 的 dsh-livestream 配置文件目录');
   const file = join(dir, 'streamEncoder.json');
   const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
   const wanted = JSON.stringify({ ...STREAM_ENCODER, bitrate: kbps }, null, 1);
