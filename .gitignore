@@ -9,3 +9,4 @@ packages/*/lib/
 .dev.env
 packages/*/test/fixtures/
 tools/*.mjs
+/art/

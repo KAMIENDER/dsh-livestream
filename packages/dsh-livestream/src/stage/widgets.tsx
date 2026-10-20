@@ -22,6 +22,20 @@ function useLinger<T>(value: T | null, ms: number): [T | null, boolean] {
   return value !== null ? [value, false] : [kept, kept !== null];
 }
 
+/** 角色包里的小插画（character.json 的 art）：没有返回 null，挂件就不画 */
+function useArt(name: string): string | null {
+  const { character } = useStage();
+  const file = character?.art?.[name];
+  return character && file ? assetUrl('characters', character.id, file) : null;
+}
+
+/** 角色的小插画：文件缺了就不画（不出现破图标） */
+function ArtImg({ src, className }: { src: string; className: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return <img className={className} src={src} alt="" onError={() => setBroken(true)} />;
+}
+
 /** 角色身后的光和脚下的光圈：说话时亮起来，颜色跟表情走（data-mood） */
 function Halo() {
   return (
@@ -207,8 +221,8 @@ function Sparks({ n = 12 }: { n?: number }) {
 // ── 字幕 ─────────────────────────────────────────────
 
 /** 她正在说的话：念到哪亮到哪（按豆包给的逐字时间和音频的真实播放位置，不按字数估）；说完留一会儿再淡出 */
-export function Subtitle() {
-  const { line, character } = useStage();
+export function Subtitle({ options }: { options?: Record<string, unknown> }) {
+  const { line, character, reply } = useStage();
   const [shown, ended] = useLinger(line, 2600);
   const chars = useMemo(() => [...(shown?.text ?? '')], [shown?.text]);
   const [lit, setLit] = useState({ id: '', n: 0 });
@@ -225,9 +239,18 @@ export function Subtitle() {
   }, [line?.id, line?.durationMs]);
   if (!shown) return <div className="ls-subtitle ls-empty" />;
   const upTo = ended ? chars.length : lit.id === shown.id ? lit.n : 0;
+  // 她在回谁：像聊天软件的「回复」一样引用在字幕上方（options.quote: false 关掉，改用 reply 挂件）
+  const quoted = options?.quote !== false && !ended ? reply[0] : undefined;
   return (
-    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}`} key={shown.id} data-mood={shown.mood || undefined}>
+    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined}>
       <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}</span>
+      {quoted && (
+        <div className="ls-quote" key={quoted.key}>
+          <Avatar user={quoted.event.user} />
+          <b>{quoted.event.user.name}{reply.length > 1 ? ` 等 ${reply.length} 人` : ''}</b>
+          <span>{eventText(quoted.event)}</span>
+        </div>
+      )}
       <p>{chars.map((c, i) => <span key={i} className={i < upTo ? 'ls-lit' : 'ls-dim'}>{c}</span>)}</p>
     </div>
   );
@@ -270,21 +293,25 @@ export function Chat({ options }: { options?: Record<string, unknown> }) {
   const { chats, focus } = useStage();
   const limit = Number(options?.rows ?? 12);
   const rows = chats.slice(-limit);
+  const title = options?.title === undefined ? '弹幕' : options.title;
   return (
     <div className="ls-chat">
-      {rows.map((row) => {
-        const { user } = row.event;
-        const focused = focus.has(user.id);
-        return (
-          <div key={row.id} className={`ls-chat-row${focused ? ' ls-focused' : ''}${user.guard ? ` ls-row-guard ls-row-guard-${user.guard}` : ''}`}>
-            <Avatar user={user} />
-            <div className="ls-chat-body">
-              <div className="ls-chat-name"><Badge user={user} /><span className="ls-name">{user.name}</span>{focused && <em className="ls-replying"><Voice />正在回你</em>}</div>
-              {row.event.sticker ? <img className="ls-sticker" src={row.event.sticker} referrerPolicy="no-referrer" alt={row.event.text} /> : <div className="ls-chat-text">{row.event.text}</div>}
+      {title !== false && <div className="ls-chat-head"><span>{String(title)}</span></div>}
+      <div className="ls-chat-list">
+        {rows.map((row) => {
+          const { user } = row.event;
+          const focused = focus.has(user.id);
+          return (
+            <div key={row.id} className={`ls-chat-row${focused ? ' ls-focused' : ''}${user.guard ? ` ls-row-guard ls-row-guard-${user.guard}` : ''}`}>
+              <Avatar user={user} />
+              <div className="ls-chat-body">
+                <div className="ls-chat-name"><Badge user={user} /><span className="ls-name">{user.name}</span>{focused && <em className="ls-replying"><Voice />正在回你</em>}</div>
+                {row.event.sticker ? <img className="ls-sticker" src={row.event.sticker} referrerPolicy="no-referrer" alt={row.event.text} /> : <div className="ls-chat-text">{row.event.text}</div>}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -367,6 +394,7 @@ function alertTtl(e: Alert['event']): number {
 
 function AlertCard({ alert }: { alert: Alert }) {
   const e = alert.event;
+  const giftArt = useArt('gift');
   const ttl = alertTtl(e);
   const [leaving, setLeaving] = useState(false);
   // 礼物连击：数量一变就重新计时
@@ -400,6 +428,7 @@ function AlertCard({ alert }: { alert: Alert }) {
           <div className="ls-gift-text"><b>{e.user.name}</b><span>送出 <strong>{e.gift}</strong></span></div>
           <span className="ls-gift-icon"><GiftIcon /></span>
           <em className="ls-combo" key={e.count}>×{e.count}</em>
+          {size !== 'small' && giftArt && <ArtImg className="ls-alert-art" src={giftArt} />}
           {size !== 'small' && <Sparks key={`s${e.count}`} />}
         </div>
       );
@@ -415,6 +444,7 @@ function AlertCard({ alert }: { alert: Alert }) {
             <span>开通了{e.level}{e.count > 1 ? ` ×${e.count}` : ''}</span>
           </div>
           <Avatar user={e.user} />
+          {giftArt && <ArtImg className="ls-alert-art" src={giftArt} />}
           <Sparks n={16} />
         </div>
       );
@@ -440,10 +470,12 @@ export function Alerts({ options }: { options?: Record<string, unknown> }) {
 
 const BRAIN_TEXT = { off: '', listening: '在听弹幕', thinking: '正在想…', speaking: '在说话', away: '暂时走开了' } as const;
 
-export function Status() {
+/** options.room：最前面加一块「××的直播间」名牌 */
+export function Status({ options }: { options?: Record<string, unknown> }) {
   const { brain, brainDetail, online, onAir, character, connected } = useStage();
   return (
     <div className={`ls-status ls-brain-${brain}`}>
+      {options?.room ? <span className="ls-room">{typeof options.room === 'string' ? options.room : `${character?.name ?? ''}的直播间`}</span> : null}
       <span className={`ls-live${onAir ? ' ls-on' : ''}`}><i />{onAir ? 'LIVE' : '准备中'}</span>
       {online !== undefined && <span className="ls-online"><EyeIcon />{online}<small>人在看</small></span>}
       {brain !== 'off' && <span className="ls-brain" key={brain}><i className="ls-brain-icon"><b /><b /><b /></i>{character?.name ?? ''}{brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[brain]}</span>}
@@ -454,4 +486,170 @@ export function Status() {
 
 export function AiLabel({ options }: { options?: Record<string, unknown> }) {
   return <div className="ls-ai-label"><i />{String(options?.text ?? 'AI 主播 · 内容由人工智能生成')}</div>;
+}
+
+// ── 吃饭计数 ─────────────────────────────────────────
+
+/**
+ * 她吃了多少饭：这场用掉的 token 按「每个 token 耗多少焦耳电」换成电，再按一碗饭的热量换成米粒。
+ * options：jPerToken（默认 1 焦耳）、bowlKcal（一碗饭的热量，默认 230 千卡）、grainsPerBowl（一碗多少粒，默认 3000）
+ */
+function riceOf(tokens: number, options?: Record<string, unknown>) {
+  const jPerToken = Number(options?.jPerToken ?? 1);
+  const bowlJ = Number(options?.bowlKcal ?? 230) * 4184;
+  const perBowl = Number(options?.grainsPerBowl ?? 3000);
+  const joules = tokens * jPerToken;
+  return { joules, perBowl, grains: Math.floor((joules / bowlJ) * perBowl), grainsOf: (t: number) => Math.round(((t * jPerToken) / bowlJ) * perBowl) };
+}
+
+export function Rice({ options }: { options?: Record<string, unknown> }) {
+  const { tokens } = useStage();
+  const art = useArt('rice');
+  const { joules, perBowl, grains, grainsOf } = riceOf(tokens, options);
+  const bowls = Math.floor(grains / perBowl);
+  const prev = useRef(tokens);
+  const added = tokens - prev.current;
+  useEffect(() => { prev.current = tokens; }, [tokens]);
+  return (
+    <div className="ls-rice">
+      {art && <ArtImg className="ls-rice-art" key={grains} src={art} />}
+      <div className="ls-rice-body">
+        <div className="ls-rice-label">今天吃了</div>
+        <div className="ls-rice-count"><b key={grains}>{grains.toLocaleString()}</b><span>粒米</span>{added > 0 && <em key={tokens}>+{Math.max(1, grainsOf(added))}</em>}</div>
+        <div className="ls-rice-bowl" title={`第 ${bowls + 1} 碗`}><i style={{ width: `${((grains % perBowl) / perBowl) * 100}%` }} /><span>第 {bowls + 1} 碗</span></div>
+        <div className="ls-rice-note">{tokens.toLocaleString()} token ≈ {joules >= 1000 ? `${(joules / 1000).toFixed(1)} 千焦` : `${Math.round(joules)} 焦`}电</div>
+      </div>
+    </div>
+  );
+}
+
+// ── 终端 ─────────────────────────────────────────────
+
+const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', token: 'token', gift: '礼物', sc: '留言', warn: '注意' };
+
+function clock(at: number): string {
+  const d = new Date(at);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+/** 终端：身体推了什么给她、她说了什么、用了多少 token——观众看得见 AI 在干活 */
+export function Terminal({ options }: { options?: Record<string, unknown> }) {
+  const { term, brain, brainDetail, character } = useStage();
+  const art = useArt('laptop');
+  const rows = term.slice(-Number(options?.rows ?? 9));
+  const title = String(options?.title ?? `${character?.id ?? 'her'}@dsh-livestream`);
+  return (
+    <div className="ls-term">
+      {art && <ArtImg className="ls-term-art" src={art} />}
+      <div className="ls-term-bar"><i /><i /><i /><span>{title}</span></div>
+      <div className="ls-term-lines">
+        {rows.map((l) => (
+          <div key={l.id} className={`ls-term-line ls-tag-${l.tag}`}>
+            <time>{clock(l.at)}</time><b>{TERM_TAG[l.tag] ?? l.tag}</b><span>{l.text}</span>
+          </div>
+        ))}
+        <div className={`ls-term-prompt ls-brain-${brain}`}>
+          <b>$</b>{brain === 'thinking' ? <span className="ls-term-busy">{brainDetail || '思考中'}<i /><i /><i /></span> : brain === 'speaking' ? <span>说话中…</span> : <span className="ls-term-caret" />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 过场：开播前、开场、谢幕 ─────────────────────────
+
+function duration(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  return m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`;
+}
+
+function useClock(): string {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+  return clock(now).slice(0, 5);
+}
+
+function Waiting() {
+  const { character, online } = useStage();
+  const bg = useArt('waiting');
+  const sticker = useArt('sleep');
+  const time = useClock();
+  const name = character?.name ?? '她';
+  return (
+    <div className="ls-scene ls-scene-waiting">
+      {bg && <ArtImg className="ls-scene-bg" src={bg} />}
+      <div className="ls-wait-card">
+        {sticker && <ArtImg className="ls-wait-art" src={sticker} />}
+        <div className="ls-wait-room">{name}的直播间</div>
+        <div className="ls-wait-title">直播马上开始<i /><i /><i /></div>
+        <div className="ls-wait-hint">弹幕里叫「{name}」，她会回你哦</div>
+        <div className="ls-wait-meta"><span>{time}</span>{online ? <span>{online} 人在等</span> : null}</div>
+      </div>
+    </div>
+  );
+}
+
+function Opening() {
+  const { character } = useStage();
+  const kv = useArt('kv');
+  const name = character?.name ?? '';
+  return (
+    <div className="ls-scene ls-scene-opening">
+      <i className="ls-wipe ls-wipe-1" /><i className="ls-wipe ls-wipe-2" /><i className="ls-wipe ls-wipe-3" />
+      <div className="ls-open-stage">
+        {kv && <ArtImg className="ls-open-kv" src={kv} />}
+        <div className="ls-open-title">
+          <b>{[...name].map((c, i) => <span key={i} style={{ '--i': i } as React.CSSProperties}>{c}</span>)}</b>
+          <small>LIVE START</small>
+        </div>
+        <Sparks n={18} />
+      </div>
+    </div>
+  );
+}
+
+function Ending() {
+  const { character, stats, tokens } = useStage();
+  const bg = useArt('ending');
+  const sticker = useArt('wave');
+  const name = character?.name ?? '她';
+  const { grains } = riceOf(tokens);
+  const names = stats.supporters.slice(0, 18);
+  return (
+    <div className="ls-scene ls-scene-ending">
+      {bg && <ArtImg className="ls-scene-bg" src={bg} />}
+      <div className="ls-end-card">
+        <div className="ls-end-title">今天的直播结束啦</div>
+        <div className="ls-end-sub">谢谢大家陪{name}，下次见～</div>
+        <div className="ls-end-stats">
+          <div><b>{duration(Date.now() - stats.startedAt)}</b><span>播了</span></div>
+          <div><b>{stats.chats}</b><span>条弹幕</span></div>
+          <div><b>{stats.viewers}</b><span>位观众</span></div>
+          <div><b>{grains}</b><span>粒米饭</span></div>
+        </div>
+        {names.length ? (
+          <div className="ls-end-thanks">
+            <span>特别感谢</span>
+            <div className="ls-end-names">{names.map((s, i) => <em key={s.name} style={{ '--i': i } as React.CSSProperties}>{s.name}</em>)}</div>
+          </div>
+        ) : null}
+      </div>
+      {sticker && <ArtImg className="ls-end-art" src={sticker} />}
+    </div>
+  );
+}
+
+/** 整屏的过场（模板把它放在 0,0、和画布一样大，盖在最上面） */
+export function Scene() {
+  const { phase } = useStage();
+  const [shown, leaving] = useLinger(phase === 'live' ? null : phase, 700);
+  if (!shown) return null;
+  return (
+    <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>
+      {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : <Ending />}
+    </div>
+  );
 }

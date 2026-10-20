@@ -95,13 +95,7 @@
 /* 角色：暖色的边光 */
 .ls-template-sunset .ls-clips { filter: drop-shadow(0 0 24px rgba(255, 150, 160, 0.45)); }
 
-/* 弹幕在右边：从右往左飞进来，「正在回你」往左让一点 */
-.ls-template-sunset .ls-chat { padding: 0 2px 0 12px; perspective-origin: 100% 60%; }
-.ls-template-sunset .ls-chat-row { transform-origin: 100% 50%; animation-name: sunset-card-in; }
-.ls-template-sunset .ls-chat-row.ls-focused { transform: translateX(-8px); }
-@keyframes sunset-card-in { from { transform: translateX(36px) rotateY(-38deg) scale(0.94); opacity: 0; } }
-
-.ls-template-sunset .ls-slot-subtitle { z-index: 5; }
+.ls-template-sunset .ls-slot-subtitle { z-index: 5; --ls-tail-x: 8%; }
 .ls-template-sunset .ls-slot-reply { z-index: 4; }
 .ls-template-sunset .ls-slot-alerts { z-index: 6; }
 .ls-template-sunset .ls-ai-label { float: right; }

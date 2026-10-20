@@ -18,6 +18,12 @@
 以上设定图作为参考，先用字节跳动 Seedream 生成一张 Q 版全身立绘，再用 Seedance 以这张立绘为首尾帧生成各个表情的短片，最后抠成透明背景。
 它们是上述作品的衍生作品，所以按相同的 CC BY-NC-SA 4.0 发布。
 
+## 插画（`art/`）
+
+`art/` 里的 Q 版贴纸（rice、sleep、wave、laptop、gift）和原比例插画（kv、waiting、ending、portrait）用 OpenAI 的图像模型（经 Codex）生成：
+Q 版贴纸以上面的动画片段截帧为参考，原比例插画以上述社区设定图为参考。同样是衍生作品，按 CC BY-NC-SA 4.0 发布。
+默认模板「海边小屋」的背景（`templates/default/room.jpg`）也是这样生成的，不含角色。
+
 ## 你可以
 
 - 在非商业场合使用、修改、转发，需要保留上面的署名并注明改动；

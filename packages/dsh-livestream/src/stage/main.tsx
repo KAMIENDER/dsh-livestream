@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { WidgetPlacement, WidgetType } from './protocol';
 import { assetUrl, connect, preview, unlockAudio } from './store';
-import { AiLabel, Alerts, Character, Chat, Reply, Status, Subtitle, useStage } from './widgets';
+import { AiLabel, Alerts, Character, Chat, Reply, Rice, Scene, Status, Subtitle, Terminal, useStage } from './widgets';
 
 const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string, unknown> }>> = {
   character: Character,
@@ -17,6 +17,9 @@ const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string,
   status: Status,
   'ai-label': AiLabel,
   reply: Reply,
+  rice: Rice,
+  terminal: Terminal,
+  scene: Scene,
 };
 
 function useViewport(): { width: number; height: number } {
@@ -42,14 +45,21 @@ function Placed({ p }: { p: WidgetPlacement }) {
 function App() {
   const { template, needsClick } = useStage();
   const { width, height } = useViewport();
-  // 模板自己的样式：每次换模板、每次打开页面都重新加载（服务器让浏览器缓存一小时，改了模板刷新一下就要看到）
+  // 模板自己的样式：每次换模板、每次打开页面都重新取（服务器让浏览器缓存一小时，改了模板刷新一下就要看到）。
+  // 样式里的相对路径（url("room.jpg")）换成带 token 的地址，模板就能直接引用自己目录里的图
   useEffect(() => {
     if (!template) return;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = `${assetUrl('templates', template.id, 'style.css')}&v=${Date.now()}`;
-    document.head.append(link);
-    return () => link.remove();
+    const tag = document.createElement('style');
+    let cancelled = false;
+    void fetch(`${assetUrl('templates', template.id, 'style.css')}&v=${Date.now()}`)
+      .then((res) => (res.ok ? res.text() : ''))
+      .then((css) => {
+        if (cancelled) return;
+        tag.textContent = css.replace(/url\((['"]?)(?![a-z]+:|\/|#)([^'")]+)\1\)/gi, (_, _q, file: string) => `url("${assetUrl('templates', template.id, file)}")`);
+        document.head.append(tag);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; tag.remove(); };
   }, [template?.id]);
   if (!template) return <div className="ls-loading">舞台连接中…</div>;
   const [cw, ch] = template.canvas;

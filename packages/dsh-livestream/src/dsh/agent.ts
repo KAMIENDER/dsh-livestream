@@ -31,6 +31,17 @@ const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
 /** 盯着直播的会话：新的正文就念，一轮开始、结束告诉身体 */
 let watched: { sessionId: string; seq: number } | null = null;
 let watching = false;
+/** 这场直播（她的会话）累计用掉的 token：舞台上换算成她吃了多少饭 */
+let usage = { sessionId: '', tokens: 0 };
+
+function countUsage(sessionId: string, event: any): void {
+  const turn = Number(event?.data?.usage?.totalTokens);
+  if (!Number.isFinite(turn) || turn <= 0) return;
+  if (usage.sessionId !== sessionId) usage = { sessionId, tokens: 0 };
+  usage.tokens += turn;
+  const model = event?.data?.message?.source?.model;
+  show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn, ...(typeof model === 'string' ? { model } : {}) });
+}
 async function watch(ctx: AgentContext): Promise<void> {
   const sessionId = show.currentSession;
   if (!sessionId || watching) return;
@@ -49,6 +60,7 @@ async function watch(ctx: AgentContext): Promise<void> {
       if (event?.type === 'turn/start') show.turnStarted(sessionId);
       else if (event?.type === 'turn/end') show.turnEnded(sessionId);
       else if (event?.type === 'assistant/message') {
+        countUsage(sessionId, event);
         const key = `${sessionId}:${event.seq}`;
         if (voiced.has(key)) continue;
         voiced.add(key);

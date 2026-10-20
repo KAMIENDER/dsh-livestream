@@ -16,6 +16,8 @@ export class Stage {
   private speakers = new Set<Listener>();
   private pending = new Map<string, () => void>();
   private micTail: Promise<void> = Promise.resolve();
+  /** 状态类事件的最新一条：舞台页中途连上（OBS 刷新）时先补给它，不用等下一次变化 */
+  private latest = new Map<string, StageEvent>();
 
   /** 有几个出声的舞台页开着 */
   get watchers(): number {
@@ -26,6 +28,7 @@ export class Stage {
   subscribe(listener: Listener, speaker = true): () => void {
     this.listeners.add(listener);
     if (speaker) this.speakers.add(listener);
+    for (const event of this.latest.values()) listener(event);
     return () => {
       this.listeners.delete(listener);
       this.speakers.delete(listener);
@@ -34,6 +37,7 @@ export class Stage {
 
   broadcast(event: StageEventInput): void {
     const full = { v: 1, at: Date.now(), ...event } as StageEvent;
+    if (full.type === 'room' || full.type === 'brain' || full.type === 'usage') this.latest.set(full.type, full);
     for (const listen of this.listeners) {
       try {
         listen(full);

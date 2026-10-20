@@ -27,6 +27,12 @@ export interface CharacterManifest {
     in?: string;
     moods: Record<string, string>;
   };
+  /**
+   * 角色自己的小插画（可选）：名字 → 角色包里的图片文件。挂件按名字取，没有就不画。
+   * 约定的名字：rice（捧着饭碗，吃饭计数）、sleep（睡觉，开播前）、wave（挥手，下播）、
+   * laptop（敲电脑，终端）、gift（举着礼物，大礼物）、kv（开场主视觉，横版）
+   */
+  art?: Record<string, string>;
   /** 立绘渲染器：一张图，说话时轻轻弹跳；moods 是表情差分 */
   image?: {
     size: [number, number];
@@ -47,8 +53,13 @@ export interface TemplateManifest {
   widgets: WidgetPlacement[];
 }
 
-/** reply：「她在回」卡片（她正在回应的那几位观众和他们说的话；热闹时那条弹幕早滚出弹幕列表了） */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply';
+/**
+ * reply：「她在回」卡片（她正在回应的那几位观众和他们说的话；热闹时那条弹幕早滚出弹幕列表了）
+ * rice：她吃了多少饭（这场用掉的 token 换算成电、再换算成米饭）
+ * terminal：终端，滚动显示身体和大脑在干什么（推了什么给她、她想了多久、用了多少 token）
+ * scene：整屏的过场：开播前的等待画面、开场动画、下播谢幕（放在画布 0,0，宽高和画布一样）
+ */
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene';
 
 export interface WidgetPlacement {
   type: WidgetType;
@@ -94,5 +105,7 @@ export type StageEvent =
   /** 她正在回应这几位观众（弹幕流里高亮） */
   | { v: 1; type: 'focus'; userIds: string[]; at: number }
   | { v: 1; type: 'room'; online?: number; title?: string; onAir: boolean; at: number }
+  /** 这场直播她用掉的 token（累计）；turn 是刚结束的这一步用的，model 是哪个模型 */
+  | { v: 1; type: 'usage'; tokens: number; turn?: number; model?: string; at: number }
   /** 模板或角色换了：舞台重新加载 */
   | { v: 1; type: 'reload'; at: number };

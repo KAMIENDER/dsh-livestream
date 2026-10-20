@@ -53,6 +53,27 @@ export function litChars(line: Line, length: number): number {
   return Math.round(length * Math.min(1, ms / Math.max(1, line.durationMs)));
 }
 
+/** 一场直播的阶段：开播前等待 → 开场动画 → 直播中 → 谢幕（之后回到等待） */
+export type ShowPhase = 'waiting' | 'opening' | 'live' | 'ending';
+
+/** 这场直播到现在的数（谢幕时的感谢名单也从这里来） */
+export interface ShowStats {
+  startedAt: number;
+  chats: number;
+  viewers: number;
+  peakOnline: number;
+  /** 送过礼物、醒目留言、上舰的人（按花的钱从多到少） */
+  supporters: Array<{ name: string; yuan: number }>;
+}
+
+/** 终端的一行 */
+export interface TermLine {
+  id: number;
+  at: number;
+  tag: string;
+  text: string;
+}
+
 export interface StageState {
   connected: boolean;
   character: CharacterManifest | null;
@@ -71,6 +92,12 @@ export interface StageState {
   replySeq: number;
   online?: number;
   onAir: boolean;
+  phase: ShowPhase;
+  stats: ShowStats;
+  /** 这场直播她用掉的 token */
+  tokens: number;
+  model: string;
+  term: TermLine[];
   /** 浏览器拦住了自动播放：要点一下 */
   needsClick: boolean;
 }
@@ -80,10 +107,29 @@ const MAX_ALERTS = 6;
 /** 「她在回」从这里找观众说过的话：比弹幕列表留得久，礼物、醒目留言、进场都在 */
 const MAX_RECENT = 120;
 const recent: StageLiveEvent[] = [];
+const MAX_TERM = 40;
+/** 开场动画、谢幕各放多久 */
+export const OPENING_MS = 5200;
+export const ENDING_MS = 16_000;
+/** 连上以后这么短的时间里收到的「在播」是补发的当前状态（中途打开舞台），不放开场动画 */
+const CATCHUP_MS = 2000;
+
+const viewers = new Set<string>();
+const supporters = new Map<string, { name: string; yuan: number }>();
+let helloAt = 0;
+let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+let termSeq = 0;
+
+function freshStats(): ShowStats {
+  viewers.clear();
+  supporters.clear();
+  return { startedAt: Date.now(), chats: 0, viewers: 0, peakOnline: 0, supporters: [] };
+}
 
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [],
 };
 const subscribers = new Set<() => void>();
 
@@ -174,8 +220,72 @@ function replyItems(userIds: string[]): ReplyItem[] {
   return items.sort((a, b) => recent.indexOf(a.event) - recent.indexOf(b.event));
 }
 
+// ── 终端 ─────────────────────────────────────────────
+
+function term(s: StageState, tag: string, text: string): StageState {
+  return { ...s, term: [...s.term, { id: ++termSeq, at: Date.now(), tag, text }].slice(-MAX_TERM) };
+}
+
+function short(text: string, max = 22): string {
+  const chars = [...text];
+  return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
+}
+
+const MOOD_TEXT: Record<string, string> = { laugh: '笑', shy: '害羞', angry: '生气', sad: '难过', scared: '害怕', shocked: '吃惊', think: '想' };
+
+// ── 开播、下播 ─────────────────────────────────────────
+
+function setPhase(phase: ShowPhase, after?: { ms: number; next: ShowPhase }): void {
+  if (phaseTimer) clearTimeout(phaseTimer);
+  phaseTimer = after ? setTimeout(() => setPhase(after.next), after.ms) : null;
+  update((s) => ({ ...s, phase }));
+}
+
+/** 开没开播变了：刚连上时补发来的状态直接到位，真的开播放开场、真的下播放谢幕 */
+function onAirChanged(onAir: boolean): void {
+  const s = state;
+  if (onAir === s.onAir && !(onAir && s.phase === 'waiting')) return;
+  const catchingUp = Date.now() - helloAt < CATCHUP_MS;
+  if (onAir) {
+    update((x) => term({ ...x, onAir: true, stats: freshStats(), tokens: 0 }, 'live', catchingUp ? '舞台连上，正在直播' : '开播'));
+    if (catchingUp) setPhase('live');
+    else setPhase('opening', { ms: OPENING_MS, next: 'live' });
+  } else {
+    update((x) => term({ ...x, onAir: false }, 'live', '下播'));
+    if (catchingUp || s.phase === 'waiting') setPhase('waiting');
+    else setPhase('ending', { ms: ENDING_MS, next: 'waiting' });
+  }
+}
+
+/** 上舰按舰长的价钱算（谢幕名单排序用） */
+const GUARD_YUAN = 138;
+
+function countLive(s: StageState, event: StageLiveEvent, isUpdate: boolean): StageState {
+  viewers.add(event.user.id);
+  const stats = { ...s.stats, viewers: viewers.size };
+  if (event.kind === 'chat' && !isUpdate) stats.chats += 1;
+  const value = event.kind === 'gift' || event.kind === 'superchat' ? event.yuan : event.kind === 'membership' ? GUARD_YUAN * Math.max(1, event.count) : 0;
+  if (value > 0) {
+    // 礼物连击：同一个 id 再来时是更新后的总数，按 id 记一份
+    supporters.set(event.id, { name: event.user.name, yuan: value });
+    const byName = new Map<string, number>();
+    for (const { name, yuan } of supporters.values()) byName.set(name, (byName.get(name) ?? 0) + yuan);
+    stats.supporters = [...byName].map(([name, yuan]) => ({ name, yuan: Math.round(yuan * 10) / 10 })).sort((x, y) => y.yuan - x.yuan);
+  }
+  return { ...s, stats };
+}
+
 function onLive(event: StageLiveEvent, isUpdate: boolean): void {
   remember(event);
+  update((s) => {
+    let next = countLive(s, event, isUpdate);
+    if (!isUpdate) {
+      if (event.kind === 'gift') next = term(next, 'gift', `${event.user.name} 送出 ${event.gift} ×${event.count}`);
+      else if (event.kind === 'superchat') next = term(next, 'sc', `${event.user.name} ¥${event.yuan}：${short(event.text, 18)}`);
+      else if (event.kind === 'membership') next = term(next, 'gift', `${event.user.name} 开通了${event.level}`);
+    }
+    return next;
+  });
   if (event.kind === 'chat') {
     if (isUpdate) return;
     update((s) => ({ ...s, chats: [...s.chats, { id: event.id, event, at: Date.now() }].slice(-MAX_CHATS) }));
@@ -198,20 +308,40 @@ export function dropAlert(key: string): void {
   update((s) => ({ ...s, alerts: s.alerts.filter((a) => a.key !== key) }));
 }
 
-function handle(event: StageEvent): void {
-  switch (event.type) {
-    case 'hello': return update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
-    case 'say': return onSay(event);
-    case 'brain': return update((s) => ({
+function onBrain(event: Extract<StageEvent, { type: 'brain' }>): void {
+  update((s) => {
+    let next: StageState = {
       ...s, brain: event.state, brainDetail: event.detail ?? (event.state === s.brain ? s.brainDetail : ''),
-      // 她在动就是在播：舞台中途打开（OBS 刷新）时收不到开播那一下的 room 事件，不然一直显示「准备中」
-      ...(event.state !== 'off' ? { onAir: true } : {}),
       // 这一轮回完了：不再标「正在回你」
       ...(event.state === 'thinking' || event.state === 'speaking' ? {} : { focus: new Set<string>(), reply: [] }),
-    }));
+    };
+    if (event.state === 'thinking' && event.detail) next = term(next, 'push', event.detail);
+    if (event.state === 'away') next = term(next, 'warn', event.detail || '她的会话不在线');
+    return next;
+  });
+  // 她在动就是在播（旧版身体连上时不补发 room 事件）
+  if (event.state !== 'off' && !state.onAir) onAirChanged(true);
+}
+
+function handle(event: StageEvent): void {
+  switch (event.type) {
+    case 'hello':
+      helloAt = Date.now();
+      return update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
+    case 'say':
+      update((s) => term(s, 'say', `${MOOD_TEXT[event.mood] ? `（${MOOD_TEXT[event.mood]}）` : ''}${short(event.text, 26)}`));
+      return onSay(event);
+    case 'brain': return onBrain(event);
     case 'live': return onLive(event.event, event.isUpdate);
     case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds), reply: replyItems(event.userIds), replySeq: s.replySeq + 1 }));
-    case 'room': return update((s) => ({ ...s, online: event.online, onAir: event.onAir }));
+    case 'room':
+      update((s) => ({ ...s, online: event.online, stats: { ...s.stats, peakOnline: Math.max(s.stats.peakOnline, event.online ?? 0) } }));
+      return onAirChanged(event.onAir);
+    case 'usage':
+      return update((s) => {
+        const next = { ...s, tokens: event.tokens, model: event.model ?? s.model };
+        return event.turn ? term(next, 'token', `+${event.turn.toLocaleString()}${event.model ? ` · ${event.model}` : ''} · 累计 ${event.tokens.toLocaleString()}`) : next;
+      });
     case 'reload': location.reload(); return;
   }
 }
