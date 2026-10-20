@@ -11,7 +11,7 @@
  * 只动自己这套配置和场景集合，不碰用户别的 OBS 配置。WebSocket 密码从 OBS 自己的配置里读，不打印。
  */
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,7 +21,29 @@ const SCENE = '直播';
 const STAGE_SOURCE = '舞台';
 
 const OBS_DIR = join(process.env.APPDATA ?? '', 'obs-studio');
-const OBS_EXE = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe';
+/**
+ * OBS 装在哪：环境变量 DSH_LIVESTREAM_OBS（obs64.exe 的完整路径）→ 注册表里安装程序写的目录 → 常见位置。
+ * 不同机器装的位置不一样（有的在 D:\Software\obs-studio）
+ */
+export function findObsExe(): string | null {
+  const candidates: string[] = [];
+  if (process.env.DSH_LIVESTREAM_OBS) candidates.push(process.env.DSH_LIVESTREAM_OBS);
+  for (const key of ['HKLM\\SOFTWARE\\OBS Studio', 'HKLM\\SOFTWARE\\WOW6432Node\\OBS Studio', 'HKCU\\SOFTWARE\\OBS Studio']) {
+    try {
+      const out = execFileSync('reg.exe', ['query', key, '/ve'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const dir = /REG_SZ\s+(.+)/.exec(out)?.[1]?.trim();
+      if (dir) candidates.push(join(dir, 'bin', '64bit', 'obs64.exe'));
+    } catch {
+      // 没有这个键
+    }
+  }
+  candidates.push(
+    'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
+    'D:\\Software\\obs-studio\\bin\\64bit\\obs64.exe',
+    'D:\\obs-studio\\bin\\64bit\\obs64.exe',
+  );
+  return candidates.find((c) => existsSync(c)) ?? null;
+}
 
 /** 推流编码设置（写进配置文件目录的 streamEncoder.json） */
 const STREAM_ENCODER = {
@@ -96,8 +118,9 @@ export async function connectObs(launch = true): Promise<Obs> {
   } catch (err) {
     if (!launch) throw err;
     if (!websocketConfig().enabled) throw new Error('OBS 的 WebSocket 服务器没启用：OBS → 工具 → WebSocket 服务器设置 → 启用');
-    if (!existsSync(OBS_EXE)) throw new Error('没找到 OBS（C:\\Program Files\\obs-studio），先装 OBS');
-    spawn(OBS_EXE, ['--disable-shutdown-check', '--disable-updater'], { cwd: join(OBS_EXE, '..'), detached: true, stdio: 'ignore' }).unref();
+    const exe = findObsExe();
+    if (!exe) throw new Error('没找到 OBS：先装 OBS；装在不常见的位置就设环境变量 DSH_LIVESTREAM_OBS（obs64.exe 的完整路径）');
+    spawn(exe, ['--disable-shutdown-check', '--disable-updater'], { cwd: join(exe, '..'), detached: true, stdio: 'ignore' }).unref();
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       try {
