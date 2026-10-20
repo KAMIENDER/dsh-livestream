@@ -39,16 +39,23 @@ export function playbackMs(line: Line): number {
   return Date.now() - line.startedAt;
 }
 
-/** 字幕该亮到第几个字 */
+/**
+ * 字幕该亮到第几个字。逐字时间里一个点常常一次跨好几个字（豆包按词给），
+ * 这几个字在前后两个点之间均匀地一个个亮，字幕像流出来一样，不会几个字一起蹦出来再停住
+ */
 export function litChars(line: Line, length: number): number {
   const ms = playbackMs(line);
   if (line.timeline?.length) {
-    let lit = 0;
+    let prev = { chars: 0, atMs: 0 };
     for (const p of line.timeline) {
-      if (p.atMs > ms) break;
-      lit = p.chars;
+      if (p.atMs > ms) {
+        const span = p.atMs - prev.atMs;
+        const f = span > 0 ? Math.min(1, Math.max(0, (ms - prev.atMs) / span)) : 1;
+        return Math.max(prev.chars, Math.floor(prev.chars + (p.chars - prev.chars) * f));
+      }
+      prev = p;
     }
-    return lit;
+    return prev.chars;
   }
   return Math.round(length * Math.min(1, ms / Math.max(1, line.durationMs)));
 }

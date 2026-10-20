@@ -9,8 +9,6 @@
   "theme": {
     "--ls-accent": "#86dcff",
     "--ls-accent-2": "#b79bff",
-    "--ls-subtitle-size": "40px",
-    "--ls-chat-size": "24px",
     "--ls-text": "#eaf3ff",
     "--ls-dim": "rgba(220, 232, 255, 0.66)",
     "--ls-unlit": "rgba(214, 228, 255, 0.34)",

@@ -252,6 +252,34 @@ function emphasis(chars: string[], names: string[]): Set<number> {
   return marks;
 }
 
+const STRONG_BREAK = /[。！？!?～~…]/;
+const SOFT_BREAK = /[，、,；;：:）)」』]/;
+
+/**
+ * 把一句话分成几页显示（每页最多 max 个字，大约两行）：优先在句号、感叹号处断，其次逗号，实在没有就硬断。
+ * 只是显示上的分页，逐字时间不变：念到下一页的第一个字就翻页，字号就可以大一些
+ */
+function paginate(chars: string[], max: number): Array<[number, number]> {
+  const pages: Array<[number, number]> = [];
+  let start = 0;
+  while (start < chars.length) {
+    if (chars.length - start <= max) { pages.push([start, chars.length]); break; }
+    let cut = -1;
+    for (const mark of [STRONG_BREAK, SOFT_BREAK]) {
+      for (let i = start + max - 1; i >= start + Math.floor(max * 0.35); i--) {
+        if (mark.test(chars[i])) { cut = i + 1; break; }
+      }
+      if (cut > 0) break;
+    }
+    if (cut < 0) cut = start + max;
+    // 标点别落到下一页开头
+    while (cut < chars.length && SOFT_BREAK.test(chars[cut]) || cut < chars.length && STRONG_BREAK.test(chars[cut])) cut += 1;
+    pages.push([start, cut]);
+    start = cut;
+  }
+  return pages;
+}
+
 export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   const { line, character, reply } = useStage();
   const [shown, ended] = useLinger(line, 2600);
@@ -273,10 +301,14 @@ export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   // 她在回谁：像聊天软件的「回复」一样引用在字幕上方（options.quote: false 关掉，改用 reply 挂件）
   const quoted = options?.quote !== false && !ended ? reply[0] : undefined;
   const marks = emphasis(chars, reply.map((r) => r.event.user.name));
+  const pages = paginate(chars, Number(options?.pageChars ?? 24));
+  const at = Math.max(0, Math.min(chars.length, upTo) - 1);
+  const page = Math.max(0, pages.findIndex(([a, b]) => at >= a && at < b));
+  const [from, to] = pages[page] ?? [0, chars.length];
   const color = `var(--ls-sub-${(hashOf(shown.id) % SUB_COLORS) + 1})`;
   const mark = MOOD_MARK[shown.mood];
   return (
-    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined} style={{ '--ls-sub': color } as React.CSSProperties}>
+    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined} style={{ '--ls-sub': color } as React.CSSProperties}>
       <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}{mark && <i className="ls-mood-mark">{mark}</i>}</span>
       {quoted && (
         <div className="ls-quote" key={quoted.key}>
@@ -286,9 +318,11 @@ export function Subtitle({ options }: { options?: Record<string, unknown> }) {
         </div>
       )}
       {/* 念到的字一个个弹出来（还没念到的占着位置、不显示，气泡不会跟着变大） */}
-      <p>{chars.map((c, i) => (
-        <span key={i} className={`${i < upTo ? 'ls-lit' : 'ls-dim'}${marks.has(i) ? ' ls-em' : ''}`} style={{ '--r': `${((hashOf(`${shown.id}${i}`) % 9) - 4) * 1.2}deg` } as React.CSSProperties}>{c}</span>
-      ))}</p>
+      <p key={page}>{chars.slice(from, to).map((c, j) => {
+        const i = from + j;
+        return <span key={i} className={`${i < upTo ? 'ls-lit' : 'ls-dim'}${marks.has(i) ? ' ls-em' : ''}`} style={{ '--r': `${((hashOf(`${shown.id}${i}`) % 7) - 3) * 0.8}deg` } as React.CSSProperties}>{c}</span>;
+      })}</p>
+      {pages.length > 1 && <i className="ls-pages">{pages.map((_, k) => <b key={k} className={k === page ? 'ls-on' : undefined} />)}</i>}
     </div>
   );
 }

@@ -30,13 +30,13 @@ html, body {
   --ls-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   /* 可爱的字体：字幕、名牌、标题用（模板自带字体时改它，见海边小屋） */
   --ls-font-cute: var(--ls-font);
-  /* 字幕每句一种颜色，描边是 --ls-sub-ink */
-  --ls-sub-1: #ff6f9f;
-  --ls-sub-2: #3d9bff;
-  --ls-sub-3: #a77bff;
-  --ls-sub-4: #ff9a2e;
-  --ls-sub-5: #22b98a;
-  --ls-sub-ink: #2b3366;
+  /* 字幕：和终端一样的深蓝气泡，字每句换一种蜡笔色 */
+  --ls-sub-bg: #262b45;
+  --ls-sub-1: #ffa8c9;
+  --ls-sub-2: #8fc7ff;
+  --ls-sub-3: #ffd479;
+  --ls-sub-4: #7fe0b8;
+  --ls-sub-5: #c9b6ff;
   /* 面板上的字 */
   --ls-text: #34405e;
   --ls-dim: #7b87a8;
@@ -61,7 +61,7 @@ html, body {
   --ls-shadow: 0 14px 34px -14px rgba(36, 76, 140, 0.38);
   --ls-radius: 26px;
   --ls-blur: 14px;
-  --ls-subtitle-size: 38px;
+  --ls-subtitle-size: 50px;
   --ls-chat-size: 23px;
   --ls-mood: var(--ls-accent);
 
@@ -70,6 +70,8 @@ html, body {
   overflow: hidden;
   font-family: var(--ls-font);
   color: var(--ls-text);
+  /* 只有一种粗细的字体（站酷快乐体）不要让浏览器合成粗体：合成的会糊 */
+  font-synthesis-weight: none;
 }
 
 .ls-backdrop, .ls-overlay { position: absolute; inset: 0; pointer-events: none; }
@@ -184,51 +186,53 @@ html, body {
 .ls-slot-subtitle { display: flex; flex-direction: column; justify-content: flex-end; }
 .ls-subtitle {
   position: relative;
-  padding: 34px 40px 30px;
-  background: var(--ls-panel-strong);
-  border: 3px solid color-mix(in srgb, var(--ls-mood) 45%, #fff);
-  border-radius: 34px;
-  box-shadow: 0 18px 40px -16px color-mix(in srgb, var(--ls-mood) 45%, rgba(30, 60, 120, 0.5)), 0 0 0 6px rgba(255, 255, 255, 0.45);
-  transition: --ls-mood 0.8s ease, border-color 0.6s;
+  padding: 36px 42px 30px;
+  background: var(--ls-sub-bg);
+  border: 3px solid var(--ls-rim);
+  border-radius: 32px;
+  box-shadow: var(--ls-shadow), 0 0 40px -18px color-mix(in srgb, var(--ls-mood) 70%, transparent);
+  transition: --ls-mood 0.8s ease;
   transform-origin: var(--ls-tail-x, 50%) 0;
-  animation: ls-pop-bubble 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+  animation: ls-pop-bubble 0.4s cubic-bezier(0.2, 1.3, 0.4, 1);
 }
-/* 气泡的小尾巴（朝上指向她；--ls-tail-x 调位置） */
+/* 气泡的小尾巴（朝上指向她；--ls-tail-x 调位置）：外面一圈白边，里面和气泡同色 */
 .ls-subtitle::before {
-  content: ''; position: absolute; left: var(--ls-tail-x, 50%); top: -19px; width: 32px; height: 20px; margin-left: -16px;
-  background: color-mix(in srgb, var(--ls-mood) 45%, #fff);
+  content: ''; position: absolute; left: var(--ls-tail-x, 50%); top: -21px; width: 34px; height: 21px; margin-left: -17px;
+  background: var(--ls-rim);
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 .ls-subtitle::after {
-  content: ''; position: absolute; left: var(--ls-tail-x, 50%); top: -14px; width: 24px; height: 16px; margin-left: -12px;
-  background: var(--ls-panel-strong);
+  content: ''; position: absolute; left: var(--ls-tail-x, 50%); top: -15px; width: 25px; height: 16px; margin-left: -12.5px;
+  background: var(--ls-sub-bg);
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 .ls-subtitle.ls-empty { visibility: hidden; animation: none; }
 .ls-subtitle.ls-ended { animation: ls-fade-out 0.9s 1.7s ease forwards; }
 @keyframes ls-fade-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
-@keyframes ls-pop-bubble { from { transform: scale(0.85) translateY(14px); opacity: 0; } }
-.ls-subtitle p { margin: 0; font-family: var(--ls-font-cute); font-size: var(--ls-subtitle-size); line-height: 1.55; font-weight: 700; letter-spacing: 2px; }
-.ls-subtitle.ls-long p { font-size: calc(var(--ls-subtitle-size) * 0.82); }
-/* 一个字一个字弹出来：念到时从下面跳上来、带一点回弹，每个字歪一点点 */
+@keyframes ls-pop-bubble { from { transform: scale(0.9) translateY(12px); opacity: 0; } }
+.ls-subtitle p {
+  margin: 0; font-family: var(--ls-font-cute); font-size: var(--ls-subtitle-size); line-height: 1.45; font-weight: 400; letter-spacing: 2px;
+  animation: ls-page-in 0.28s ease-out;
+}
+@keyframes ls-page-in { from { opacity: 0; transform: translateY(10px); } }
+/* 念到的字一个接一个淡出来：短、轻、不回弹，连起来像流动 */
 .ls-subtitle p span { display: inline-block; transform: rotate(var(--r, 0deg)); }
 .ls-lit {
-  color: var(--ls-sub, var(--ls-text));
-  -webkit-text-stroke: 3px color-mix(in srgb, var(--ls-sub-ink) 85%, var(--ls-sub)); paint-order: stroke fill;
-  text-shadow: 0 3px 0 color-mix(in srgb, var(--ls-sub-ink) 18%, transparent);
-  animation: ls-char-pop 0.34s cubic-bezier(0.2, 1.7, 0.4, 1) both;
+  color: var(--ls-sub, #fff);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), 0 0 14px color-mix(in srgb, var(--ls-sub, #fff) 30%, transparent);
+  animation: ls-char-in 0.2s ease-out both;
 }
 .ls-dim { visibility: hidden; }
-/* 点到的观众名、数字：大一号、换强调色 */
-.ls-em.ls-lit { color: var(--ls-accent-2); font-size: 1.12em; }
-@keyframes ls-char-pop {
-  0% { transform: translateY(18px) scale(0.2) rotate(var(--r, 0deg)); opacity: 0; }
-  60% { opacity: 1; }
-  100% { transform: rotate(var(--r, 0deg)); }
-}
+@keyframes ls-char-in { from { opacity: 0; transform: translateY(8px) rotate(var(--r, 0deg)); } }
+/* 点到的观众名、数字：白色、亮一点 */
+.ls-em.ls-lit { color: #fff; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3), 0 0 16px rgba(255, 255, 255, 0.45); }
+/* 一句分了好几页：右下角几个小点，亮的是这一页 */
+.ls-pages { position: absolute; right: 26px; bottom: 14px; display: flex; gap: 6px; }
+.ls-pages b { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.22); transition: background 0.3s, transform 0.3s; }
+.ls-pages b.ls-on { background: var(--ls-sub, #fff); transform: scale(1.25); }
 /* 说话时气泡的尾巴轻轻晃 */
-.ls-subtitle:not(.ls-ended)::before, .ls-subtitle:not(.ls-ended)::after { animation: ls-tail 1.2s ease-in-out infinite; transform-origin: 50% 100%; }
-@keyframes ls-tail { 50% { transform: rotate(-8deg) translateX(-2px); } }
+.ls-subtitle:not(.ls-ended)::before, .ls-subtitle:not(.ls-ended)::after { animation: ls-tail 1.4s ease-in-out infinite; transform-origin: 50% 100%; }
+@keyframes ls-tail { 50% { transform: rotate(-6deg) translateX(-2px); } }
 .ls-speaker {
   position: absolute; left: 32px; top: -22px; z-index: 1; display: inline-flex; align-items: center; padding: 6px 20px 6px 16px; border-radius: 999px;
   font-family: var(--ls-font-cute); font-size: 22px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
@@ -240,13 +244,13 @@ html, body {
 /* 她在回谁：引用在气泡上方 */
 .ls-quote {
   display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; padding: 8px 16px 8px 8px; border-radius: 16px;
-  font-size: 20px; color: var(--ls-dim); background: color-mix(in srgb, var(--ls-accent) 9%, #fff);
-  border-left: 5px solid var(--ls-accent);
+  font-size: 20px; color: rgba(225, 232, 255, 0.7); background: rgba(255, 255, 255, 0.07);
+  border-left: 5px solid var(--ls-sub, var(--ls-accent));
   animation: ls-quote-in 0.4s cubic-bezier(0.2, 1.2, 0.4, 1);
 }
 .ls-quote .ls-avatar { width: 32px; height: 32px; font-size: 15px; border-width: 2px; }
-.ls-quote b { flex: none; color: var(--ls-accent); font-weight: 800; }
-.ls-quote span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ls-text); }
+.ls-quote b { flex: none; color: var(--ls-sub, #8fc7ff); font-weight: 800; }
+.ls-quote span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dfe6ff; }
 @keyframes ls-quote-in { from { opacity: 0; transform: translateY(-6px); } }
 
 /* ── 弹幕：一整块面板，里面是聊天气泡 ── */
