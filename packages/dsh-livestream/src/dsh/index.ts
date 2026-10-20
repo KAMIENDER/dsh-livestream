@@ -12,6 +12,7 @@
  * 盯她的会话、念她说的话、往会话里推事情的部分在 agent 子插件（./agent.ts），挂在「大肥鱼直播」预设下。
  */
 
+import { checkObs, connectObs } from '../body/obs';
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
@@ -162,6 +163,20 @@ export function apply(ctx: HostContext): void {
     await broadcast.stop();
     return json(state());
   }, 'broadcast stop');
+
+  // 检查 OBS：没开就打开（在 DSH 所在的桌面会话里），设好专用配置和场景，回一帧节目画面；不推流
+  route('/api/dsh-livestream/obs/check', ['POST'], async () => {
+    try {
+      const obs = await connectObs(true);
+      try {
+        return json({ ok: true, ...(await checkObs(obs, server.url, settings.streamKbps)) });
+      } finally {
+        obs.close();
+      }
+    } catch (err) {
+      return fail((err as Error).message, 500);
+    }
+  }, 'obs check');
 
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
     const { text } = await body<{ text?: string }>(request);

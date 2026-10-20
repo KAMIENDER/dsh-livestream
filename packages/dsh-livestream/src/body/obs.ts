@@ -242,6 +242,18 @@ export async function startStreaming(obs: Obs, addr: string, code: string): Prom
   throw new Error('OBS 没能开始推流（看 OBS 的日志）');
 }
 
+/** 检查 OBS：设好配置和场景，返回节目画面的一帧（PNG data URL）和当前设置；不推流 */
+export async function checkObs(obs: Obs, stageUrl: string, kbps?: number): Promise<{ image: string; video: unknown; profile: string; collection: string }> {
+  await prepareObs(obs, stageUrl, kbps);
+  // 等舞台页加载出来
+  await sleep(4000);
+  const video = await obs.call('GetVideoSettings');
+  const { currentProfileName } = await obs.call<{ currentProfileName: string }>('GetProfileList');
+  const { currentSceneCollectionName } = await obs.call<{ currentSceneCollectionName: string }>('GetSceneCollectionList');
+  const shot = await obs.call<{ imageData: string }>('GetSourceScreenshot', { sourceName: SCENE, imageFormat: 'jpg', imageWidth: 960, imageHeight: 540, imageCompressionQuality: 85 });
+  return { image: shot.imageData, video, profile: currentProfileName, collection: currentSceneCollectionName };
+}
+
 export async function stopStreaming(obs: Obs): Promise<void> {
   const status = await obs.call<{ outputActive: boolean }>('GetStreamStatus');
   if (status.outputActive) await obs.call('StopStream');

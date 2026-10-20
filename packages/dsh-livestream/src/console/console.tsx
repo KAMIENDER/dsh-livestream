@@ -458,6 +458,7 @@ export function Console() {
               {show?.live.lastError && <p className="dl-error">{show.live.lastError}</p>}
             </div>
             <h3>推流到 B 站</h3>
+            <ObsCheck />
             <div className="dl-field">
               <label>直播标题（开播前改成这个；空着就用 B 站上现在的）</label>
               <input defaultValue={settings?.liveTitle ?? ''} maxLength={40} placeholder="比如：大肥鱼的深夜食堂" onBlur={(e) => choose({ liveTitle: e.target.value })} />
@@ -518,6 +519,27 @@ function BroadcastPill({ bc }: { bc: BroadcastStatus }) {
     <span className="dl-pill" title={bc.step}>
       <Dot tone={tone} />B 站 · {bc.phase === 'streaming' && h ? `${h.kbps} kbps · 丢帧 ${dropped ?? 0}% · ${h.timecode.slice(0, 8)}` : bc.step || PHASE_TEXT[bc.phase]}
     </span>
+  );
+}
+
+/** 检查 OBS：打开 OBS、设好专用配置和场景，看一帧节目画面（不推流） */
+function ObsCheck() {
+  const [busy, error, run] = useBusy();
+  const [result, setResult] = useState<{ image: string; profile: string; collection: string } | null>(null);
+  return (
+    <div className="dl-field">
+      <div className="dl-row">
+        <button disabled={busy} onClick={() => run(async () => setResult(await api<{ ok: boolean; image: string; profile: string; collection: string }>('obs/check', {})))}>{busy ? '正在打开 OBS…' : '检查 OBS'}</button>
+        <span className="dl-meta">打开 OBS、设好画质和舞台，看一帧画面；不推流</span>
+      </div>
+      {error && <p className="dl-error">{error}</p>}
+      {result && (
+        <>
+          <img src={result.image} alt="OBS 节目画面" style={{ width: '100%', borderRadius: 10, marginTop: 8 }} />
+          <p className="dl-hint">OBS 配置「{result.profile}」· 场景集合「{result.collection}」</p>
+        </>
+      )}
+    </div>
   );
 }
 
