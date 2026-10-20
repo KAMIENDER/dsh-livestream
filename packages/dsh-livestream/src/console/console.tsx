@@ -253,6 +253,7 @@ export function Console() {
   const [copied, setCopied] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [dock, setDock] = useState<'owner' | 'sim'>('owner');
+  const previewRef = useRef<HTMLDivElement>(null);
   const secrets = useSecrets();
 
   const refresh = () => api('state').then((s) => { setHost(s); setRoom((r) => r || (s.settings.roomId ? String(s.settings.roomId) : '')); });
@@ -339,8 +340,9 @@ export function Console() {
         <div className="dl-grid">
           <main className="dl-main">
             <section className="dl-monitor">
-              <div className="dl-preview">
+              <div className="dl-preview" ref={previewRef}>
                 {previewUrl && <iframe src={previewUrl} title="舞台预览" />}
+                <button className="dl-fullscreen" title="全屏看舞台（Esc 退出）" onClick={() => void previewRef.current?.requestFullscreen?.()}><FullscreenGlyph /><span>全屏</span></button>
                 <span className={`dl-preview-tag${show?.onAir ? ' dl-preview-live' : ''}`}><i />{show?.onAir ? '直播中 · 和 OBS 里一样（静音）' : '预览：开播后的样子 · OBS 里现在是「马上开始」的等待画面'}</span>
               </div>
               <div className="dl-monitor-bar">
@@ -352,7 +354,7 @@ export function Console() {
                 </div>
               </div>
               <div className="dl-skins">
-                <span className="dl-label">直播间的皮</span>
+                <span className="dl-label">主题</span>
                 <div className="dl-skin-list">
                   {host?.templates.map((t) => (
                     <button key={t.id} className={`dl-skin${t.id === settings?.template ? ' dl-on' : ''}`} onClick={() => choose({ template: t.id })}>
@@ -432,7 +434,7 @@ export function Console() {
                 <input readOnly value={host?.stageUrl ?? ''} onFocus={(e) => e.currentTarget.select()} />
                 <button className={copied ? 'dl-done' : ''} onClick={copyUrl}>{copied ? '已复制' : '复制'}</button>
               </div>
-              <p className="dl-hint">想换自己的皮：把插件里 assets/templates/default 复制到 DSH 主目录的 dsh-livestream/templates/&lt;新名字&gt;/，改 template.json 的 id 和 name。</p>
+              <p className="dl-hint">想做自己的主题：把插件里 assets/templates/default 复制到 DSH 主目录的 dsh-livestream/templates/&lt;新名字&gt;/，改 template.json 的 id 和 name。</p>
             </div>
           </aside>
         </div>
@@ -466,6 +468,14 @@ function BroadcastGlyph() {
       <circle cx="12" cy="12" r="2.2" />
       <path d="M8.2 15.8a5.4 5.4 0 0 1 0-7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6" />
       <path d="M5.2 18.8a9.6 9.6 0 0 1 0-13.6M18.8 5.2a9.6 9.6 0 0 1 0 13.6" />
+    </svg>
+  );
+}
+
+function FullscreenGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
     </svg>
   );
 }
@@ -631,6 +641,11 @@ export const CONSOLE_CSS = `
 .dl-monitor{border-radius:20px;background:var(--dl-surface);border:1px solid var(--dl-line);overflow:hidden}
 .dl-preview{position:relative;aspect-ratio:16/9;background:#05070c}
 .dl-preview iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.dl-preview:fullscreen{aspect-ratio:auto;width:100vw;height:100vh;background:#000}
+.dl-room .dl-fullscreen{position:absolute;right:12px;top:12px;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;
+  color:#fff;background:rgba(10,14,24,.6);border-color:rgba(255,255,255,.18);backdrop-filter:blur(6px);opacity:.75}
+.dl-room .dl-fullscreen:hover:not(:disabled){opacity:1;background:rgba(10,14,24,.8)}
+.dl-preview:fullscreen .dl-fullscreen,.dl-preview:fullscreen .dl-preview-tag{display:none}
 .dl-preview-tag{position:absolute;left:12px;top:12px;display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;color:#fff;background:rgba(10,14,24,.6);backdrop-filter:blur(6px);pointer-events:none}
 .dl-preview-tag i{width:6px;height:6px;border-radius:50%;background:var(--dl-faint)}
 .dl-preview-live i{background:#ff4d6d;animation:dl-rec 1.6s ease-out infinite}
