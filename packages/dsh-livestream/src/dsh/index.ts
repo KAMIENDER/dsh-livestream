@@ -12,6 +12,7 @@
  * 盯她的会话、念她说的话、往会话里推事情的部分在 agent 子插件（./agent.ts），挂在「大肥鱼直播」预设下。
  */
 
+import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { cookie, currentCharacter, packs, server, settings, show, updateSettings, type Settings } from './runtime';
@@ -50,7 +51,7 @@ let simSeq = 0;
 /** 模拟观众：控制台里填的名字和文字 → 一条直播事件 */
 function simulated(input: { kind?: string; name?: string; text?: string; gift?: string; count?: number; yuan?: number; guard?: number }): LiveEvent | null {
   const name = (input.name ?? '').trim() || '模拟观众';
-  const user: LiveUser = { id: `sim-${name}`, name, ...(input.guard ? { guardLevel: input.guard } : {}) };
+  const user: LiveUser = { id: `${SIMULATED_PREFIX}${name}`, name, ...(input.guard ? { guardLevel: input.guard } : {}) };
   const base = { id: `sim-${Date.now()}-${++simSeq}`, platform: 'bilibili' as const, ts: Date.now(), user };
   switch (input.kind) {
     case 'chat': return input.text?.trim() ? { ...base, kind: 'chat', text: input.text.trim() } : null;

@@ -72,6 +72,8 @@ const TURN_MAX_MS = 3 * 60_000;
 /** 推道别以后最多等多久就收工 */
 const ENDING_GRACE_MS = 90_000;
 const RECENT_LINES = 40;
+/** 控制台「模拟观众」的用户 id 前缀 */
+export const SIMULATED_PREFIX = 'sim-';
 
 export class LiveShow {
   readonly hub = new LiveHub();
@@ -149,7 +151,8 @@ export class LiveShow {
   private observe(event: LiveEvent, isUpdate: boolean): void {
     const now = Date.now();
     this.attention.observe(event, isUpdate, now);
-    if (this.onAir) this.memory.observe(event, isUpdate, now);
+    // 模拟观众（控制台彩排）不进观众记忆
+    if (this.onAir && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
     const shown = toStage(event);
     if (shown) this.stage.broadcast({ type: 'live', event: shown, isUpdate });
     if (this.onAir && !isUpdate && (event.kind === 'superchat' || event.kind === 'membership' || (event.kind === 'gift' && event.valueYuan > 0))) {
