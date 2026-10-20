@@ -15,7 +15,7 @@
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
-import { broadcast, cookie, currentCharacter, packs, server, settings, show, updateSettings, type Settings } from './runtime';
+import { broadcast, cookie, currentCharacter, dm, packs, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -133,6 +133,7 @@ export function apply(ctx: HostContext): void {
     const { sessionId } = await body<{ sessionId?: string }>(request);
     if (!sessionId) return fail('缺她直播用的会话');
     show.goLive(sessionId);
+    dm.newShow();
     return json(state());
   }, 'onair');
 

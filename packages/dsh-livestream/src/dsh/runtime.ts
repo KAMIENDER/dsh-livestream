@@ -13,7 +13,9 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveShow } from '../body/show';
+import { BiliAccount } from '../body/biliAccount';
 import { Broadcast } from '../body/broadcast';
+import { DmManager } from '../body/dm';
 import { Packs } from '../body/packs';
 import { StageServer } from '../body/server';
 import { canSpeak, subtitleTimeline, synthesize, type TtsAuth } from '../body/tts';
@@ -207,3 +209,6 @@ export const broadcast = new Broadcast({
   },
   log: (level, message) => hooks.log(level, message),
 });
+
+/** 她给观众发私信（开播账号）：B 站「对方没关注只能发一条」等规矩在这里管 */
+export const dm = new DmManager(new BiliAccount(cookie), join(dataDir, 'dm.json'));

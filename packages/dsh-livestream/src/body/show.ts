@@ -22,6 +22,7 @@ import { LiveMemoryStore } from '../core/memory/store';
 import { cleanName, cleanText } from '../core/safety';
 import { speakable } from '../core/speakable';
 import { topicText } from '../core/topicText';
+import { lookupViewer, type ViewerLookup } from '../core/viewerLookup';
 import type { BrainState, StageLiveEvent, StageUser } from '../stage/protocol';
 import { Stage } from './stage';
 
@@ -345,24 +346,19 @@ export class LiveShow {
 
   // ── 她的工具用到的 ──────────────────────────────────
 
-  /**
-   * 按她看到的名字（或 UID）在这场直播最近的事件里找观众。
-   * 找不到、被平台打码（匿名连接时）返回 null；模拟观众返回 simulated。
-   */
-  findViewer(who: string): { uid: string; user: LiveUser } | { simulated: true; name: string } | null {
-    const target = who.trim().replace(/^@/, '');
-    if (!target) return null;
-    const events = this.hub.recentEvents().slice().reverse();
-    const match = events.find((e) => e.user.id === target)
-      ?? events.find((e) => cleanName(e.user.name) === target || e.user.name === target)
-      ?? events.find((e) => cleanName(e.user.name).includes(target));
-    if (match) {
-      if (match.user.id.startsWith(SIMULATED_PREFIX)) return { simulated: true, name: match.user.name };
-      if (!match.user.id || match.user.id === '0' || match.user.masked) return null;
-      return { uid: match.user.id, user: match.user };
-    }
-    // 直接给了 UID（主人让她看某个人）
-    return /^\d{1,20}$/.test(target) ? { uid: target, user: { id: target, name: target } } : null;
+  /** 按她看到的名字（或 UID）在这场直播最近的事件里找观众；找不到、对不上好几位时带着候选（见 core/viewerLookup） */
+  lookupViewer(who: string): ViewerLookup {
+    return lookupViewer(who, this.hub.recentEvents(), { simulatedPrefix: SIMULATED_PREFIX });
+  }
+
+  /** 她私信了一位观众：记进这场的记录（复盘、剪视频用） */
+  noteDm(to: string, text: string): void {
+    this.record({ type: 'dm', to, text });
+  }
+
+  /** 这位观众认不认识：这场里出现过，或者观众记忆里有他（私信只发给认识的人） */
+  knowsViewer(uid: string): boolean {
+    return this.hub.recentEvents().some((e) => e.user.id === uid) || !!this.memory.store.getViewer('bilibili', uid);
   }
 
   /** 这位观众说过「忘了我」：不看、不记 */

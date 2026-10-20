@@ -12,8 +12,9 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { randomUUID } from 'node:crypto';
 import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
+import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { currentMoods, hooks, show } from './runtime';
+import { currentMoods, dm, hooks, show } from './runtime';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -134,20 +135,45 @@ export function apply(ctx: AgentContext): void {
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute(args) {
-      const viewer = show.findViewer(String(args.who ?? ''));
-      if (!viewer) return `这场直播里没找到「${args.who}」（名字被打码的观众也看不到主页）。`;
-      if ('simulated' in viewer) return `${viewer.name} 是主人在控制台里模拟的观众（彩排用），没有真的 B 站主页。`;
+      const who = String(args.who ?? '');
+      const viewer = show.lookupViewer(who);
+      if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
-      show.doing(`在看${viewer.user.name}的主页`);
+      show.doing(viewer.how === 'unseen-uid' ? `在看 UID ${viewer.uid} 的主页` : `在看${viewer.user.name}的主页`);
       const profile = await fetchProfile(viewer.uid);
-      if (!profile) return `没打开 ${viewer.user.name} 的主页（B 站没返回，可能是网络问题）。`;
+      if (!profile) return viewer.how === 'unseen-uid' ? `UID ${viewer.uid} 打不开：可能没有这个用户，检查一下数字。` : `没打开 ${viewer.user.name} 的主页（B 站没返回，可能是网络问题）。`;
       const marks = [
         viewer.user.guardLevel ? ['', '总督', '提督', '舰长'][viewer.user.guardLevel] : '',
         viewer.user.medal?.ofThisRoom ? `粉丝牌${viewer.user.medal.level}级` : '',
         viewer.user.isAdmin ? '房管' : '',
       ].filter(Boolean).join('，');
       show.rememberProfile(viewer.uid, profileSummary(profile));
-      return profileText(profile, marks || undefined);
+      // 按名字的一部分找到的：告诉她是谁，对不上可以换 UID 再查
+      const note = viewer.how === 'partial' ? `（按「${who}」找到的是 ${profile.name}；不是他的话，用 UID 再查）\n` : '';
+      return note + profileText(profile, marks || undefined);
     },
   })), 'view_profile tool');
+
+  // 私信观众（开播账号发）
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'send_dm',
+    description: '用开播账号给一位观众发一条 B 站私信（文字）。只能发给这场直播里出现过、或者以前来过的观众。'
+      + 'B 站规定：对方没关注开播账号、也没回过私信时，只能发一条，要等他关注或回复才能再发；结果里会告诉你他关注了没有。',
+    parameters: {
+      who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID' },
+      text: { type: 'string', required: true, description: '私信内容（2000 字节以内）' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const who = String(args.who ?? '');
+      const viewer = show.lookupViewer(who);
+      if (viewer.kind !== 'found') return lookupProblem(who, viewer);
+      if (!show.knowsViewer(viewer.uid)) return `UID ${viewer.uid} 没在这场直播里出现过，也不是以前来过的观众：私信只发给直播间里的观众。`;
+      if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，就不私信他了。`;
+      show.doing(`在给${viewer.user.name}发私信`);
+      const result = await dm.send({ uid: viewer.uid, name: viewer.user.name }, String(args.text ?? ''));
+      if (result.ok) show.noteDm(viewer.user.name, String(args.text ?? ''));
+      return result.text;
+    },
+  })), 'send_dm tool');
 }
