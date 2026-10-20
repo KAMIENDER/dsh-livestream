@@ -15,7 +15,7 @@
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
-import { cookie, currentCharacter, packs, server, settings, show, updateSettings, type Settings } from './runtime';
+import { broadcast, cookie, currentCharacter, packs, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -40,6 +40,7 @@ function state() {
   return {
     ok: true,
     show: show.status(),
+    broadcast: broadcast.status(),
     settings: { ...settings, stageToken: undefined },
     stageUrl: server.url,
     characters: packs.list('characters'),
@@ -63,6 +64,9 @@ function simulated(input: { kind?: string; name?: string; text?: string; gift?: 
     default: return null;
   }
 }
+
+/** 下播后等她道别说完再停推 */
+let waitingOffair: NodeJS.Timeout | null = null;
 
 export function apply(ctx: HostContext): void {
   ctx.effect(() => {
@@ -95,6 +99,9 @@ export function apply(ctx: HostContext): void {
     if (patch.voice !== undefined) next.voice = String(patch.voice).trim();
     if (patch.idleAfterSec !== undefined) next.idleAfterSec = Math.max(10, Math.min(600, Number(patch.idleAfterSec) || 45));
     if (patch.distillModel !== undefined) next.distillModel = String(patch.distillModel).trim() || settings.distillModel;
+    if (patch.broadcast !== undefined) next.broadcast = !!patch.broadcast;
+    if (patch.areaId !== undefined) next.areaId = patch.areaId ? Number(patch.areaId) : null;
+    if (patch.liveTitle !== undefined) next.liveTitle = String(patch.liveTitle).slice(0, 40);
     const own = (patch as { ownRoom?: boolean }).ownRoom;
     if (own !== undefined && settings.roomId) {
       const rooms = new Set(settings.ownRooms);
@@ -129,8 +136,28 @@ export function apply(ctx: HostContext): void {
 
   route('/api/dsh-livestream/offair', ['POST'], () => {
     show.endLive();
+    // 在推流：等她道别说完（这场结束），再停推、下播
+    if (broadcast.streaming && !waitingOffair) {
+      waitingOffair = setInterval(() => {
+        if (show.isOnAir) return;
+        if (waitingOffair) clearInterval(waitingOffair);
+        waitingOffair = null;
+        void broadcast.stop();
+      }, 1000);
+    }
     return json(state());
   }, 'offair');
+
+  // 推流到 B 站：开播拿推流码、OBS 推流（在后台跑，进度看 state().broadcast）
+  route('/api/dsh-livestream/broadcast/start', ['POST'], () => {
+    broadcast.start();
+    return json(state());
+  }, 'broadcast start');
+
+  route('/api/dsh-livestream/broadcast/stop', ['POST'], async () => {
+    await broadcast.stop();
+    return json(state());
+  }, 'broadcast stop');
 
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
     const { text } = await body<{ text?: string }>(request);
@@ -158,8 +185,12 @@ export function apply(ctx: HostContext): void {
           if (event.type === 'hello') return;
           send(`data: ${JSON.stringify(event.type === 'say' ? { ...event, audio: null } : event)}\n\n`);
         }, false);
-        tick = setInterval(() => send(`event: status\ndata: ${JSON.stringify(show.status())}\n\n`), 1000);
-        send(`event: status\ndata: ${JSON.stringify(show.status())}\n\n`);
+        const status = () => {
+          send(`event: status\ndata: ${JSON.stringify(show.status())}\n\n`);
+          send(`event: broadcast\ndata: ${JSON.stringify(broadcast.status())}\n\n`);
+        };
+        tick = setInterval(status, 1000);
+        status();
       },
       cancel() {
         unsubscribe?.();

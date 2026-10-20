@@ -1,0 +1,161 @@
+/**
+ * B 站直播间的开播、下播、拿推流码（主播自己的账号，用 Cookie）。
+ *
+ *   开通直播间  POST xlive/app-blink/v1/preLive/CreateRoom          （账号还没有直播间时）
+ *   改标题分区  POST room/v1/Room/update
+ *   开播        POST room/v1/Room/startLive → data.rtmp.addr / code（推流地址和推流码）
+ *   下播        POST room/v1/Room/stopLive
+ *
+ * 粉丝少的账号网页上不能开播：按直播姬（pc_link）的身份签名开播，和社区工具 StartLive 的做法一样
+ * （github.com/Radekyspec/StartLive；接口说明见 bilibili-API-collect docs/live/manage.md）。
+ * 开播返回 60024 时要人脸认证：data.qr 是给主播用 B 站 App 扫的二维码链接；主播扫完、认证过了（IsUserIdentifiedByFaceAuth）再开播一次。
+ * 60043 是另一种风控验证（要伪造浏览器行为指纹才能走通），这里不做：请主播用官方直播姬或 B 站 App 开播一次过掉它。
+ */
+
+import { createHash } from 'node:crypto';
+
+/** 直播姬（PC）的 appkey / appsec 和版本号（StartLive 2026-10 用的值） */
+const LIVEHIME = { appkey: 'aae92bc66f3edfab', appsec: 'af125a0d5279fd576c1b4418a3e8276d', version: '8.7.0.11081', build: '11081' };
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+export interface Stream {
+  /** RTMP 推流地址（OBS 的「服务器」） */
+  addr: string;
+  /** 推流码（OBS 的「推流码」） */
+  code: string;
+}
+
+export type StartResult =
+  | { kind: 'live'; stream: Stream }
+  /** 要人脸认证：qr 是给 B 站 App 扫的链接 */
+  | { kind: 'face'; qr: string; message: string }
+  /** 风控验证（60043）：要用官方直播姬或 B 站 App 过一次 */
+  | { kind: 'verify'; message: string };
+
+export class BiliRoomError extends Error {
+  constructor(readonly code: number, message: string) {
+    super(message);
+  }
+}
+
+function cookieValue(cookie: string, name: string): string {
+  return new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(cookie)?.[1] ?? '';
+}
+
+/** 直播姬的签名：加上公共参数，按 key 排序，拼上 appsec 取 md5 */
+function livehimeSign(params: Record<string, string | number>): Record<string, string> {
+  const all: Record<string, string> = {
+    access_key: '', appkey: LIVEHIME.appkey, build: LIVEHIME.build, platform: 'pc_link',
+    ts: String(Math.floor(Date.now() / 1000)), version: LIVEHIME.version,
+  };
+  for (const [k, v] of Object.entries(params)) all[k] = String(v);
+  const sorted = Object.fromEntries(Object.entries(all).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const sign = createHash('md5').update(new URLSearchParams(sorted).toString() + LIVEHIME.appsec).digest('hex');
+  return { ...sorted, sign };
+}
+
+export class BiliRoom {
+  constructor(private readonly cookie: string) {}
+
+  get uid(): string {
+    return cookieValue(this.cookie, 'DedeUserID');
+  }
+
+  private get csrf(): string {
+    return cookieValue(this.cookie, 'bili_jct');
+  }
+
+  private async call<T>(url: string, form?: Record<string, string | number>): Promise<{ code: number; message: string; data: T }> {
+    const res = await fetch(url, {
+      method: form ? 'POST' : 'GET',
+      headers: {
+        'User-Agent': UA,
+        Referer: 'https://link.bilibili.com/',
+        Origin: 'https://link.bilibili.com',
+        Cookie: this.cookie,
+        ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+      },
+      body: form ? new URLSearchParams(Object.entries(form).map(([k, v]) => [k, String(v)])).toString() : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new BiliRoomError(res.status, `B 站接口 HTTP ${res.status}`);
+    return (await res.json()) as { code: number; message: string; data: T };
+  }
+
+  /** 登录了没有、是谁 */
+  async whoami(): Promise<{ loggedIn: boolean; uid: string; name: string }> {
+    const r = await this.call<{ isLogin?: boolean; mid?: number; uname?: string }>('https://api.bilibili.com/x/web-interface/nav');
+    return { loggedIn: !!r.data?.isLogin, uid: String(r.data?.mid ?? ''), name: r.data?.uname ?? '' };
+  }
+
+  /** 自己的直播间号；还没开通是 0 */
+  async roomId(): Promise<number> {
+    const r = await this.call<{ room_id?: number }>('https://api.live.bilibili.com/xlive/app-blink/v1/room/GetInfo?platform=pc');
+    if (r.code !== 0) throw new BiliRoomError(r.code, `查直播间失败：${r.message}`);
+    return Number(r.data?.room_id ?? 0);
+  }
+
+  /** 开通直播间（已经有了就返回现有的） */
+  async ensureRoom(): Promise<number> {
+    const existing = await this.roomId();
+    if (existing) return existing;
+    const r = await this.call<{ roomID?: string | number }>('https://api.live.bilibili.com/xlive/app-blink/v1/preLive/CreateRoom', {
+      platform: 'web', visit_id: '', csrf: this.csrf, csrf_token: this.csrf,
+    });
+    if (r.code === 0 && r.data?.roomID) return Number(r.data.roomID);
+    if (r.code === 1531193016) return this.roomId();
+    throw new BiliRoomError(r.code, `开通直播间失败：${r.message}`);
+  }
+
+  /** 开播前的标题和分区（PreLive：B 站给这个账号准备好的默认值） */
+  async preLive(): Promise<{ title: string; areaId: number; areaName: string }> {
+    const r = await this.call<{ title?: string; area?: Record<string, { subAreaID: number; subAreaName: string }> }>(
+      `https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreLive?platform=pc&mobi_app=pc&build=${LIVEHIME.build}`,
+    );
+    const area = Object.values(r.data?.area ?? {})[0];
+    return { title: r.data?.title ?? '', areaId: area?.subAreaID ?? 0, areaName: area?.subAreaName ?? '' };
+  }
+
+  /** 改标题、分区（area 是子分区 id） */
+  async update(roomId: number, patch: { title?: string; areaId?: number }): Promise<void> {
+    const form: Record<string, string | number> = { room_id: roomId, platform: 'pc_link', csrf: this.csrf, csrf_token: this.csrf };
+    if (patch.title !== undefined) form.title = patch.title.slice(0, 40);
+    if (patch.areaId !== undefined) form.area_id = patch.areaId;
+    const r = await this.call('https://api.live.bilibili.com/room/v1/Room/update', form);
+    if (r.code !== 0) throw new BiliRoomError(r.code, `改直播间信息失败：${r.message}`);
+  }
+
+  /** 开播：拿推流地址和推流码；要人脸认证时返回扫码链接 */
+  async start(roomId: number, areaId: number): Promise<StartResult> {
+    const form = livehimeSign({ area_v2: areaId, csrf: this.csrf, csrf_token: this.csrf, room_id: roomId, type: 2 });
+    const r = await this.call<{ rtmp?: { addr?: string; code?: string }; qr?: string }>('https://api.live.bilibili.com/room/v1/Room/startLive', form);
+    if (r.code === 0 && r.data?.rtmp?.addr && r.data.rtmp.code) return { kind: 'live', stream: { addr: r.data.rtmp.addr, code: r.data.rtmp.code } };
+    if (r.code === 60024 && r.data?.qr) return { kind: 'face', qr: r.data.qr, message: r.message };
+    if (r.code === 60043) return { kind: 'verify', message: r.message };
+    throw new BiliRoomError(r.code, `开播失败（${r.code}）：${r.message}`);
+  }
+
+  /** 主播扫完人脸认证的二维码了没有（60024 那种） */
+  async faceVerified(roomId: number): Promise<boolean> {
+    const r = await this.call<{ is_identified?: boolean }>('https://api.live.bilibili.com/xlive/app-blink/v1/preLive/IsUserIdentifiedByFaceAuth', {
+      room_id: roomId, face_auth_code: '60024', csrf: this.csrf, csrf_token: this.csrf, visit_id: '',
+    });
+    return !!r.data?.is_identified;
+  }
+
+  /** 直播间现在是不是在播（1 直播中，0 没播，2 轮播） */
+  async liveStatus(roomId: number): Promise<number> {
+    const r = await this.call<{ live_status?: number }>(`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${roomId}`);
+    return Number(r.data?.live_status ?? 0);
+  }
+
+  /** 下播 */
+  async stop(roomId: number): Promise<void> {
+    // 直播姬下播：签名里不带 csrf，签完再加上（和开播不一样，照 StartLive）
+    const signed = livehimeSign({ room_id: roomId });
+    const form = Object.fromEntries(Object.entries({ ...signed, csrf: this.csrf, csrf_token: this.csrf }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    const r = await this.call('https://api.live.bilibili.com/room/v1/Room/stopLive', form);
+    if (r.code !== 0) throw new BiliRoomError(r.code, `下播失败（${r.code}）：${r.message}`);
+  }
+}

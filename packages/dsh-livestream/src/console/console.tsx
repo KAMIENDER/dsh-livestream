@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import QRCode from 'qrcode';
 
 // ── DSH 服务 ──────────────────────────────────────────
 
@@ -73,10 +74,20 @@ interface ShowStatus {
   stageWatchers: number;
   roomId: number | null;
 }
+interface BroadcastStatus {
+  phase: 'idle' | 'preparing' | 'face' | 'streaming' | 'stopping' | 'error';
+  step: string;
+  roomId: number | null;
+  faceQr: string | null;
+  error: string | null;
+  health: { active: boolean; timecode: string; skipped: number; total: number; renderSkipped: number; outputSkipped: number; kbps: number } | null;
+  startedAt: number | null;
+}
 interface HostState {
   ok: boolean;
   show: ShowStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[] };
+  broadcast: BroadcastStatus;
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -97,12 +108,13 @@ interface FeedRow { key: string; kind: string; uid: string; name: string; text: 
 
 interface Live {
   status: ShowStatus | null;
+  broadcast: BroadcastStatus | null;
   feed: FeedRow[];
   focus: Set<string>;
   brainDetail: string;
 }
 
-let live: Live = { status: null, feed: [], focus: new Set(), brainDetail: '' };
+let live: Live = { status: null, broadcast: null, feed: [], focus: new Set(), brainDetail: '' };
 const liveListeners = new Set<() => void>();
 let source: EventSource | null = null;
 let feedSeq = 0;
@@ -116,6 +128,7 @@ function connectFeed(): void {
   if (source) return;
   source = new EventSource('/api/dsh-livestream/events');
   source.addEventListener('status', (m) => setLive((l) => ({ ...l, status: JSON.parse((m as MessageEvent).data) as ShowStatus })));
+  source.addEventListener('broadcast', (m) => setLive((l) => ({ ...l, broadcast: JSON.parse((m as MessageEvent).data) as BroadcastStatus })));
   source.onmessage = (m) => {
     const e = JSON.parse(m.data);
     if (e.type === 'live') {
@@ -246,7 +259,7 @@ function Img({ src, className, fallback = null }: { src: string; className: stri
 
 export function Console() {
   const svc = useServices();
-  const { status, feed, focus, brainDetail } = useLive();
+  const { status, feed, focus, brainDetail, broadcast: liveBc } = useLive();
   const [host, setHost] = useState<HostState | null>(null);
   const [busy, error, run] = useBusy();
   const [room, setRoom] = useState('');
@@ -264,6 +277,11 @@ export function Console() {
 
   const goLive = () => run(async () => {
     if (!svc) throw new Error('插件还没准备好，刷新一下页面再试。');
+    // 推流到 B 站：先开播拿推流码、OBS 推上流（可能要扫码人脸认证），推上了她再开口
+    if (settings?.broadcast) {
+      await api('broadcast/start', {});
+      await waitBroadcast();
+    }
     const sessionId = await createBrainSession(svc);
     await api('onair', { sessionId });
     await refresh();
@@ -289,6 +307,7 @@ export function Console() {
     void navigator.clipboard.writeText(host.stageUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
 
+  const bc = liveBc ?? host?.broadcast ?? null;
   const conn = show?.live.state ?? 'idle';
   const connTone = conn === 'connected' ? 'ok' : conn === 'error' ? 'bad' : conn === 'idle' ? 'idle' : 'warn';
   const previewUrl = host ? `${host.stageUrl}&preview=1${demo ? `&demo=${demo}` : ''}` : '';
@@ -320,17 +339,25 @@ export function Console() {
                 <span className="dl-pill"><Dot tone={brainTone} />{brainText}</span>
                 <span className="dl-pill"><Dot tone={connTone} />直播间{CONN_TEXT[conn] ?? conn}{show?.live.room?.title ? ` · ${show.live.room.title}` : ''}</span>
                 <span className="dl-pill"><Dot tone={show?.stageWatchers ? 'ok' : 'idle'} />{show?.stageWatchers ? `OBS 已连上 ${show.stageWatchers} 个` : 'OBS 还没打开舞台'}</span>
+                {bc && bc.phase !== 'idle' && <BroadcastPill bc={bc} />}
               </div>
             </div>
           </div>
           <div className="dl-top-actions">
             <button className="dl-icon-btn" title="设置" onClick={() => setDrawer(true)}><GearGlyph /><span>设置</span></button>
+            {!show?.onAir && (
+              <button className={`dl-switch${settings?.broadcast ? ' dl-on' : ''}`} disabled={busy} title="关着：只在本地彩排（OBS 不推流）；开着：开播时真的推流到 B 站" onClick={() => choose({ broadcast: !settings?.broadcast })}>
+                <i /><span>{settings?.broadcast ? '推流到 B 站' : '本地彩排'}</span>
+              </button>
+            )}
             {show?.onAir
               ? <button className="dl-btn dl-danger" disabled={busy} onClick={endLive}>下播（先让她道别）</button>
-              : <button className="dl-btn dl-primary" disabled={busy} onClick={goLive}><i className="dl-go-dot" />开播</button>}
+              : <button className="dl-btn dl-primary" disabled={busy || bc?.phase === 'preparing' || bc?.phase === 'face'} onClick={goLive}><i className="dl-go-dot" />{settings?.broadcast ? '开播' : '开始彩排'}</button>}
           </div>
         </header>
         {error && <p className="dl-error dl-banner">{error}</p>}
+        {bc?.phase === 'error' && bc.error && error !== bc.error && <p className="dl-error dl-banner">{bc.error}</p>}
+        {bc?.phase === 'face' && bc.faceQr && <FaceModal qr={bc.faceQr} onCancel={() => run(async () => { await api('broadcast/stop', {}); await refresh(); })} />}
 
         {!show?.onAir && doneCount < steps.length && (
           <div className="dl-checklist">
@@ -430,6 +457,16 @@ export function Console() {
               {show?.live.state === 'connected' && !show.live.loggedIn && <p className="dl-hint">匿名连接：部分观众的名字会被 B 站打码。填上 Cookie 就能看到完整名字。</p>}
               {show?.live.lastError && <p className="dl-error">{show.live.lastError}</p>}
             </div>
+            <h3>推流到 B 站</h3>
+            <div className="dl-field">
+              <label>直播标题（开播前改成这个；空着就用 B 站上现在的）</label>
+              <input defaultValue={settings?.liveTitle ?? ''} maxLength={40} placeholder="比如：大肥鱼的深夜食堂" onBlur={(e) => choose({ liveTitle: e.target.value })} />
+            </div>
+            <div className="dl-field">
+              <label>直播分区 id（子分区；空着就用 B 站给这个账号准备的默认分区）</label>
+              <input defaultValue={settings?.areaId ?? ''} inputMode="numeric" placeholder="比如 371（虚拟日常）" onBlur={(e) => { const digits = e.target.value.replace(/\D/g, ''); choose({ areaId: digits ? Number(digits) : null }); }} />
+              <p className="dl-hint">开播时：没有直播间会自动开通；B 站要人脸认证时这里弹出二维码，用 B 站 App 扫一下；推流码自动填进 OBS（专用配置「dsh-livestream」，1080p30、NVENC、CBR 6000k），不用手动配 OBS。</p>
+            </div>
             <h3>密钥</h3>
             <SecretField label="豆包语音 API Key" ref_={SECRET_REFS.tts} configured={secrets.tts} hint="火山引擎新版控制台的 API Key（和 dsh-game 共用）" />
             <SecretField label="B 站 Cookie" ref_={SECRET_REFS.cookie} configured={secrets.cookie} hint="浏览器里登录 B 站后复制的 Cookie（建议用小号）" />
@@ -445,6 +482,49 @@ export function Console() {
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 等推流准备好：推上了返回；出错、取消就抛出（人脸认证最多等 5 分钟，宿主那边会超时） */
+async function waitBroadcast(): Promise<void> {
+  const deadline = Date.now() + 7 * 60_000;
+  await new Promise((r) => setTimeout(r, 1200));
+  while (Date.now() < deadline) {
+    const bc = live.broadcast;
+    if (bc?.phase === 'streaming') return;
+    if (bc?.phase === 'error') throw new Error(bc.error ?? '推流失败');
+    if (bc?.phase === 'idle' || bc?.phase === 'stopping') throw new Error('推流取消了');
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error('等推流等太久了');
+}
+
+const PHASE_TEXT = { idle: '', preparing: '准备推流', face: '等人脸认证', streaming: '推流中', stopping: '正在下播', error: '推流出错' } as const;
+
+function BroadcastPill({ bc }: { bc: BroadcastStatus }) {
+  const tone = bc.phase === 'streaming' ? 'ok' : bc.phase === 'error' ? 'bad' : 'warn';
+  const h = bc.health;
+  const dropped = h && h.total ? ((h.skipped / h.total) * 100).toFixed(1) : null;
+  return (
+    <span className="dl-pill" title={bc.step}>
+      <Dot tone={tone} />B 站 · {bc.phase === 'streaming' && h ? `${h.kbps} kbps · 丢帧 ${dropped ?? 0}% · ${h.timecode.slice(0, 8)}` : bc.step || PHASE_TEXT[bc.phase]}
+    </span>
+  );
+}
+
+/** 人脸认证：用开播账号的 B 站 App 扫这个码 */
+function FaceModal({ qr, onCancel }: { qr: string; onCancel: () => void }) {
+  const [img, setImg] = useState('');
+  useEffect(() => { void QRCode.toDataURL(qr, { margin: 1, width: 240 }).then(setImg).catch(() => setImg('')); }, [qr]);
+  return (
+    <div className="dl-modal-wrap">
+      <div className="dl-modal">
+        <h2>B 站要人脸认证</h2>
+        <p>用<b>开播账号</b>登录的 B 站 App 扫这个码，按提示刷脸。认证通过后会自动开播，不用再点。</p>
+        {img ? <img className="dl-qr" src={img} alt="人脸认证二维码" /> : <code className="dl-qr-text">{qr}</code>}
+        <button className="dl-link" onClick={onCancel}>不开了</button>
+      </div>
     </div>
   );
 }
@@ -582,6 +662,18 @@ function Simulator() {
 }
 
 export const CONSOLE_CSS = `
+.dl-switch{display:inline-flex;align-items:center;gap:8px;padding:9px 14px !important;border-radius:999px !important;font-size:13px}
+.dl-switch i{width:30px;height:17px;border-radius:999px;background:rgba(120,130,150,.35);position:relative;transition:background .2s}
+.dl-switch i::after{content:'';position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.dl-switch.dl-on i{background:#ff5d7a}
+.dl-switch.dl-on i::after{transform:translateX(13px)}
+.dl-switch.dl-on span{color:#ff5d7a;font-weight:600}
+.dl-modal-wrap{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:rgba(10,14,30,.45);backdrop-filter:blur(6px)}
+.dl-modal{width:min(380px,90vw);padding:26px 28px;border-radius:22px;text-align:center;background:#fff;color:#1d2433;box-shadow:0 30px 80px -20px rgba(0,0,0,.5)}
+.dl-modal h2{margin:0 0 8px;font-size:18px}
+.dl-modal p{margin:0 0 16px;font-size:13px;line-height:1.7;color:#5b6475}
+.dl-qr{width:240px;height:240px;border-radius:12px;background:#fff;padding:8px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.dl-qr-text{display:block;word-break:break-all;font-size:11px;margin-bottom:12px}
 /* 颜色跟着 DSH 的亮色 / 暗色走：底色、文字、边框用 DSH 的主题变量，自己只管强调色（light-dark 按 DSH 设在页面上的 color-scheme 取值） */
 .dl-room{--dl-blue:#3fa3ff;--dl-pink:#ff7fa8;--dl-gold:light-dark(#c98200,#ffc65c);
   --dl-bg:light-dark(#f4f7fb,var(--dsw-alias-bg-base,#0f131e));

@@ -1,0 +1,232 @@
+/**
+ * OBS（WebSocket v5，OBS 28+ 自带）：专用的配置文件和场景集合「dsh-livestream」，舞台页当浏览器源，推流到 B 站。
+ *
+ * 画面清不清楚全看编码设置（以前 OBS 简单模式 x264 veryfast 1.4Mbps 糊过）：
+ *   - 画布和输出都是 1920×1080，不缩放；舞台页本来就是 1080p
+ *   - NVENC H.264 硬件编码，CBR 6000 kbps（B 站要恒定码率），关键帧 2 秒
+ *   - P6 + 高质量调优 + 两遍编码 + 心理视觉 AQ + 2 个 B 帧：码率花在文字和边缘上
+ *   - 30 帧：舞台大部分是静的，同样码率 30 帧比 60 帧清楚
+ *   - 声音只要舞台页自己的（浏览器源交给 OBS 控制音频），不要麦克风和桌面音频
+ * 只动自己这套配置和场景集合，不碰用户别的 OBS 配置。WebSocket 密码从 OBS 自己的配置里读，不打印。
+ */
+
+import { spawn } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+export const OBS_NAME = 'dsh-livestream';
+const SCENE = '直播';
+const STAGE_SOURCE = '舞台';
+
+const OBS_DIR = join(process.env.APPDATA ?? '', 'obs-studio');
+const OBS_EXE = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe';
+
+/** 推流编码设置（写进配置文件目录的 streamEncoder.json） */
+const STREAM_ENCODER = {
+  rate_control: 'CBR',
+  bitrate: 6000,
+  keyint_sec: 2,
+  preset2: 'p6',
+  tune: 'hq',
+  multipass: 'qres',
+  profile: 'high',
+  bf: 2,
+  lookahead: false,
+  adaptive_quantization: true,
+  psycho_aq: true,
+};
+
+type Call = <T = any>(requestType: string, requestData?: Record<string, unknown>) => Promise<T>;
+
+export interface Obs {
+  call: Call;
+  close(): void;
+}
+
+function websocketConfig(): { port: number; password: string; enabled: boolean } {
+  const file = join(OBS_DIR, 'plugin_config', 'obs-websocket', 'config.json');
+  if (!existsSync(file)) return { port: 4455, password: '', enabled: false };
+  const cfg = JSON.parse(readFileSync(file, 'utf8')) as { server_port?: number; server_password?: string; server_enabled?: boolean; auth_required?: boolean };
+  return { port: cfg.server_port ?? 4455, password: cfg.auth_required === false ? '' : cfg.server_password ?? '', enabled: cfg.server_enabled !== false };
+}
+
+function connectOnce(): Promise<Obs> {
+  const { port, password } = websocketConfig();
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const pending = new Map<string, { res: (v: any) => void; rej: (e: Error) => void; requestType: string }>();
+    const timer = setTimeout(() => { ws.close(); reject(new Error('连 OBS 超时')); }, 5000);
+    ws.onerror = () => { clearTimeout(timer); reject(new Error('连不上 OBS')); };
+    ws.onmessage = (msg) => {
+      const { op, d } = JSON.parse(String(msg.data));
+      if (op === 0) {
+        const identify: Record<string, unknown> = { rpcVersion: 1 };
+        if (d.authentication) {
+          const secret = createHash('sha256').update(password + d.authentication.salt).digest('base64');
+          identify.authentication = createHash('sha256').update(secret + d.authentication.challenge).digest('base64');
+        }
+        ws.send(JSON.stringify({ op: 1, d: identify }));
+      } else if (op === 2) {
+        clearTimeout(timer);
+        resolve({
+          call: (requestType, requestData = {}) => {
+            const requestId = randomUUID();
+            ws.send(JSON.stringify({ op: 6, d: { requestType, requestId, requestData } }));
+            return new Promise((res, rej) => pending.set(requestId, { res, rej, requestType }));
+          },
+          close: () => ws.close(),
+        });
+      } else if (op === 7) {
+        const p = pending.get(d.requestId);
+        if (!p) return;
+        pending.delete(d.requestId);
+        if (d.requestStatus.result) p.res(d.responseData ?? {});
+        else p.rej(new Error(`OBS ${p.requestType} 失败：${d.requestStatus.code} ${d.requestStatus.comment ?? ''}`));
+      }
+    };
+  });
+}
+
+/** 连上 OBS；没开就帮忙打开（WebSocket 服务器要在 OBS 里启用过） */
+export async function connectObs(launch = true): Promise<Obs> {
+  try {
+    return await connectOnce();
+  } catch (err) {
+    if (!launch) throw err;
+    if (!websocketConfig().enabled) throw new Error('OBS 的 WebSocket 服务器没启用：OBS → 工具 → WebSocket 服务器设置 → 启用');
+    if (!existsSync(OBS_EXE)) throw new Error('没找到 OBS（C:\\Program Files\\obs-studio），先装 OBS');
+    spawn(OBS_EXE, ['--disable-shutdown-check', '--disable-updater'], { cwd: join(OBS_EXE, '..'), detached: true, stdio: 'ignore' }).unref();
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        return await connectOnce();
+      } catch {
+        // OBS 还在启动
+      }
+    }
+    throw new Error('打开了 OBS，但 30 秒内连不上它的 WebSocket');
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 切到自己的配置文件和场景集合，设好画质；舞台页当浏览器源 */
+export async function prepareObs(obs: Obs, stageUrl: string): Promise<void> {
+  // 配置文件：画质、声音
+  const { profiles, currentProfileName } = await obs.call<{ profiles: string[]; currentProfileName: string }>('GetProfileList');
+  if (!profiles.includes(OBS_NAME)) await obs.call('CreateProfile', { profileName: OBS_NAME });
+  else if (currentProfileName !== OBS_NAME) await obs.call('SetCurrentProfile', { profileName: OBS_NAME });
+  await sleep(800);
+  const params: Array<[string, string, string]> = [
+    ['Output', 'Mode', 'Advanced'],
+    ['AdvOut', 'Encoder', 'obs_nvenc_h264_tex'],
+    ['AdvOut', 'UseRescale', 'false'],
+    ['AdvOut', 'TrackIndex', '1'],
+    ['AdvOut', 'Track1Bitrate', '192'],
+    ['AdvOut', 'ApplyServiceSettings', 'true'],
+    ['Audio', 'SampleRate', '48000'],
+    ['Audio', 'ChannelSetup', 'Stereo'],
+    ['Output', 'Reconnect', 'true'],
+    ['Output', 'RetryDelay', '2'],
+    ['Output', 'MaxRetries', '25'],
+  ];
+  for (const [parameterCategory, parameterName, parameterValue] of params) {
+    await obs.call('SetProfileParameter', { parameterCategory, parameterName, parameterValue });
+  }
+  await obs.call('SetVideoSettings', { fpsNumerator: 30, fpsDenominator: 1, baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080 });
+  // 编码器参数在配置文件目录的 streamEncoder.json 里：写好后切走再切回来，让 OBS 重新读
+  const dir = join(OBS_DIR, 'basic', 'profiles', OBS_NAME);
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'streamEncoder.json');
+  const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const wanted = JSON.stringify(STREAM_ENCODER, null, 1);
+  if (current.trim() !== wanted.trim()) {
+    writeFileSync(file, wanted);
+    const other = profiles.find((p) => p !== OBS_NAME);
+    if (other) {
+      await obs.call('SetCurrentProfile', { profileName: other });
+      await sleep(800);
+      await obs.call('SetCurrentProfile', { profileName: OBS_NAME });
+      await sleep(800);
+    }
+  }
+
+  // 场景集合：一个场景，只有舞台页
+  const { sceneCollections, currentSceneCollectionName } = await obs.call<{ sceneCollections: string[]; currentSceneCollectionName: string }>('GetSceneCollectionList');
+  if (!sceneCollections.includes(OBS_NAME)) await obs.call('CreateSceneCollection', { sceneCollectionName: OBS_NAME });
+  else if (currentSceneCollectionName !== OBS_NAME) await obs.call('SetCurrentSceneCollection', { sceneCollectionName: OBS_NAME });
+  await sleep(1500);
+  const { scenes } = await obs.call<{ scenes: Array<{ sceneName: string }> }>('GetSceneList');
+  if (!scenes.some((s) => s.sceneName === SCENE)) await obs.call('CreateScene', { sceneName: SCENE });
+  await obs.call('SetCurrentProgramScene', { sceneName: SCENE });
+  // 声音只要舞台页的：去掉全局的麦克风和桌面音频
+  const special = await obs.call<Record<string, string | null>>('GetSpecialInputs');
+  for (const key of ['desktop1', 'desktop2', 'mic1', 'mic2', 'mic3', 'mic4']) {
+    if (special[key]) await obs.call('RemoveInput', { inputName: special[key] });
+  }
+  const stage = {
+    url: stageUrl,
+    width: 1920,
+    height: 1080,
+    fps_custom: false,
+    reroute_audio: true,
+    shutdown: false,
+    restart_when_active: false,
+    css: 'body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }',
+  };
+  const { inputs } = await obs.call<{ inputs: Array<{ inputName: string }> }>('GetInputList');
+  if (!inputs.some((i) => i.inputName === STAGE_SOURCE)) {
+    await obs.call('CreateInput', { sceneName: SCENE, inputName: STAGE_SOURCE, inputKind: 'browser_source', inputSettings: stage });
+  } else {
+    await obs.call('SetInputSettings', { inputName: STAGE_SOURCE, inputSettings: stage });
+  }
+  // 舞台铺满画布、声音不回放到本机（不然主人这边会听到两遍）
+  const { sceneItemId } = await obs.call<{ sceneItemId: number }>('GetSceneItemId', { sceneName: SCENE, sourceName: STAGE_SOURCE });
+  await obs.call('SetSceneItemTransform', { sceneName: SCENE, sceneItemId, sceneItemTransform: { positionX: 0, positionY: 0, scaleX: 1, scaleY: 1, boundsType: 'OBS_BOUNDS_NONE' } });
+  await obs.call('SetInputAudioMonitorType', { inputName: STAGE_SOURCE, monitorType: 'OBS_MONITORING_TYPE_NONE' });
+}
+
+/** 推流到 B 站：写入推流地址和推流码，开始推流，确认真的推上了 */
+export async function startStreaming(obs: Obs, addr: string, code: string): Promise<void> {
+  await obs.call('SetStreamServiceSettings', {
+    streamServiceType: 'rtmp_custom',
+    streamServiceSettings: { server: addr, key: code, use_auth: false, bwtest: false },
+  });
+  const status = await obs.call<{ outputActive: boolean }>('GetStreamStatus');
+  if (!status.outputActive) await obs.call('StartStream');
+  for (let i = 0; i < 20; i++) {
+    await sleep(500);
+    if ((await obs.call<{ outputActive: boolean }>('GetStreamStatus')).outputActive) return;
+  }
+  throw new Error('OBS 没能开始推流（看 OBS 的日志）');
+}
+
+export async function stopStreaming(obs: Obs): Promise<void> {
+  const status = await obs.call<{ outputActive: boolean }>('GetStreamStatus');
+  if (status.outputActive) await obs.call('StopStream');
+}
+
+export interface StreamHealth {
+  active: boolean;
+  /** 推了多久 */
+  timecode: string;
+  /** 丢帧（网络） */
+  skipped: number;
+  total: number;
+  /** 渲染延迟、编码延迟的帧 */
+  renderSkipped: number;
+  outputSkipped: number;
+  kbps: number;
+}
+
+let lastBytes: { bytes: number; at: number } | null = null;
+
+export async function streamHealth(obs: Obs): Promise<StreamHealth> {
+  const s = await obs.call<{ outputActive: boolean; outputTimecode: string; outputSkippedFrames: number; outputTotalFrames: number; outputBytes: number }>('GetStreamStatus');
+  const stats = await obs.call<{ renderSkippedFrames: number; outputSkippedFrames: number }>('GetStats');
+  const now = Date.now();
+  const kbps = lastBytes && s.outputBytes >= lastBytes.bytes ? Math.round(((s.outputBytes - lastBytes.bytes) * 8) / Math.max(1, now - lastBytes.at)) : 0;
+  lastBytes = { bytes: s.outputBytes, at: now };
+  return { active: s.outputActive, timecode: s.outputTimecode, skipped: s.outputSkippedFrames, total: s.outputTotalFrames, renderSkipped: stats.renderSkippedFrames, outputSkipped: stats.outputSkippedFrames, kbps };
+}

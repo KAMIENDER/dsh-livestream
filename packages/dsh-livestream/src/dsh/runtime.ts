@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveShow } from '../body/show';
+import { Broadcast } from '../body/broadcast';
 import { Packs } from '../body/packs';
 import { StageServer } from '../body/server';
 import { canSpeak, subtitleTimeline, synthesize, type TtsAuth } from '../body/tts';
@@ -34,6 +35,12 @@ export interface Settings {
   idleAfterSec: number;
   /** 主人说是自己的直播间（记住常来的观众）；别的房间只旁观、不建档 */
   ownRooms: number[];
+  /** 开播时真的推流到 B 站（默认关：只在本地彩排） */
+  broadcast: boolean;
+  /** 开播用的分区（子分区 id）；null 用 B 站给账号准备的默认分区 */
+  areaId: number | null;
+  /** 开播前改成这个标题；空串不改 */
+  liveTitle: string;
 }
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
@@ -78,6 +85,9 @@ function loadSettings(): Settings {
     distillModel: 'deepseek-official/deepseek-flash',
     idleAfterSec: 45,
     ownRooms: [],
+    broadcast: false,
+    areaId: null,
+    liveTitle: '',
     ...saved,
   };
   if (!settings.stageToken) {
@@ -170,3 +180,22 @@ export const server = new StageServer({
 export async function cookie(): Promise<string> {
   return hooks.secret(SECRETS.cookie);
 }
+
+/** 推流到 B 站：开播拿推流码、OBS 推流、下播 */
+export const broadcast = new Broadcast({
+  cookie,
+  stageUrl: () => server.url,
+  areaId: () => settings.areaId,
+  title: () => settings.liveTitle.trim() || null,
+  // 开播账号的直播间：记下来、标成自己的直播间（记住观众），连上它的弹幕
+  onRoom: (roomId) => {
+    updateSettings({ roomId, ownRooms: [...new Set([...settings.ownRooms, roomId])] });
+    const status = show.status();
+    if (status.roomId !== roomId || status.live.state === 'idle' || status.live.state === 'error') {
+      void cookie().then((c) => show.connect(roomId, c, true));
+    } else {
+      show.rememberViewers = true;
+    }
+  },
+  log: (level, message) => hooks.log(level, message),
+});
