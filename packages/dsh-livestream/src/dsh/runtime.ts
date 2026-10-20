@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { LiveShow } from '../body/show';
 import { Packs } from '../body/packs';
 import { StageServer } from '../body/server';
-import { canSpeak, synthesize, type TtsAuth } from '../body/tts';
+import { canSpeak, subtitleTimeline, synthesize, type TtsAuth } from '../body/tts';
 import { DEFAULT_VOICE } from '../body/voices';
 import type { DistillLlm } from '../core/memory/distill';
 import type { CharacterManifest } from '../stage/protocol';
@@ -147,7 +147,9 @@ export const show = new LiveShow(
     synthesize: async (text, signal) => {
       const voice = currentVoice();
       const auth = await ttsAuth(voice);
-      return auth ? synthesize(auth, voice, text, signal) : null;
+      if (!auth) return null;
+      const { audio, words } = await synthesize(auth, voice, text, signal);
+      return { audio, timeline: subtitleTimeline(text, words) };
     },
     distill,
     log: (level, message) => hooks.log(level, message),

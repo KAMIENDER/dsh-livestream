@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CharacterManifest, StageUser } from './protocol';
-import { assetUrl, dropAlert, getState, subscribe, type Alert, type StageState } from './store';
+import { assetUrl, dropAlert, getState, litChars, subscribe, type Alert, type StageState } from './store';
 
 export function useStage(): StageState {
   return useSyncExternalStore(subscribe, getState);
@@ -149,23 +149,22 @@ function ImageCharacter({ character }: { character: CharacterManifest }) {
 
 // ── 字幕 ─────────────────────────────────────────────
 
-/** 她正在说的话：念到哪亮到哪 */
+/** 她正在说的话：念到哪亮到哪（按豆包给的逐字时间和音频的真实播放位置，不按字数估） */
 export function Subtitle() {
   const { line, character } = useStage();
-  const [progress, setProgress] = useState(0);
+  const chars = useMemo(() => [...(line?.text ?? '')], [line?.text]);
+  const [lit, setLit] = useState(0);
   useEffect(() => {
     if (!line) return;
     let frame = 0;
     const tick = () => {
-      setProgress(Math.min(1, (Date.now() - line.startedAt) / Math.max(1, line.durationMs)));
+      setLit(litChars(line, chars.length));
       frame = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(frame);
   }, [line?.id, line?.durationMs]);
   if (!line) return <div className="ls-subtitle ls-empty" />;
-  const chars = [...line.text];
-  const lit = Math.round(chars.length * progress);
   return (
     <div className="ls-subtitle" key={line.id}>
       <span className="ls-speaker">{character?.name ?? ''}</span>

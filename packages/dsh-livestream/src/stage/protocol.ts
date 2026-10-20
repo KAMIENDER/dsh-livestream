@@ -82,7 +82,11 @@ export type BrainState = 'off' | 'listening' | 'thinking' | 'speaking' | 'away';
 
 export type StageEvent =
   | { v: 1; type: 'hello'; character: CharacterManifest; template: TemplateManifest; at: number }
-  | { v: 1; type: 'say'; id: string; text: string; mood: string; audio: string | null; estimateMs: number; at: number }
+  /**
+   * 她说一句话。timeline：逐字时间（音频里的毫秒 → 亮到第几个字），字幕按实际播放位置走；
+   * 没有时（没语音、旧版身体）按 estimateMs 匀速走
+   */
+  | { v: 1; type: 'say'; id: string; text: string; mood: string; audio: string | null; estimateMs: number; timeline?: Array<{ chars: number; atMs: number }>; at: number }
   | { v: 1; type: 'brain'; state: BrainState; detail?: string; at: number }
   /** isUpdate：同 id 再来一次（礼物连击累加） */
   | { v: 1; type: 'live'; event: StageLiveEvent; isUpdate: boolean; at: number }

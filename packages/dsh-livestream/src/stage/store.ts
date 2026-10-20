@@ -21,9 +21,30 @@ export interface Line {
   id: string;
   text: string;
   mood: string;
-  /** 念到哪了（0–1）：字幕的进度 */
   startedAt: number;
   durationMs: number;
+  /** 逐字时间（音频毫秒 → 亮到第几个字）；没有就按 durationMs 匀速 */
+  timeline?: Array<{ chars: number; atMs: number }>;
+}
+
+/** 这句念到了第几毫秒：有在放的音频就读它的真实播放位置，不然按开始以来的时间 */
+export function playbackMs(line: Line): number {
+  if (audio && audioLine === line.id && !audio.paused) return audio.currentTime * 1000;
+  return Date.now() - line.startedAt;
+}
+
+/** 字幕该亮到第几个字 */
+export function litChars(line: Line, length: number): number {
+  const ms = playbackMs(line);
+  if (line.timeline?.length) {
+    let lit = 0;
+    for (const p of line.timeline) {
+      if (p.atMs > ms) break;
+      lit = p.chars;
+    }
+    return lit;
+  }
+  return Math.round(length * Math.min(1, ms / Math.max(1, line.durationMs)));
 }
 
 export interface StageState {
@@ -79,6 +100,8 @@ export function assetUrl(kind: 'characters' | 'templates', id: string, file: str
 }
 
 let audio: HTMLAudioElement | null = null;
+/** 正在放的音频是哪一句的 */
+let audioLine: string | null = null;
 let pendingClick: (() => void) | null = null;
 
 function said(id: string): void {
@@ -92,7 +115,7 @@ function endLine(id: string): void {
 
 function onSay(event: Extract<StageEvent, { type: 'say' }>): void {
   audio?.pause();
-  const begin = (durationMs: number) => update((s) => ({ ...s, line: { id: event.id, text: event.text, mood: event.mood, startedAt: Date.now(), durationMs } }));
+  const begin = (durationMs: number) => update((s) => ({ ...s, line: { id: event.id, text: event.text, mood: event.mood, startedAt: Date.now(), durationMs, timeline: event.timeline } }));
   const fallback = () => {
     begin(event.estimateMs);
     setTimeout(() => endLine(event.id), event.estimateMs);
@@ -100,6 +123,7 @@ function onSay(event: Extract<StageEvent, { type: 'say' }>): void {
   if (!event.audio || preview) return fallback();
   const player = new Audio(`data:audio/mpeg;base64,${event.audio}`);
   audio = player;
+  audioLine = event.id;
   player.onloadedmetadata = () => begin(Number.isFinite(player.duration) ? player.duration * 1000 : event.estimateMs);
   player.onended = () => endLine(event.id);
   player.onerror = fallback;

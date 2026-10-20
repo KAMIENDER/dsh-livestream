@@ -28,8 +28,8 @@ import { Stage } from './stage';
 export interface ShowHooks {
   /** 把一件事作为一条消息推进她的会话（唤醒她）；会话不在线返回 false */
   push(sessionId: string, text: string): Promise<boolean>;
-  /** 合成一句话的语音（mp3）；没配密钥或失败返回 null（只有字幕） */
-  synthesize(text: string, signal: AbortSignal): Promise<Uint8Array | null>;
+  /** 合成一句话的语音（mp3）和逐字时间；没配密钥或失败返回 null（只有字幕，按字数走） */
+  synthesize(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null>;
   /** 下播后提炼观众记忆用的模型 */
   distill?: DistillLlm;
   log?(level: 'info' | 'warn', message: string): void;
@@ -105,6 +105,8 @@ export class LiveShow {
   private unsubscribe: (() => void) | null = null;
   /** 记住这个直播间的观众：只有主人说这是自己的直播间才记（连别人的直播间旁观时不建档） */
   rememberViewers = false;
+  /** 这一场记不记（开播时按 rememberViewers 定下来） */
+  private memoryStream = false;
 
   constructor(private readonly hooks: ShowHooks, private readonly options: ShowOptions) {
     mkdirSync(options.dataDir, { recursive: true });
@@ -155,7 +157,7 @@ export class LiveShow {
     const now = Date.now();
     this.attention.observe(event, isUpdate, now);
     // 只记自己直播间的观众（主人在控制台勾了的）；模拟观众（控制台彩排）不记
-    if (this.onAir && this.rememberViewers && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
+    if (this.onAir && this.memoryStream && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
     const shown = toStage(event);
     if (shown) this.stage.broadcast({ type: 'live', event: shown, isUpdate });
     if (this.onAir && !isUpdate && (event.kind === 'superchat' || event.kind === 'membership' || (event.kind === 'gift' && event.valueYuan > 0))) {
@@ -188,7 +190,9 @@ export class LiveShow {
     this.endingPushed = false;
     this.turnRunning = false;
     this.attention = this.freshAttention();
-    this.memory.begin(Date.now());
+    // 别人的直播间（旁观、试播）不留任何记忆：不建档，也不写这场的回顾
+    this.memoryStream = this.rememberViewers;
+    if (this.memoryStream) this.memory.begin(Date.now());
     this.priority = [{ kind: 'opening' }];
     this.lines = [];
     this.herLines = [];
@@ -218,7 +222,8 @@ export class LiveShow {
     this.director = null;
     this.setBrain('off');
     this.syncRoom();
-    const streamId = this.memory.end(Date.now());
+    const streamId = this.memoryStream ? this.memory.end(Date.now()) : null;
+    this.memoryStream = false;
     this.record({ type: 'end' });
     this.logFile = null;
     if (streamId !== null && this.hooks.distill) {
@@ -256,7 +261,7 @@ export class LiveShow {
     const d = new Date(now);
     const text = topicText(topic, {
       viewerCard: (u: LiveUser) => this.memory.viewerCard(u, now),
-      lastRecap: topic.kind === 'opening' ? this.memory.lastRecap() : undefined,
+      lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
       today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
     });
     this.pushing = true;
@@ -307,16 +312,20 @@ export class LiveShow {
       this.setBrain('speaking');
       const start = Date.now();
       try {
-        let audio: Uint8Array | null = null;
+        let speech: { audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null = null;
         try {
-          audio = await this.hooks.synthesize(text, signal);
+          speech = await this.hooks.synthesize(text, signal);
         } catch (err) {
           this.hooks.log?.('warn', `语音合成失败：${(err as Error).message}`);
         }
         const id = randomUUID();
         const estimateMs = estimateSpeechMs(text);
         const done = this.stage.waitSaid(id, estimateMs, signal);
-        this.stage.broadcast({ type: 'say', id, text, mood, audio: audio ? Buffer.from(audio).toString('base64') : null, estimateMs });
+        this.stage.broadcast({
+          type: 'say', id, text, mood, estimateMs,
+          audio: speech ? Buffer.from(speech.audio).toString('base64') : null,
+          ...(speech?.timeline.length ? { timeline: speech.timeline } : {}),
+        });
         await done;
       } finally {
         this.speaking -= 1;
