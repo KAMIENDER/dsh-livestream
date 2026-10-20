@@ -47,7 +47,8 @@ export interface TemplateManifest {
   widgets: WidgetPlacement[];
 }
 
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label';
+/** reply：「她在回」卡片（她正在回应的那几位观众和他们说的话；热闹时那条弹幕早滚出弹幕列表了） */
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply';
 
 export interface WidgetPlacement {
   type: WidgetType;

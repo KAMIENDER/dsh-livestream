@@ -4,11 +4,32 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { CharacterManifest, StageUser } from './protocol';
-import { assetUrl, dropAlert, getState, litChars, subscribe, type Alert, type StageState } from './store';
+import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
+import { assetUrl, dropAlert, getState, litChars, subscribe, type Alert, type ReplyItem, type StageState } from './store';
 
 export function useStage(): StageState {
   return useSyncExternalStore(subscribe, getState);
+}
+
+/** 值变成空以后再留 ms 毫秒（给退场动画）：返回 [还显示的值, 是不是在退场] */
+function useLinger<T>(value: T | null, ms: number): [T | null, boolean] {
+  const [kept, setKept] = useState<T | null>(value);
+  useEffect(() => {
+    if (value !== null) { setKept(value); return; }
+    const timer = setTimeout(() => setKept(null), ms);
+    return () => clearTimeout(timer);
+  }, [value]);
+  return value !== null ? [value, false] : [kept, kept !== null];
+}
+
+/** 角色身后的光和脚下的光圈：说话时亮起来，颜色跟表情走（data-mood） */
+function Halo() {
+  return (
+    <>
+      <div className="ls-aura" />
+      <div className="ls-pedestal"><i /><i /><i /></div>
+    </>
+  );
 }
 
 // ── 角色 ─────────────────────────────────────────────
@@ -46,7 +67,8 @@ function ClipCharacter({ character }: { character: CharacterManifest }) {
   const next = () => setQueue((q) => (q.length > 1 ? q.slice(1) : q));
   const [w, h] = clips.size;
   return (
-    <div className="ls-character" style={{ aspectRatio: `${w} / ${h}` }}>
+    <div className={`ls-character${line ? ' ls-speaking' : ''}`} data-mood={line?.mood || undefined} style={{ aspectRatio: `${w} / ${h}` }}>
+      <Halo />
       <ClipPlayer src={(name) => assetUrl('characters', character.id, name)} name={queue[0]} loop={queue.length <= 1} onEnded={next} names={allClips(character)} />
     </div>
   );
@@ -102,8 +124,12 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
     let cancelled = false;
     back.src = url(name);
     back.loop = loop;
+    // 只换一次：play() 慢过 250 毫秒时兜底的定时器先换上来，之后真出帧的回调再来一次的话，
+    // 会把「上一个」记成自己、150 毫秒后把正在前台的这段暂停（角色定住或消失）
+    let revealed = false;
     const reveal = () => {
-      if (cancelled) return;
+      if (cancelled || revealed) return;
+      revealed = true;
       shown.current = name;
       setPrev(frontRef.current);
       frontRef.current = nextIndex;
@@ -141,34 +167,68 @@ function ImageCharacter({ character }: { character: CharacterManifest }) {
   const file = (line && image.moods?.[line.mood]) || image.idle;
   const [w, h] = image.size;
   return (
-    <div className="ls-character" style={{ aspectRatio: `${w} / ${h}` }}>
+    <div className={`ls-character${line ? ' ls-speaking' : ''}`} data-mood={line?.mood || undefined} style={{ aspectRatio: `${w} / ${h}` }}>
+      <Halo />
       <img className={`ls-image${line ? ' ls-talking' : ''}`} src={assetUrl('characters', character.id, file)} alt="" />
     </div>
   );
 }
 
+// ── 小图标 ───────────────────────────────────────────
+
+const svg = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
+
+function GiftIcon() {
+  return <svg {...svg}><rect x="3.5" y="9" width="17" height="11.5" rx="2" /><path d="M2.5 9h19M12 9v11.5M12 9c-1.6-3.4-5.8-4.6-6.4-2.2C5 9 9.4 9 12 9Zm0 0c1.6-3.4 5.8-4.6 6.4-2.2C19 9 14.6 9 12 9Z" /></svg>;
+}
+
+function ShipIcon() {
+  return <svg {...svg}><path d="M12 2.5v9M12 3.5l5.5 6H12" /><path d="M3 14h18l-2.6 4.6a3 3 0 0 1-2.6 1.4H8.2a3 3 0 0 1-2.6-1.4Z" /><path d="M2 22.5c1.7 0 1.7-1 3.3-1s1.7 1 3.4 1 1.7-1 3.3-1 1.7 1 3.4 1 1.6-1 3.3-1 1.6 1 3.3 1" /></svg>;
+}
+
+function HeartIcon() {
+  return <svg {...svg}><path d="M12 20.5s-8-4.7-8-10.6A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.9c0 5.9-8 10.6-8 10.6Z" /></svg>;
+}
+
+function EyeIcon() {
+  return <svg {...svg}><path d="M1.8 12S5.5 5 12 5s10.2 7 10.2 7-3.7 7-10.2 7S1.8 12 1.8 12Z" /><circle cx="12" cy="12" r="3" /></svg>;
+}
+
+/** 声波：说话时跳的几根竖条（字幕名牌、「她在回」、弹幕上的「正在回你」都用它） */
+function Voice() {
+  return <i className="ls-voice"><b /><b /><b /><b /></i>;
+}
+
+/** 爆开的小光点 */
+function Sparks({ n = 12 }: { n?: number }) {
+  return <i className="ls-sparks">{Array.from({ length: n }, (_, i) => <b key={i} style={{ '--i': i, '--n': n } as React.CSSProperties} />)}</i>;
+}
+
 // ── 字幕 ─────────────────────────────────────────────
 
-/** 她正在说的话：念到哪亮到哪（按豆包给的逐字时间和音频的真实播放位置，不按字数估） */
+/** 她正在说的话：念到哪亮到哪（按豆包给的逐字时间和音频的真实播放位置，不按字数估）；说完留一会儿再淡出 */
 export function Subtitle() {
   const { line, character } = useStage();
-  const chars = useMemo(() => [...(line?.text ?? '')], [line?.text]);
-  const [lit, setLit] = useState(0);
+  const [shown, ended] = useLinger(line, 2600);
+  const chars = useMemo(() => [...(shown?.text ?? '')], [shown?.text]);
+  const [lit, setLit] = useState({ id: '', n: 0 });
   useEffect(() => {
     if (!line) return;
     let frame = 0;
     const tick = () => {
-      setLit(litChars(line, chars.length));
+      const n = litChars(line, chars.length);
+      setLit((l) => (l.id === line.id && l.n === n ? l : { id: line.id, n }));
       frame = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(frame);
   }, [line?.id, line?.durationMs]);
-  if (!line) return <div className="ls-subtitle ls-empty" />;
+  if (!shown) return <div className="ls-subtitle ls-empty" />;
+  const upTo = ended ? chars.length : lit.id === shown.id ? lit.n : 0;
   return (
-    <div className="ls-subtitle" key={line.id}>
-      <span className="ls-speaker">{character?.name ?? ''}</span>
-      <p><span className="ls-lit">{chars.slice(0, lit).join('')}</span><span className="ls-dim">{chars.slice(lit).join('')}</span></p>
+    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}`} key={shown.id} data-mood={shown.mood || undefined}>
+      <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}</span>
+      <p>{chars.map((c, i) => <span key={i} className={i < upTo ? 'ls-lit' : 'ls-dim'}>{c}</span>)}</p>
     </div>
   );
 }
@@ -177,20 +237,33 @@ export function Subtitle() {
 
 const GUARD = ['', '总督', '提督', '舰长'];
 
+/** 粉丝牌按等级换色（照 B 站：越高越暖） */
+function medalTier(level: number): number {
+  return Math.min(6, Math.max(1, Math.ceil(level / 4)));
+}
+
 function Badge({ user }: { user: StageUser }) {
   return (
     <>
       {user.guard ? <span className={`ls-badge ls-guard-${user.guard}`}>{GUARD[user.guard]}</span> : null}
-      {user.medal ? <span className="ls-badge ls-medal">{user.medal.name}<b>{user.medal.level}</b></span> : null}
+      {user.medal ? <span className={`ls-badge ls-medal ls-medal-t${medalTier(user.medal.level)}`}><span>{user.medal.name}</span><b>{user.medal.level}</b></span> : null}
       {user.admin ? <span className="ls-badge ls-admin">房管</span> : null}
     </>
   );
 }
 
+/** 没头像时用名字的第一个字，底色按名字换（一屏同一个颜色太单调） */
+function hue(name: string): number {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+
 function Avatar({ user }: { user: StageUser }) {
   const [broken, setBroken] = useState(false);
-  if (!user.face || broken) return <span className="ls-avatar ls-avatar-letter">{[...user.name][0] ?? '?'}</span>;
-  return <img className="ls-avatar" src={user.face} referrerPolicy="no-referrer" alt="" onError={() => setBroken(true)} />;
+  const guard = user.guard ? { 'data-guard': user.guard } : {};
+  if (!user.face || broken) return <span className="ls-avatar ls-avatar-letter" {...guard} style={{ '--ls-hue': hue(user.name) } as React.CSSProperties}>{[...user.name][0] ?? '?'}</span>;
+  return <img className="ls-avatar" {...guard} src={user.face} referrerPolicy="no-referrer" alt="" onError={() => setBroken(true)} />;
 }
 
 export function Chat({ options }: { options?: Record<string, unknown> }) {
@@ -200,17 +273,62 @@ export function Chat({ options }: { options?: Record<string, unknown> }) {
   return (
     <div className="ls-chat">
       {rows.map((row) => {
-        const focused = focus.has(row.event.user.id);
+        const { user } = row.event;
+        const focused = focus.has(user.id);
         return (
-          <div key={row.id} className={`ls-chat-row${focused ? ' ls-focused' : ''}`}>
-            <Avatar user={row.event.user} />
+          <div key={row.id} className={`ls-chat-row${focused ? ' ls-focused' : ''}${user.guard ? ` ls-row-guard ls-row-guard-${user.guard}` : ''}`}>
+            <Avatar user={user} />
             <div className="ls-chat-body">
-              <div className="ls-chat-name"><Badge user={row.event.user} /><span>{row.event.user.name}</span>{focused && <em className="ls-replying">正在回你</em>}</div>
+              <div className="ls-chat-name"><Badge user={user} /><span className="ls-name">{user.name}</span>{focused && <em className="ls-replying"><Voice />正在回你</em>}</div>
               {row.event.sticker ? <img className="ls-sticker" src={row.event.sticker} referrerPolicy="no-referrer" alt={row.event.text} /> : <div className="ls-chat-text">{row.event.text}</div>}
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── 她在回 ───────────────────────────────────────────
+
+/** 一件事用一句话说（「她在回」卡片里） */
+function eventText(e: StageLiveEvent): string {
+  switch (e.kind) {
+    case 'chat': case 'superchat': return e.text;
+    case 'gift': return `送出 ${e.gift} ×${e.count}`;
+    case 'membership': return `开通了${e.level}`;
+    case 'follow': return '关注了直播间';
+    case 'enter': return '进入直播间';
+  }
+}
+
+function ReplyCard({ item, i }: { item: ReplyItem; i: number }) {
+  const e = item.event;
+  const said = e.kind === 'chat' || e.kind === 'superchat';
+  return (
+    <div className={`ls-reply-card ls-reply-${e.kind}${e.kind === 'superchat' ? ` ls-sc-${scTier(e.yuan)}` : ''}`} style={{ '--i': i } as React.CSSProperties}>
+      <Avatar user={e.user} />
+      <div className="ls-reply-body">
+        <div className="ls-reply-name"><Badge user={e.user} /><span className="ls-name">{e.user.name}</span>{e.kind === 'superchat' && <b className="ls-reply-price">¥{e.yuan}</b>}</div>
+        {e.kind === 'chat' && e.sticker
+          ? <img className="ls-sticker" src={e.sticker} referrerPolicy="no-referrer" alt={e.text} />
+          : <p className={said ? undefined : 'ls-reply-act'}>{eventText(e)}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** 她正在回应的那几位观众和他们说的话：热闹的时候那条弹幕早滚出弹幕列表了 */
+export function Reply({ options }: { options?: Record<string, unknown> }) {
+  const { reply, replySeq, character } = useStage();
+  const current = useMemo(() => (reply.length ? { items: reply, seq: replySeq } : null), [reply, replySeq]);
+  const [shown, leaving] = useLinger(current, 450);
+  if (!shown) return null;
+  const items = shown.items.slice(-Number(options?.max ?? 3));
+  return (
+    <div className={`ls-reply${leaving ? ' ls-leaving' : ''}`} key={shown.seq}>
+      <div className="ls-reply-tag"><Voice />{character?.name ?? '她'}在回</div>
+      {items.map((item, i) => <ReplyCard key={item.key} item={item} i={i} />)}
     </div>
   );
 }
@@ -227,29 +345,83 @@ function scTier(yuan: number): string {
   return 'blue';
 }
 
+/** 礼物按价钱分三档：小（一行带过）、大（金边、光点）、超大（再加光芒） */
+function giftSize(yuan: number): 'small' | 'big' | 'huge' {
+  return yuan >= 100 ? 'huge' : yuan >= 5 ? 'big' : 'small';
+}
+
+/** 总督 1、提督 2、舰长 3（和 StageUser.guard 一样） */
+function guardLevel(level: string): number {
+  return level.includes('总督') ? 1 : level.includes('提督') ? 2 : 3;
+}
+
+function alertTtl(e: Alert['event']): number {
+  switch (e.kind) {
+    case 'superchat': return e.yuan >= 500 ? 20_000 : 12_000;
+    case 'membership': return 9_000;
+    case 'gift': return e.yuan >= 100 ? 9_000 : 6_000;
+    case 'enter': return 3_500;
+    default: return 6_000;
+  }
+}
+
 function AlertCard({ alert }: { alert: Alert }) {
   const e = alert.event;
-  const ttl = e.kind === 'superchat' ? 12_000 : e.kind === 'enter' ? 3_500 : 6_000;
+  const ttl = alertTtl(e);
+  const [leaving, setLeaving] = useState(false);
+  // 礼物连击：数量一变就重新计时
+  const combo = e.kind === 'gift' ? e.count : 0;
   useEffect(() => {
+    setLeaving(false);
+    const out = setTimeout(() => setLeaving(true), ttl - 400);
     const timer = setTimeout(() => dropAlert(alert.key), ttl);
-    return () => clearTimeout(timer);
-  }, [alert.key]);
+    return () => { clearTimeout(out); clearTimeout(timer); };
+  }, [alert.key, combo]);
+  const out = leaving ? ' ls-out' : '';
   switch (e.kind) {
     case 'superchat':
       return (
-        <div className={`ls-alert ls-sc ls-sc-${scTier(e.yuan)}`}>
-          <div className="ls-sc-head"><Avatar user={e.user} /><span>{e.user.name}</span><b>¥{e.yuan}</b></div>
+        <div className={`ls-alert ls-sc ls-sc-${scTier(e.yuan)}${out}`} style={{ '--ls-ttl': `${ttl}ms` } as React.CSSProperties}>
+          <div className="ls-sc-head">
+            <Avatar user={e.user} />
+            <div className="ls-sc-who"><span>{e.user.name}</span><small>醒目留言</small></div>
+            <b className="ls-sc-price">¥{e.yuan}</b>
+          </div>
           <div className="ls-sc-text">{e.text}</div>
+          <i className="ls-timer" />
         </div>
       );
-    case 'gift':
-      return <div className={`ls-alert ls-gift${e.yuan >= 5 ? ' ls-big' : ''}`}><Avatar user={e.user} /><span><b>{e.user.name}</b> 送出 {e.gift}</span><em>×{e.count}</em></div>;
+    case 'gift': {
+      const size = giftSize(e.yuan);
+      return (
+        <div className={`ls-alert ls-gift ls-gift-${size}${size !== 'small' ? ' ls-big' : ''}${out}`}>
+          {size === 'huge' && <i className="ls-rays" />}
+          <Avatar user={e.user} />
+          <div className="ls-gift-text"><b>{e.user.name}</b><span>送出 <strong>{e.gift}</strong></span></div>
+          <span className="ls-gift-icon"><GiftIcon /></span>
+          <em className="ls-combo" key={e.count}>×{e.count}</em>
+          {size !== 'small' && <Sparks key={`s${e.count}`} />}
+        </div>
+      );
+    }
     case 'membership':
-      return <div className="ls-alert ls-guard ls-big"><Avatar user={e.user} /><span><b>{e.user.name}</b> 开通了{e.level}</span></div>;
+      return (
+        <div className={`ls-alert ls-guard ls-big ls-guard-lv${guardLevel(e.level)}${out}`}>
+          <i className="ls-rays" />
+          <span className="ls-guard-ship"><ShipIcon /></span>
+          <div className="ls-guard-text">
+            <small>欢迎上船</small>
+            <b>{e.user.name}</b>
+            <span>开通了{e.level}{e.count > 1 ? ` ×${e.count}` : ''}</span>
+          </div>
+          <Avatar user={e.user} />
+          <Sparks n={16} />
+        </div>
+      );
     case 'follow':
-      return <div className="ls-alert ls-follow"><Avatar user={e.user} /><span><b>{e.user.name}</b> 关注了直播间</span></div>;
+      return <div className={`ls-alert ls-follow${out}`}><span className="ls-follow-icon"><HeartIcon /></span><span><b>{e.user.name}</b> 关注了直播间</span></div>;
     case 'enter':
-      return <div className="ls-alert ls-enter"><span><b>{e.user.name}</b> 进入直播间</span></div>;
+      return <div className={`ls-alert ls-enter${e.user.guard ? ` ls-enter-guard ls-enter-guard-${e.user.guard}` : ''}${out}`}>{e.user.guard ? <Badge user={e.user} /> : null}<span><b>{e.user.name}</b> 进入直播间</span></div>;
   }
 }
 
@@ -272,14 +444,14 @@ export function Status() {
   const { brain, brainDetail, online, onAir, character, connected } = useStage();
   return (
     <div className={`ls-status ls-brain-${brain}`}>
-      <span className={`ls-live${onAir ? ' ls-on' : ''}`}>{onAir ? 'LIVE' : '准备中'}</span>
-      {online !== undefined && <span className="ls-online">{online} 人在看</span>}
-      {brain !== 'off' && <span className="ls-brain"><i />{character?.name ?? ''}{brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[brain]}</span>}
+      <span className={`ls-live${onAir ? ' ls-on' : ''}`}><i />{onAir ? 'LIVE' : '准备中'}</span>
+      {online !== undefined && <span className="ls-online"><EyeIcon />{online}<small>人在看</small></span>}
+      {brain !== 'off' && <span className="ls-brain" key={brain}><i className="ls-brain-icon"><b /><b /><b /></i>{character?.name ?? ''}{brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[brain]}</span>}
       {!connected && <span className="ls-offline">舞台没连上</span>}
     </div>
   );
 }
 
 export function AiLabel({ options }: { options?: Record<string, unknown> }) {
-  return <div className="ls-ai-label">{String(options?.text ?? 'AI 主播 · 内容由人工智能生成')}</div>;
+  return <div className="ls-ai-label"><i />{String(options?.text ?? 'AI 主播 · 内容由人工智能生成')}</div>;
 }

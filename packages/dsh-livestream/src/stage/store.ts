@@ -17,6 +17,12 @@ export interface Alert {
   at: number;
 }
 
+/** 「她在回」卡片的一条：那位观众和他说的话（focus 那一刻从最近的事件里找） */
+export interface ReplyItem {
+  key: string;
+  event: StageLiveEvent;
+}
+
 export interface Line {
   id: string;
   text: string;
@@ -59,6 +65,10 @@ export interface StageState {
   chats: ChatRow[];
   alerts: Alert[];
   focus: Set<string>;
+  /** 她正在回应的那几条（她回完就清空） */
+  reply: ReplyItem[];
+  /** 每来一次 focus 加一：卡片重新入场 */
+  replySeq: number;
   online?: number;
   onAir: boolean;
   /** 浏览器拦住了自动播放：要点一下 */
@@ -67,10 +77,13 @@ export interface StageState {
 
 const MAX_CHATS = 30;
 const MAX_ALERTS = 6;
+/** 「她在回」从这里找观众说过的话：比弹幕列表留得久，礼物、醒目留言、进场都在 */
+const MAX_RECENT = 120;
+const recent: StageLiveEvent[] = [];
 
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
-  chats: [], alerts: [], focus: new Set(), onAir: false, needsClick: false,
+  chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
 };
 const subscribers = new Set<() => void>();
 
@@ -143,7 +156,26 @@ export function unlockAudio(): void {
 
 let alertSeq = 0;
 
+function remember(event: StageLiveEvent): void {
+  const i = recent.findIndex((e) => e.id === event.id);
+  if (i >= 0) recent[i] = event;
+  else recent.push(event);
+  if (recent.length > MAX_RECENT) recent.splice(0, recent.length - MAX_RECENT);
+}
+
+/** 每位被回应的观众最近的一件事（一人一条，按事件先后） */
+function replyItems(userIds: string[]): ReplyItem[] {
+  const items: ReplyItem[] = [];
+  // 同一位观众一轮里可能出现两次（先送礼又上舰）：只列一次
+  for (const id of new Set(userIds)) {
+    const event = recent.findLast((e) => e.user.id === id);
+    if (event) items.push({ key: `${event.id}`, event });
+  }
+  return items.sort((a, b) => recent.indexOf(a.event) - recent.indexOf(b.event));
+}
+
 function onLive(event: StageLiveEvent, isUpdate: boolean): void {
+  remember(event);
   if (event.kind === 'chat') {
     if (isUpdate) return;
     update((s) => ({ ...s, chats: [...s.chats, { id: event.id, event, at: Date.now() }].slice(-MAX_CHATS) }));
@@ -170,9 +202,15 @@ function handle(event: StageEvent): void {
   switch (event.type) {
     case 'hello': return update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
     case 'say': return onSay(event);
-    case 'brain': return update((s) => ({ ...s, brain: event.state, brainDetail: event.detail ?? (event.state === s.brain ? s.brainDetail : '') }));
+    case 'brain': return update((s) => ({
+      ...s, brain: event.state, brainDetail: event.detail ?? (event.state === s.brain ? s.brainDetail : ''),
+      // 她在动就是在播：舞台中途打开（OBS 刷新）时收不到开播那一下的 room 事件，不然一直显示「准备中」
+      ...(event.state !== 'off' ? { onAir: true } : {}),
+      // 这一轮回完了：不再标「正在回你」
+      ...(event.state === 'thinking' || event.state === 'speaking' ? {} : { focus: new Set<string>(), reply: [] }),
+    }));
     case 'live': return onLive(event.event, event.isUpdate);
-    case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds) }));
+    case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds), reply: replyItems(event.userIds), replySeq: s.replySeq + 1 }));
     case 'room': return update((s) => ({ ...s, online: event.online, onAir: event.onAir }));
     case 'reload': location.reload(); return;
   }

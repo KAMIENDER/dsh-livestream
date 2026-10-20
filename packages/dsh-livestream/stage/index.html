@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dsh-livestream 舞台</title>
-<script>document.write('<link rel="stylesheet" href="/stage.css' + location.search + '">');</script>
+<script>document.write('<link rel="stylesheet" href="/stage.css' + location.search + (location.search ? '&' : '?') + 'v=' + Date.now() + '">');</script>
 </head>
 <body>
 <div id="root"></div>

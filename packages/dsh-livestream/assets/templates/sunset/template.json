@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "id": "sunset",
+  "name": "晚霞",
+  "canvas": [1920, 1080],
+  "theme": {
+    "--ls-text": "#fff6f1",
+    "--ls-dim": "rgba(255, 232, 224, 0.72)",
+    "--ls-unlit": "rgba(255, 226, 216, 0.4)",
+    "--ls-accent": "#ffc48f",
+    "--ls-accent-2": "#ff8cc0",
+    "--ls-ink": "#3a1030",
+    "--ls-panel": "linear-gradient(160deg, rgba(255, 236, 240, 0.16), rgba(255, 200, 220, 0.05))",
+    "--ls-panel-strong": "linear-gradient(180deg, rgba(70, 26, 70, 0.8), rgba(38, 14, 44, 0.9))",
+    "--ls-panel-border": "rgba(255, 220, 230, 0.26)",
+    "--ls-radius": "28px",
+    "--ls-subtitle-size": "40px",
+    "--ls-chat-size": "24px"
+  },
+  "widgets": [
+    { "type": "status", "x": 48, "y": 40 },
+    { "type": "ai-label", "x": 1560, "y": 44, "w": 312 },
+    { "type": "alerts", "x": 620, "y": 40, "w": 680, "options": { "max": 3 } },
+    { "type": "chat", "x": 1320, "y": 120, "w": 560, "h": 640, "options": { "rows": 10 } },
+    { "type": "reply", "x": 660, "y": 380, "w": 600, "h": 380, "options": { "max": 3 } },
+    { "type": "character", "x": 70, "y": 120, "w": 540 },
+    { "type": "subtitle", "x": 440, "y": 780, "w": 1060, "h": 270 }
+  ]
+}

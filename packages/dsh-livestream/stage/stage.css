@@ -1,7 +1,10 @@
 /*
- * 舞台挂件的基础样式。模板改外观有两种办法：
+ * 舞台挂件的基础样式。模板改外观有三种办法：
  *   1. template.json 的 theme 里改 CSS 变量（颜色、字体、圆角……），最省事；
- *   2. 模板自己的 style.css 盖掉这里的任何一条（类名都以 ls- 开头）。
+ *   2. 模板自己的 style.css 盖掉这里的任何一条（类名都以 ls- 开头）；
+ *   3. 画背景和前景：.ls-backdrop 和 .ls-overlay 里各有几层空的 .ls-layer（加上它们的 ::before / ::after），
+ *      背景在挂件下面、前景在挂件上面（不挡点击），模板拿来画光、气泡、云、暗角。
+ * 情绪色 --ls-mood：她说话时跟着表情变（[data-mood=laugh] 之类），角色的光和字幕的边都用它。
  */
 
 :root {
@@ -15,6 +18,9 @@ html, body {
   background: transparent;
 }
 
+/* 情绪色能平滑过渡 */
+@property --ls-mood { syntax: '<color>'; inherits: true; initial-value: #86dcff; }
+
 .ls-viewport { position: fixed; inset: 0; }
 
 .ls-canvas {
@@ -23,14 +29,22 @@ html, body {
   --ls-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   --ls-text: #eaf3ff;
   --ls-dim: rgba(220, 232, 255, 0.62);
+  /* 字幕里还没念到的字 */
+  --ls-unlit: rgba(214, 228, 255, 0.34);
   --ls-accent: #86dcff;
   --ls-accent-2: #b79bff;
+  /* 强调色上的深色字（名牌、标签） */
+  --ls-ink: #061528;
+  --ls-gold: #ffd36e;
   --ls-panel: linear-gradient(160deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  /* 字幕和「她在回」卡片：更实一点，字要压得住背景 */
+  --ls-panel-strong: linear-gradient(180deg, rgba(16, 32, 66, 0.82), rgba(6, 14, 34, 0.9));
   --ls-panel-border: rgba(255, 255, 255, 0.18);
-  --ls-radius: 20px;
+  --ls-radius: 22px;
   --ls-blur: 22px;
   --ls-subtitle-size: 40px;
   --ls-chat-size: 24px;
+  --ls-mood: var(--ls-accent);
 
   position: absolute;
   transform-origin: 0 0;
@@ -39,11 +53,22 @@ html, body {
   color: var(--ls-text);
 }
 
-.ls-backdrop { position: absolute; inset: 0; }
+.ls-backdrop, .ls-overlay { position: absolute; inset: 0; pointer-events: none; }
+.ls-overlay { z-index: 50; }
+.ls-layer { position: absolute; inset: 0; }
 .ls-slot { position: absolute; }
 .ls-loading { position: fixed; inset: 0; display: grid; place-items: center; font: 16px system-ui; color: #9fb4d8; }
 
-/* 玻璃面板：弹幕、字幕、提示共用 */
+/* 情绪色：角色、字幕共用 */
+[data-mood=laugh] { --ls-mood: #ffd36e; }
+[data-mood=shy] { --ls-mood: #ff9fd0; }
+[data-mood=angry] { --ls-mood: #ff6b7a; }
+[data-mood=sad] { --ls-mood: #7aa8ff; }
+[data-mood=scared] { --ls-mood: #b89cff; }
+[data-mood=shocked] { --ls-mood: #7ff3ff; }
+[data-mood=think] { --ls-mood: #9ff0cf; }
+
+/* 玻璃面板：模板自己的元素想要同样的质感就加这个类 */
 .ls-glass {
   background: var(--ls-panel);
   border: 1px solid var(--ls-panel-border);
@@ -52,94 +77,331 @@ html, body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 24px 60px -24px rgba(0, 0, 0, 0.7);
 }
 
+/* 掠过的一道反光：在自己的背景里移动，不会溢出圆角 */
+@keyframes ls-sweep { from { background-position: 160% 0; } to { background-position: -60% 0; } }
+.ls-shine {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.3) 48%, rgba(255, 255, 255, 0.06) 54%, transparent 62%) no-repeat;
+  background-size: 260% 100%;
+}
+
+/* ── 声波（说话中的几根竖条） ── */
+.ls-voice { display: inline-flex; align-items: center; gap: 3px; height: 0.9em; margin-right: 0.45em; vertical-align: -0.08em; }
+.ls-voice b { width: 3px; height: 100%; border-radius: 2px; background: currentColor; transform: scaleY(0.35); animation: ls-eq 0.9s ease-in-out infinite; }
+.ls-voice b:nth-child(2) { animation-delay: -0.3s; }
+.ls-voice b:nth-child(3) { animation-delay: -0.6s; }
+.ls-voice b:nth-child(4) { animation-delay: -0.15s; }
+@keyframes ls-eq { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+
+/* ── 爆开的光点（大礼物、上舰） ── */
+.ls-sparks { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 3; }
+.ls-sparks b {
+  --a: calc(var(--i) / var(--n) * 360deg + 8deg);
+  position: absolute; width: 10px; height: 10px; margin: -5px; border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, #fff 0 30%, var(--ls-spark, var(--ls-gold)) 55%, transparent 72%);
+  animation: ls-spark 1.2s cubic-bezier(0.12, 0.7, 0.3, 1) 0.1s forwards;
+}
+.ls-sparks b:nth-child(odd) { --r: 260px; width: 7px; height: 7px; }
+.ls-sparks b:nth-child(3n) { animation-delay: 0.22s; }
+@keyframes ls-spark {
+  0% { opacity: 1; transform: rotate(var(--a)) translateX(30px) scale(1.3); }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--r, 190px)) scale(0.3); }
+}
+
+/* ── 光芒（超大礼物、上舰：卡片后面慢慢转） ── */
+.ls-rays {
+  position: absolute; left: 50%; top: 50%; width: 1000px; height: 1000px; margin: -500px 0 0 -500px; z-index: -2;
+  pointer-events: none; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--ls-ray, var(--ls-gold)) 30%, transparent) 0deg 4deg, transparent 7deg 17deg, color-mix(in srgb, var(--ls-ray, var(--ls-gold)) 18%, transparent) 20deg 22deg, transparent 25deg 30deg);
+  filter: blur(3px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 12%, rgba(0, 0, 0, 0.45) 34%, transparent 66%);
+  mask-image: radial-gradient(closest-side, #000 12%, rgba(0, 0, 0, 0.45) 34%, transparent 66%);
+  animation: ls-spin 24s linear infinite, ls-rays-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes ls-spin { to { transform: rotate(360deg); } }
+@keyframes ls-rays-in { from { opacity: 0; scale: 0.3; } }
+
 /* ── 角色 ── */
-.ls-character { position: relative; width: 100%; }
-.ls-clips { position: absolute; inset: 0; }
+.ls-character { position: relative; width: 100%; transition: --ls-mood 0.8s ease; }
+.ls-clips { position: absolute; inset: 0; z-index: 1; }
 .ls-clips video { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
 .ls-clips video[data-role=prev] { opacity: 1; z-index: 1; }
 .ls-clips video[data-role=front] { opacity: 1; z-index: 2; animation: ls-clip-in 0.09s linear; }
 @keyframes ls-clip-in { from { opacity: 0; } }
-.ls-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
+.ls-image { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
 .ls-image.ls-talking { animation: ls-bounce 0.36s ease-in-out infinite alternate; }
 @keyframes ls-bounce { from { transform: translateY(0) scale(1, 1); } to { transform: translateY(-10px) scale(1.01, 0.99); } }
 
+/* 身后的光：平时轻轻呼吸，说话时亮起来、跟着表情变色 */
+.ls-aura {
+  position: absolute; left: -22%; right: -22%; top: 4%; bottom: 10%; z-index: 0; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ls-mood) 30%, transparent), color-mix(in srgb, var(--ls-mood) 9%, transparent) 58%, transparent);
+  opacity: 0.55; transition: opacity 0.8s ease;
+  animation: ls-breathe 7s ease-in-out infinite;
+}
+.ls-speaking .ls-aura { opacity: 1; animation-duration: 2.4s; }
+@keyframes ls-breathe { 50% { transform: scale(1.06); } }
+
+/* 脚下的光圈：压扁的同心圆，一圈虚线慢慢转，说话时往外荡波纹 */
+.ls-pedestal {
+  position: absolute; left: 50%; bottom: 4%; z-index: 0; width: 96%; aspect-ratio: 1; margin: 0 0 -48% -48%;
+  transform: scaleY(0.2); pointer-events: none;
+}
+.ls-pedestal::before {
+  content: ''; position: absolute; inset: 14%; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ls-mood) 55%, transparent), color-mix(in srgb, var(--ls-mood) 14%, transparent) 60%, transparent);
+  transition: opacity 0.6s; opacity: 0.7;
+}
+.ls-speaking .ls-pedestal::before { opacity: 1; }
+.ls-pedestal i { position: absolute; border-radius: 50%; }
+.ls-pedestal i:nth-child(1) { inset: 18%; border: 3px solid color-mix(in srgb, var(--ls-mood) 70%, transparent); box-shadow: 0 0 24px color-mix(in srgb, var(--ls-mood) 60%, transparent), inset 0 0 24px color-mix(in srgb, var(--ls-mood) 40%, transparent); }
+.ls-pedestal i:nth-child(2) {
+  inset: 6%;
+  background: repeating-conic-gradient(color-mix(in srgb, var(--ls-mood) 75%, transparent) 0deg 3deg, transparent 3deg 12deg);
+  -webkit-mask-image: radial-gradient(closest-side, transparent 92%, #000 93%, #000 98%, transparent 99%);
+  mask-image: radial-gradient(closest-side, transparent 92%, #000 93%, #000 98%, transparent 99%);
+  animation: ls-spin 40s linear infinite;
+}
+.ls-pedestal i:nth-child(3) { inset: 18%; border: 3px solid var(--ls-mood); opacity: 0; }
+.ls-speaking .ls-pedestal i:nth-child(3) { animation: ls-ripple 1.8s ease-out infinite; }
+@keyframes ls-ripple { 0% { opacity: 0.9; transform: scale(0.85); } 100% { opacity: 0; transform: scale(1.5); } }
+
 /* ── 字幕 ── */
+.ls-slot-subtitle { display: flex; flex-direction: column; justify-content: flex-end; }
 .ls-subtitle {
   position: relative;
-  padding: 26px 34px 30px;
-  background: var(--ls-panel);
-  border: 1px solid var(--ls-panel-border);
+  padding: 34px 42px 32px;
+  background: var(--ls-panel-strong);
+  border: 1px solid color-mix(in srgb, var(--ls-mood) 42%, rgba(255, 255, 255, 0.12));
   border-radius: var(--ls-radius);
   backdrop-filter: blur(var(--ls-blur)) saturate(160%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 30px 70px -26px rgba(0, 0, 0, 0.75);
-  animation: ls-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 30px 70px -26px rgba(0, 0, 0, 0.85),
+    0 0 70px -24px color-mix(in srgb, var(--ls-mood) 70%, transparent);
+  transition: --ls-mood 0.8s ease;
+  animation: ls-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* 上沿一道亮线 */
+.ls-subtitle::before {
+  content: ''; position: absolute; left: 36px; right: 36px; top: -1px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ls-mood), var(--ls-accent-2), transparent);
+  filter: drop-shadow(0 0 6px var(--ls-mood));
 }
 .ls-subtitle.ls-empty { visibility: hidden; animation: none; }
-.ls-subtitle p { margin: 0; font-size: var(--ls-subtitle-size); line-height: 1.5; font-weight: 600; letter-spacing: 0.5px; }
-.ls-lit { color: var(--ls-text); text-shadow: 0 0 18px color-mix(in srgb, var(--ls-accent) 45%, transparent); }
-.ls-dim { color: var(--ls-dim); }
+.ls-subtitle.ls-ended { animation: ls-fade-out 1s 1.6s ease forwards; }
+@keyframes ls-fade-out { to { opacity: 0; transform: translateY(8px); filter: blur(2px); } }
+.ls-subtitle p { margin: 0; font-size: var(--ls-subtitle-size); line-height: 1.5; font-weight: 650; letter-spacing: 0.5px; }
+.ls-subtitle.ls-long p { font-size: calc(var(--ls-subtitle-size) * 0.82); }
+.ls-subtitle p span { transition: color 0.22s ease, text-shadow 0.5s ease; }
+.ls-lit { color: var(--ls-text); text-shadow: 0 0 22px color-mix(in srgb, var(--ls-mood) 55%, transparent), 0 2px 6px rgba(0, 0, 0, 0.45); }
+.ls-dim { color: var(--ls-unlit); }
 .ls-speaker {
-  position: absolute; left: 28px; top: -18px; padding: 4px 16px; border-radius: 999px;
-  font-size: 20px; font-weight: 700; letter-spacing: 2px; color: #061528;
-  background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2));
-  box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--ls-accent) 80%, transparent);
+  position: absolute; left: 30px; top: -20px; display: inline-flex; align-items: center; padding: 5px 18px 5px 16px; border-radius: 999px;
+  font-size: 21px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
+  background: linear-gradient(90deg, var(--ls-mood), var(--ls-accent-2));
+  box-shadow: 0 6px 22px -6px color-mix(in srgb, var(--ls-mood) 85%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
-@keyframes ls-rise { from { transform: translateY(14px); opacity: 0; } }
+@keyframes ls-rise { from { transform: translateY(16px) scale(0.985); opacity: 0; } }
 
 /* ── 弹幕 ── */
 .ls-chat {
   height: 100%;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 12px;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 90px);
-  mask-image: linear-gradient(180deg, transparent 0, #000 90px);
+  padding: 0 12px 0 2px;
+  perspective: 1200px; perspective-origin: 0 60%;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 110px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 110px);
 }
 .ls-chat-row {
-  display: flex; gap: 14px; align-items: flex-start; padding: 12px 16px;
-  background: var(--ls-panel); border: 1px solid var(--ls-panel-border); border-radius: 16px;
+  position: relative; flex: none;
+  display: flex; gap: 14px; align-items: flex-start; padding: 12px 18px 13px 14px;
+  background: var(--ls-panel); border: 1px solid var(--ls-panel-border); border-radius: 18px;
   backdrop-filter: blur(var(--ls-blur)) saturate(150%);
-  animation: ls-slide 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
-  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 14px 30px -18px rgba(0, 0, 0, 0.7);
+  transform-origin: 0 50%;
+  animation: ls-card-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.08);
+  transition: border-color 0.35s, box-shadow 0.35s, transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2), background 0.35s;
 }
+@keyframes ls-card-in { from { transform: translateX(-36px) rotateY(38deg) scale(0.94); opacity: 0; } }
+/* 舰长以上：左边一道颜色 */
+.ls-row-guard::before { content: ''; position: absolute; left: -1px; top: 12px; bottom: 12px; width: 4px; border-radius: 0 4px 4px 0; background: var(--ls-guard-c); box-shadow: 0 0 12px var(--ls-guard-c); }
+.ls-row-guard-3 { --ls-guard-c: #6fb4ff; }
+.ls-row-guard-2 { --ls-guard-c: #c99bff; }
+.ls-row-guard-1 { --ls-guard-c: #ffcf6e; }
+.ls-row-guard .ls-name { color: color-mix(in srgb, var(--ls-guard-c) 70%, #fff); }
 .ls-chat-row.ls-focused {
-  border-color: color-mix(in srgb, var(--ls-accent) 80%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ls-accent) 50%, transparent), 0 0 32px -6px color-mix(in srgb, var(--ls-accent) 70%, transparent);
+  border-color: color-mix(in srgb, var(--ls-accent) 85%, transparent);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--ls-accent) 24%, transparent), rgba(255, 255, 255, 0.05) 70%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ls-accent) 45%, transparent), 0 0 38px -6px color-mix(in srgb, var(--ls-accent) 75%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transform: translateX(8px);
 }
-@keyframes ls-slide { from { transform: translateX(-24px); opacity: 0; } }
-.ls-avatar { width: 44px; height: 44px; border-radius: 50%; flex: none; object-fit: cover; border: 2px solid rgba(255, 255, 255, 0.25); }
-.ls-avatar-letter { display: grid; place-items: center; font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--ls-accent-2), var(--ls-accent)); color: #071427; }
-.ls-chat-body { min-width: 0; }
-.ls-chat-name { display: flex; align-items: center; gap: 8px; font-size: 18px; color: var(--ls-dim); margin-bottom: 4px; }
-.ls-chat-text { font-size: var(--ls-chat-size); line-height: 1.45; word-break: break-word; }
+.ls-chat-row.ls-focused::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.24) 48%, transparent 60%) no-repeat; background-size: 260% 100%;
+  animation: ls-sweep 2.8s ease-in-out infinite; }
+.ls-avatar { width: 46px; height: 46px; border-radius: 50%; flex: none; object-fit: cover; border: 2px solid rgba(255, 255, 255, 0.28); box-sizing: border-box; }
+.ls-avatar-letter {
+  display: grid; place-items: center; font-size: 20px; font-weight: 800; color: rgba(6, 16, 34, 0.86);
+  background: linear-gradient(135deg, hsl(var(--ls-hue, 200) 85% 80%), hsl(calc(var(--ls-hue, 200) + 45) 75% 66%));
+}
+.ls-avatar[data-guard="3"] { border-color: #6fb4ff; box-shadow: 0 0 0 2px rgba(111, 180, 255, 0.35), 0 0 16px rgba(111, 180, 255, 0.7); }
+.ls-avatar[data-guard="2"] { border-color: #c99bff; box-shadow: 0 0 0 2px rgba(201, 155, 255, 0.35), 0 0 16px rgba(201, 155, 255, 0.7); }
+.ls-avatar[data-guard="1"] { border-color: #ffcf6e; box-shadow: 0 0 0 2px rgba(255, 207, 110, 0.4), 0 0 18px rgba(255, 207, 110, 0.8); }
+.ls-chat-body { min-width: 0; flex: 1; }
+.ls-chat-name { display: flex; align-items: center; gap: 8px; font-size: 18px; color: var(--ls-dim); margin-bottom: 3px; min-width: 0; }
+.ls-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--ls-accent) 45%, var(--ls-dim)); }
+.ls-chat-text { font-size: var(--ls-chat-size); line-height: 1.42; word-break: break-word; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
 .ls-sticker { max-height: 96px; border-radius: 8px; }
-.ls-replying { font-style: normal; font-size: 15px; padding: 1px 10px; border-radius: 999px; color: #061528; background: var(--ls-accent); }
-.ls-badge { font-size: 14px; padding: 1px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: var(--ls-text); white-space: nowrap; }
+.ls-replying {
+  display: inline-flex; align-items: center; flex: none; margin-left: auto; font-style: normal; font-size: 15px; font-weight: 700;
+  padding: 2px 12px 2px 10px; border-radius: 999px; color: var(--ls-ink);
+  background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2));
+  box-shadow: 0 0 16px -2px color-mix(in srgb, var(--ls-accent) 80%, transparent);
+  animation: ls-tag-in 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes ls-tag-in { from { transform: scale(0.4); opacity: 0; } }
+.ls-badge { display: inline-flex; align-items: center; flex: none; font-size: 14px; line-height: 20px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #fff; white-space: nowrap; }
 .ls-badge b { margin-left: 6px; font-weight: 700; }
-.ls-guard-3 { background: rgba(84, 156, 255, 0.35); border-color: rgba(120, 180, 255, 0.7); }
-.ls-guard-2 { background: rgba(176, 110, 255, 0.35); border-color: rgba(200, 150, 255, 0.7); }
-.ls-guard-1 { background: rgba(255, 170, 60, 0.35); border-color: rgba(255, 200, 120, 0.8); }
-.ls-medal { background: rgba(255, 255, 255, 0.08); }
-.ls-admin { background: rgba(255, 120, 120, 0.3); }
+.ls-guard-3 { background: linear-gradient(90deg, #3d7ff0, #6fb4ff); border-color: rgba(160, 205, 255, 0.8); }
+.ls-guard-2 { background: linear-gradient(90deg, #8a52e8, #c99bff); border-color: rgba(220, 190, 255, 0.8); }
+.ls-guard-1 { background: linear-gradient(90deg, #e08a1e, #ffcf6e); border-color: rgba(255, 225, 160, 0.9); color: #3a2000; }
+/* 粉丝牌：两段，左边牌子名、右边等级 */
+.ls-medal { padding: 0; overflow: hidden; border-color: var(--ls-medal-c); }
+.ls-medal span { padding: 0 6px; background: linear-gradient(90deg, var(--ls-medal-c), color-mix(in srgb, var(--ls-medal-c) 70%, #fff)); }
+.ls-medal b { margin: 0; padding: 0 6px; background: #fff; color: var(--ls-medal-c); }
+.ls-medal-t1 { --ls-medal-c: #5c968e; }
+.ls-medal-t2 { --ls-medal-c: #5d7b9e; }
+.ls-medal-t3 { --ls-medal-c: #8d7ca6; }
+.ls-medal-t4 { --ls-medal-c: #be6686; }
+.ls-medal-t5 { --ls-medal-c: #c79d24; }
+.ls-medal-t6 { --ls-medal-c: #e0582a; }
+.ls-admin { background: rgba(255, 110, 110, 0.4); border-color: rgba(255, 160, 160, 0.7); }
 
-/* ── 礼物、醒目留言、进场 ── */
-.ls-alerts { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+/* ── 她在回：浮在空中的卡片 ── */
+.ls-slot-reply { display: flex; flex-direction: column; justify-content: flex-end; }
+.ls-reply { display: flex; flex-direction: column; align-items: stretch; gap: 12px; perspective: 1100px; animation: ls-bob 6s ease-in-out 0.8s infinite; }
+.ls-reply.ls-leaving { animation: ls-reply-out 0.45s ease-in forwards; }
+@keyframes ls-bob { 50% { transform: translateY(-8px); } }
+@keyframes ls-reply-out { to { opacity: 0; transform: translateY(-14px) scale(0.96); filter: blur(3px); } }
+.ls-reply-tag {
+  align-self: flex-start; display: inline-flex; align-items: center; padding: 5px 18px 5px 14px; border-radius: 999px;
+  font-size: 19px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
+  background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2));
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--ls-accent) 85%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  animation: ls-tag-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.ls-reply-card {
+  --ls-edge: var(--ls-accent);
+  position: relative; display: flex; gap: 16px; align-items: flex-start; padding: 18px 22px 18px 18px; border-radius: 22px;
+  background: var(--ls-panel-strong);
+  border: 1px solid color-mix(in srgb, var(--ls-edge) 55%, transparent);
+  backdrop-filter: blur(var(--ls-blur)) saturate(160%);
+  box-shadow: 0 26px 60px -22px rgba(0, 0, 0, 0.85), 0 0 48px -14px color-mix(in srgb, var(--ls-edge) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transform-origin: 50% 0;
+  animation: ls-flip-in 0.7s calc(var(--i) * 0.09s + 0.08s) cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+.ls-reply-card::before {
+  content: ''; position: absolute; left: 28px; right: 28px; top: -1px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ls-edge), transparent); filter: drop-shadow(0 0 6px var(--ls-edge));
+}
+.ls-reply-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.22) 48%, transparent 60%) no-repeat; background-size: 260% 100%;
+  animation: ls-sweep 1.4s calc(var(--i) * 0.09s + 0.5s) ease-in-out both;
+}
+@keyframes ls-flip-in { from { opacity: 0; transform: rotateX(-80deg) translateY(-24px); } }
+.ls-reply-card .ls-avatar { width: 54px; height: 54px; }
+.ls-reply-body { min-width: 0; flex: 1; }
+.ls-reply-name { display: flex; align-items: center; gap: 8px; font-size: 19px; color: var(--ls-dim); margin-bottom: 4px; }
+.ls-reply-name .ls-name { color: color-mix(in srgb, var(--ls-edge) 65%, #fff); font-weight: 700; }
+.ls-reply-body p {
+  margin: 0; font-size: 27px; line-height: 1.45; font-weight: 600; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ls-reply-body p.ls-reply-act { font-size: 24px; font-weight: 500; color: var(--ls-dim); }
+.ls-reply-price { margin-left: auto; font-size: 22px; color: #fff; padding: 0 12px; border-radius: 999px; background: var(--ls-sc); }
+.ls-reply-superchat { --ls-edge: color-mix(in srgb, var(--ls-sc) 70%, #fff); background: linear-gradient(160deg, color-mix(in srgb, var(--ls-sc) 40%, rgba(8, 14, 34, 0.9)), rgba(8, 14, 34, 0.92)); }
+.ls-reply-gift, .ls-reply-membership { --ls-edge: var(--ls-gold); }
+
+/* ── 礼物、醒目留言、上舰、进场 ── */
+.ls-alerts { display: flex; flex-direction: column; align-items: center; gap: 14px; perspective: 1000px; }
 .ls-alert {
-  display: flex; align-items: center; gap: 14px; padding: 12px 22px; border-radius: 999px;
+  position: relative; isolation: isolate;
+  display: flex; align-items: center; gap: 14px; padding: 10px 26px 10px 12px; border-radius: 999px;
   font-size: 24px; background: var(--ls-panel); border: 1px solid var(--ls-panel-border);
   backdrop-filter: blur(var(--ls-blur)) saturate(160%);
-  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.7);
-  animation: ls-pop 0.42s cubic-bezier(0.2, 1.4, 0.4, 1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 18px 44px -18px rgba(0, 0, 0, 0.75);
+  transform-origin: 50% 0;
+  animation: ls-pop 0.6s cubic-bezier(0.2, 1.35, 0.4, 1);
 }
-.ls-alert b { color: var(--ls-accent); }
-.ls-alert em { font-style: normal; font-weight: 800; font-size: 30px; color: #ffd36e; }
-.ls-alert.ls-big { border-color: rgba(255, 211, 110, 0.7); box-shadow: 0 0 40px -10px rgba(255, 211, 110, 0.8), 0 18px 44px -18px rgba(0, 0, 0, 0.7); }
-.ls-enter { font-size: 20px; padding: 8px 18px; opacity: 0.9; }
-@keyframes ls-pop { from { transform: scale(0.6) translateY(-20px); opacity: 0; } }
-.ls-sc { flex-direction: column; align-items: stretch; gap: 0; padding: 0; border-radius: 18px; overflow: hidden; width: 100%; max-width: 640px; }
-.ls-sc-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; font-size: 22px; background: var(--ls-sc, #2a60b8); }
-.ls-sc-head b { margin-left: auto; color: #fff; font-size: 26px; }
-.ls-sc-text { padding: 14px 20px 18px; font-size: 26px; line-height: 1.45; background: color-mix(in srgb, var(--ls-sc, #2a60b8) 35%, rgba(8, 14, 30, 0.85)); }
+.ls-alert.ls-out { animation: ls-alert-out 0.4s ease-in forwards; }
+.ls-alert b { color: color-mix(in srgb, var(--ls-accent) 70%, #fff); }
+@keyframes ls-pop { from { transform: translateY(-26px) rotateX(60deg) scale(0.7); opacity: 0; } }
+@keyframes ls-alert-out { to { transform: translateY(-16px) scale(0.92); opacity: 0; filter: blur(4px); } }
+
+/* 礼物 */
+.ls-gift-text { display: flex; flex-direction: column; line-height: 1.2; }
+.ls-gift-text b { font-size: 21px; }
+.ls-gift-text span { font-size: 22px; }
+.ls-gift-text strong { color: var(--ls-gold); }
+.ls-gift-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: #3a2400; flex: none;
+  background: linear-gradient(135deg, #fff1c4, var(--ls-gold) 55%, #ff9f43); box-shadow: 0 0 18px -2px rgba(255, 200, 100, 0.8); }
+.ls-gift-icon svg { width: 28px; height: 28px; }
+.ls-combo {
+  font-style: italic; font-weight: 900; font-size: 34px; letter-spacing: 1px; margin-left: 2px;
+  background: linear-gradient(180deg, #fff6d6, var(--ls-gold) 55%, #ff9f43); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(90, 40, 0, 0.6)) drop-shadow(0 0 12px rgba(255, 190, 80, 0.7));
+  animation: ls-combo 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes ls-combo { from { transform: scale(2.4) rotate(-8deg); opacity: 0; } }
+.ls-gift-big, .ls-gift-huge {
+  --ls-card-bg: linear-gradient(160deg, rgba(60, 38, 8, 0.82), rgba(18, 14, 30, 0.88)) padding-box, linear-gradient(90deg, #fff1c4, var(--ls-gold), #ff9f43, #ff7eb6) border-box;
+  padding: 12px 30px 12px 14px; font-size: 26px;
+  background: var(--ls-card-bg);
+  border: 2px solid transparent;
+  box-shadow: 0 0 44px -8px rgba(255, 200, 100, 0.75), 0 18px 44px -18px rgba(0, 0, 0, 0.75);
+}
+.ls-gift-big::after, .ls-gift-huge::after, .ls-guard::after, .ls-sc::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(110deg, transparent 38%, rgba(255, 255, 255, 0.3) 48%, transparent 60%) no-repeat; background-size: 260% 100%;
+  animation: ls-sweep 1.6s 0.35s ease-in-out both;
+}
+.ls-gift-big .ls-gift-icon, .ls-gift-huge .ls-gift-icon { width: 52px; height: 52px; animation: ls-wiggle 1.4s ease-in-out 0.5s infinite; }
+.ls-gift-big .ls-combo, .ls-gift-huge .ls-combo { font-size: 42px; }
+.ls-gift-huge { transform-origin: 50% 50%; animation: ls-slam 0.75s cubic-bezier(0.2, 1.3, 0.4, 1); }
+@keyframes ls-wiggle { 0%, 60%, 100% { transform: rotate(0); } 70% { transform: rotate(-12deg) scale(1.1); } 80% { transform: rotate(10deg) scale(1.1); } 90% { transform: rotate(-5deg); } }
+@keyframes ls-slam { 0% { transform: scale(2.2); opacity: 0; filter: brightness(2.5); } 60% { filter: brightness(1.4); } }
+
+/* 带光芒的两种：卡片的底画在 ::before 上，光芒（z-index -2）才在它下面 */
+.ls-gift-huge, .ls-guard { background: none; backdrop-filter: none; }
+.ls-gift-huge::before, .ls-guard::before {
+  content: ''; position: absolute; inset: -2px; z-index: -1; border-radius: inherit; border: 2px solid transparent;
+  background: var(--ls-card-bg); backdrop-filter: blur(var(--ls-blur)) saturate(160%);
+}
+
+/* 醒目留言：B 站的分档配色 */
+.ls-sc {
+  flex-direction: column; align-items: stretch; gap: 0; padding: 0; border-radius: 20px; overflow: hidden; width: 100%; max-width: 640px;
+  border: 1px solid color-mix(in srgb, var(--ls-sc) 70%, #fff);
+  background: color-mix(in srgb, var(--ls-sc) 28%, rgba(8, 14, 30, 0.9));
+  box-shadow: 0 0 46px -10px color-mix(in srgb, var(--ls-sc) 85%, transparent), 0 24px 50px -20px rgba(0, 0, 0, 0.8);
+}
+.ls-sc-head { display: flex; align-items: center; gap: 14px; padding: 12px 20px 12px 14px; background: linear-gradient(100deg, var(--ls-sc), color-mix(in srgb, var(--ls-sc) 60%, #fff)); }
+.ls-sc-head .ls-avatar { border-color: rgba(255, 255, 255, 0.85); }
+.ls-sc-who { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
+.ls-sc-who span { font-size: 22px; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-sc-who small { font-size: 14px; letter-spacing: 2px; color: rgba(255, 255, 255, 0.85); }
+.ls-sc-price { margin-left: auto; font-size: 34px !important; font-weight: 900; color: #fff !important; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 0 16px rgba(255, 255, 255, 0.6); }
+.ls-sc-text { padding: 16px 22px 22px; font-size: 27px; line-height: 1.45; font-weight: 600; word-break: break-word; }
+.ls-timer { position: absolute; left: 0; bottom: 0; width: 100%; height: 5px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ls-sc) 60%, #fff), #fff); box-shadow: 0 0 10px var(--ls-sc);
+  animation: ls-timer var(--ls-ttl, 12s) linear forwards; }
+@keyframes ls-timer { to { transform: scaleX(0); } }
 .ls-sc-blue { --ls-sc: #2a60b8; }
 .ls-sc-cyan { --ls-sc: #1f9fb1; }
 .ls-sc-yellow { --ls-sc: #c99a1c; }
@@ -147,24 +409,86 @@ html, body {
 .ls-sc-orange { --ls-sc: #e07229; }
 .ls-sc-red { --ls-sc: #d0383b; }
 
+/* 上舰：最大的一下 */
+.ls-guard {
+  --ls-g1: #3d7ff0; --ls-g2: #8f7bff; --ls-ray: #8fc4ff; --ls-spark: #bfe0ff;
+  --ls-card-bg: linear-gradient(120deg, color-mix(in srgb, var(--ls-g1) 55%, rgba(8, 12, 30, 0.92)), color-mix(in srgb, var(--ls-g2) 45%, rgba(8, 12, 30, 0.92))) padding-box,
+    linear-gradient(90deg, #fff, var(--ls-g1), var(--ls-g2), #fff) border-box;
+  gap: 18px; padding: 16px 20px 16px 16px; border-radius: 26px; font-size: 24px;
+  border: 2px solid transparent;
+  box-shadow: 0 0 60px -6px color-mix(in srgb, var(--ls-g1) 85%, transparent), 0 24px 50px -20px rgba(0, 0, 0, 0.8);
+  transform-origin: 50% 50%;
+  animation: ls-board 0.9s cubic-bezier(0.2, 1.25, 0.4, 1);
+}
+.ls-guard-lv2 { --ls-g1: #9b5cf0; --ls-g2: #ff8fd8; --ls-ray: #e2b8ff; --ls-spark: #f3d6ff; }
+.ls-guard-lv1 { --ls-g1: #f0a020; --ls-g2: #ff6b4a; --ls-ray: #ffe08a; --ls-spark: #fff1c4; }
+@keyframes ls-board { 0% { transform: scale(0.3) rotateX(70deg); opacity: 0; filter: brightness(3); } 55% { filter: brightness(1.5); } }
+.ls-guard-ship { display: grid; place-items: center; width: 70px; height: 70px; border-radius: 50%; flex: none; color: #fff;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--ls-g1) 40%, #fff), var(--ls-g1) 60%, var(--ls-g2));
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5), 0 0 30px var(--ls-g1); animation: ls-sail 2.4s ease-in-out infinite; }
+.ls-guard-ship svg { width: 40px; height: 40px; }
+@keyframes ls-sail { 50% { transform: rotate(-6deg) translateY(-3px); } }
+.ls-guard-text { display: flex; flex-direction: column; line-height: 1.15; }
+.ls-guard-text small { font-size: 15px; font-weight: 700; letter-spacing: 6px; color: rgba(255, 255, 255, 0.8); }
+.ls-guard-text b { font-size: 34px; font-weight: 900; color: #fff !important; text-shadow: 0 0 18px var(--ls-g1), 0 2px 0 rgba(0, 0, 0, 0.3); }
+.ls-guard-text span { font-size: 21px; color: rgba(255, 255, 255, 0.92); }
+.ls-guard .ls-avatar { width: 62px; height: 62px; margin-left: 10px; border: 3px solid #fff; box-shadow: 0 0 24px var(--ls-g2); }
+
+/* 关注、进场 */
+.ls-follow { font-size: 22px; padding: 8px 24px 8px 10px; }
+.ls-follow-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: #fff; flex: none;
+  background: linear-gradient(135deg, #ff9fc8, #ff5d8f); box-shadow: 0 0 16px rgba(255, 110, 160, 0.8); animation: ls-beat 1.1s ease-in-out 0.3s 3; }
+.ls-follow-icon svg { width: 22px; height: 22px; fill: currentColor; }
+@keyframes ls-beat { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.25); } 60% { transform: scale(0.95); } }
+.ls-enter {
+  font-size: 20px; padding: 7px 22px; gap: 10px; border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ls-accent) 26%, transparent), rgba(255, 255, 255, 0.05) 60%);
+  animation: ls-enter 0.5s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.ls-enter b { font-weight: 600; }
+.ls-enter::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(90deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%) no-repeat; background-size: 260% 100%;
+  animation: ls-sweep 0.9s 0.15s ease-out both; }
+@keyframes ls-enter { from { transform: translateX(-60px); opacity: 0; } }
+.ls-enter-guard { font-size: 22px; border-color: color-mix(in srgb, var(--ls-gold) 60%, transparent); box-shadow: 0 0 30px -8px rgba(255, 200, 100, 0.7); }
+
 /* ── 状态 ── */
-.ls-status { display: flex; align-items: center; gap: 14px; font-size: 20px; }
-.ls-status > span { padding: 7px 16px; border-radius: 999px; background: var(--ls-panel); border: 1px solid var(--ls-panel-border); backdrop-filter: blur(var(--ls-blur)); }
-.ls-live { font-family: var(--ls-mono); font-weight: 700; letter-spacing: 2px; color: var(--ls-dim); }
-.ls-live.ls-on { color: #fff; background: linear-gradient(90deg, #ff4d6d, #ff7a59) !important; border-color: transparent !important; box-shadow: 0 0 24px -4px rgba(255, 77, 109, 0.8); }
-.ls-brain { display: flex; align-items: center; gap: 10px; }
-.ls-brain i { width: 10px; height: 10px; border-radius: 50%; background: var(--ls-dim); }
-.ls-brain-listening .ls-brain i { background: #6ee7a8; }
-.ls-brain-thinking .ls-brain i { background: var(--ls-accent); animation: ls-pulse 0.9s ease-in-out infinite; }
-.ls-brain-speaking .ls-brain i { background: #ffd36e; animation: ls-pulse 0.5s ease-in-out infinite; }
-.ls-brain-away .ls-brain i { background: #ff8a8a; }
-@keyframes ls-pulse { 50% { transform: scale(1.6); opacity: 0.5; } }
+.ls-status { display: flex; align-items: center; gap: 12px; font-size: 20px; }
+.ls-status > span {
+  display: inline-flex; align-items: center; gap: 10px; height: 46px; box-sizing: border-box; padding: 0 20px; border-radius: 999px;
+  background: var(--ls-panel); border: 1px solid var(--ls-panel-border); backdrop-filter: blur(var(--ls-blur)) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 30px -16px rgba(0, 0, 0, 0.7);
+}
+.ls-live { font-family: var(--ls-mono); font-weight: 800; letter-spacing: 3px; color: var(--ls-dim); }
+.ls-live i { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.ls-live.ls-on { color: #fff; background: linear-gradient(90deg, #ff3d64, #ff7a59) !important; border-color: rgba(255, 190, 190, 0.6) !important; box-shadow: 0 0 28px -4px rgba(255, 77, 109, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important; }
+.ls-live.ls-on i { background: #fff; animation: ls-rec 1.6s ease-out infinite; }
+@keyframes ls-rec { 0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.85); } 100% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); } }
+.ls-online { font-family: var(--ls-mono); font-weight: 700; }
+.ls-online svg { width: 22px; height: 22px; color: var(--ls-accent); }
+.ls-online small { font-family: var(--ls-font); font-weight: 400; font-size: 16px; color: var(--ls-dim); }
+.ls-brain { --ls-brain-c: var(--ls-dim); animation: ls-chip-in 0.35s cubic-bezier(0.2, 1.3, 0.4, 1); }
+@keyframes ls-chip-in { from { transform: translateY(-8px) scale(0.92); opacity: 0; } }
+.ls-brain-icon { display: inline-flex; align-items: center; gap: 4px; height: 18px; }
+.ls-brain-icon b { width: 7px; height: 7px; border-radius: 50%; background: var(--ls-brain-c); box-shadow: 0 0 8px var(--ls-brain-c); }
+.ls-brain-listening .ls-brain { --ls-brain-c: #6ee7a8; }
+.ls-brain-listening .ls-brain-icon b { animation: ls-glow 2.4s ease-in-out infinite; }
+.ls-brain-thinking .ls-brain { --ls-brain-c: var(--ls-accent); border-color: color-mix(in srgb, var(--ls-accent) 45%, transparent); }
+.ls-brain-thinking .ls-brain-icon b { animation: ls-hop 1s ease-in-out infinite; }
+.ls-brain-speaking .ls-brain { --ls-brain-c: var(--ls-gold); border-color: color-mix(in srgb, var(--ls-gold) 45%, transparent); }
+.ls-brain-speaking .ls-brain-icon b { width: 4px; height: 18px; border-radius: 2px; animation: ls-eq 0.7s ease-in-out infinite; }
+.ls-brain-away .ls-brain { --ls-brain-c: #ff8a8a; }
+.ls-brain-icon b:nth-child(2) { animation-delay: -0.66s !important; }
+.ls-brain-icon b:nth-child(3) { animation-delay: -0.33s !important; }
+@keyframes ls-glow { 50% { opacity: 0.35; } }
+@keyframes ls-hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
 .ls-offline { color: #ffb4b4; }
 
 .ls-ai-label {
-  display: inline-block; padding: 7px 16px; border-radius: 10px; font-size: 18px; color: var(--ls-dim);
-  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.14);
+  display: inline-flex; align-items: center; gap: 10px; padding: 8px 18px; border-radius: 999px; font-size: 18px; color: var(--ls-dim);
+  background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(255, 255, 255, 0.14); backdrop-filter: blur(12px);
 }
+.ls-ai-label i { width: 9px; height: 9px; transform: rotate(45deg); border-radius: 2px; background: linear-gradient(135deg, var(--ls-accent), var(--ls-accent-2)); box-shadow: 0 0 10px var(--ls-accent); }
 
 .ls-unlock {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 99;
