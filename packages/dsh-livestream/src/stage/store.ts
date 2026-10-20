@@ -1,0 +1,168 @@
+/**
+ * 舞台页的状态：只从事件流来（protocol.ts）。挂件都读这里，不发请求、不含逻辑。
+ * 唯一往回发的是「这句念完了」（出声的页面才发；预览页静音、不回执）。
+ */
+
+import type { BrainState, CharacterManifest, StageEvent, StageLiveEvent, TemplateManifest } from './protocol';
+
+export interface ChatRow {
+  id: string;
+  event: Extract<StageLiveEvent, { kind: 'chat' }>;
+  at: number;
+}
+
+export interface Alert {
+  key: string;
+  event: Exclude<StageLiveEvent, { kind: 'chat' }>;
+  at: number;
+}
+
+export interface Line {
+  id: string;
+  text: string;
+  mood: string;
+  /** 念到哪了（0–1）：字幕的进度 */
+  startedAt: number;
+  durationMs: number;
+}
+
+export interface StageState {
+  connected: boolean;
+  character: CharacterManifest | null;
+  template: TemplateManifest | null;
+  brain: BrainState;
+  brainDetail: string;
+  line: Line | null;
+  /** 最近一句说完的时刻（字幕淡出用） */
+  lineEndedAt: number;
+  chats: ChatRow[];
+  alerts: Alert[];
+  focus: Set<string>;
+  online?: number;
+  onAir: boolean;
+  /** 浏览器拦住了自动播放：要点一下 */
+  needsClick: boolean;
+}
+
+const MAX_CHATS = 30;
+const MAX_ALERTS = 6;
+
+let state: StageState = {
+  connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
+  chats: [], alerts: [], focus: new Set(), onAir: false, needsClick: false,
+};
+const subscribers = new Set<() => void>();
+
+export function getState(): StageState {
+  return state;
+}
+
+export function subscribe(notify: () => void): () => void {
+  subscribers.add(notify);
+  return () => subscribers.delete(notify);
+}
+
+function update(change: (s: StageState) => StageState): void {
+  state = change(state);
+  for (const notify of subscribers) notify();
+}
+
+// ── 连接 ─────────────────────────────────────────────
+
+const params = new URLSearchParams(location.search);
+export const token = params.get('token') ?? '';
+/** 控制台里的预览：静音、不回执 */
+export const preview = params.get('preview') === '1';
+
+export function assetUrl(kind: 'characters' | 'templates', id: string, file: string): string {
+  return `/${kind}/${id}/${encodeURIComponent(file)}?token=${encodeURIComponent(token)}`;
+}
+
+let audio: HTMLAudioElement | null = null;
+let pendingClick: (() => void) | null = null;
+
+function said(id: string): void {
+  if (!preview) void fetch(`/said?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {});
+}
+
+function endLine(id: string): void {
+  update((s) => (s.line?.id === id ? { ...s, line: null, lineEndedAt: Date.now() } : s));
+  said(id);
+}
+
+function onSay(event: Extract<StageEvent, { type: 'say' }>): void {
+  audio?.pause();
+  const begin = (durationMs: number) => update((s) => ({ ...s, line: { id: event.id, text: event.text, mood: event.mood, startedAt: Date.now(), durationMs } }));
+  const fallback = () => {
+    begin(event.estimateMs);
+    setTimeout(() => endLine(event.id), event.estimateMs);
+  };
+  if (!event.audio || preview) return fallback();
+  const player = new Audio(`data:audio/mpeg;base64,${event.audio}`);
+  audio = player;
+  player.onloadedmetadata = () => begin(Number.isFinite(player.duration) ? player.duration * 1000 : event.estimateMs);
+  player.onended = () => endLine(event.id);
+  player.onerror = fallback;
+  player.play().catch(() => {
+    // 普通浏览器标签页没交互过不让出声（OBS 的浏览器源可以）：先按字数走，提示点一下
+    update((s) => ({ ...s, needsClick: true }));
+    pendingClick = () => update((s) => ({ ...s, needsClick: false }));
+    fallback();
+  });
+}
+
+export function unlockAudio(): void {
+  void new Audio().play().catch(() => {});
+  pendingClick?.();
+  pendingClick = null;
+}
+
+let alertSeq = 0;
+
+function onLive(event: StageLiveEvent, isUpdate: boolean): void {
+  if (event.kind === 'chat') {
+    if (isUpdate) return;
+    update((s) => ({ ...s, chats: [...s.chats, { id: event.id, event, at: Date.now() }].slice(-MAX_CHATS) }));
+    return;
+  }
+  // 礼物连击：同 id 更新数量，不再弹一次
+  update((s) => {
+    const existing = s.alerts.findIndex((a) => a.event.id === event.id);
+    if (existing >= 0) {
+      const alerts = s.alerts.slice();
+      alerts[existing] = { ...alerts[existing], event };
+      return { ...s, alerts };
+    }
+    if (isUpdate) return s;
+    return { ...s, alerts: [...s.alerts, { key: `a${++alertSeq}`, event, at: Date.now() }].slice(-MAX_ALERTS) };
+  });
+}
+
+export function dropAlert(key: string): void {
+  update((s) => ({ ...s, alerts: s.alerts.filter((a) => a.key !== key) }));
+}
+
+function handle(event: StageEvent): void {
+  switch (event.type) {
+    case 'hello': return update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
+    case 'say': return onSay(event);
+    case 'brain': return update((s) => ({ ...s, brain: event.state, brainDetail: event.detail ?? (event.state === s.brain ? s.brainDetail : '') }));
+    case 'live': return onLive(event.event, event.isUpdate);
+    case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds) }));
+    case 'room': return update((s) => ({ ...s, online: event.online, onAir: event.onAir }));
+    case 'reload': location.reload(); return;
+  }
+}
+
+export function connect(): void {
+  const source = new EventSource(`/events?token=${encodeURIComponent(token)}${preview ? '&preview=1' : ''}`);
+  source.onmessage = (message) => {
+    try {
+      handle(JSON.parse(message.data) as StageEvent);
+    } catch {
+      // 认不出的事件跳过（新版本的事件旧舞台不认识）
+    }
+  };
+  source.onerror = () => update((s) => ({ ...s, connected: false }));
+  source.onopen = () => update((s) => ({ ...s, connected: true }));
+}

@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "id": "dafeiyu",
+  "name": "大肥鱼",
+  "names": ["大肥鱼", "肥鱼", "鲸鱼娘", "鲸鱼", "DeepSeek", "deepseek", "ds"],
+  "voice": "zh_female_mengyatou_uranus_bigtts",
+  "renderer": "clips",
+  "license": "CC BY-NC-SA 4.0（见 LICENSE.md）",
+  "clips": {
+    "size": [496, 864],
+    "idle": "riceloop.webm",
+    "talk": "ricetalk.webm",
+    "out": "rice-exit.webm",
+    "in": "rice-enter.webm",
+    "moods": {
+      "laugh": "laugh.webm",
+      "shocked": "shocked.webm",
+      "scared": "scared.webm",
+      "sad": "sad.webm",
+      "think": "think.webm",
+      "angry": "angry.webm",
+      "shy": "shy.webm"
+    }
+  }
+}

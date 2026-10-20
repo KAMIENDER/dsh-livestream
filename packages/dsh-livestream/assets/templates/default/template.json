@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "id": "default",
+  "name": "深海",
+  "canvas": [1920, 1080],
+  "theme": {
+    "--ls-accent": "#86dcff",
+    "--ls-accent-2": "#b79bff",
+    "--ls-subtitle-size": "40px",
+    "--ls-chat-size": "24px"
+  },
+  "widgets": [
+    { "type": "status", "x": 48, "y": 44 },
+    { "type": "ai-label", "x": 1560, "y": 44, "w": 312 },
+    { "type": "alerts", "x": 610, "y": 52, "w": 700, "options": { "max": 4 } },
+    { "type": "chat", "x": 48, "y": 128, "w": 560, "h": 700, "options": { "rows": 10 } },
+    { "type": "character", "x": 1300, "y": 132, "w": 540 },
+    { "type": "subtitle", "x": 380, "y": 862, "w": 1080 }
+  ]
+}
