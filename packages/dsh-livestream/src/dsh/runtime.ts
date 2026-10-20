@@ -41,6 +41,10 @@ export interface Settings {
   areaId: number | null;
   /** 开播前改成这个标题；空串不改 */
   liveTitle: string;
+  /** 推流协议：srt（B 站给了就用，跨境、丢包的网络上比 rtmp 稳）或 rtmp */
+  pushProtocol: 'srt' | 'rtmp';
+  /** 推流码率（kbps） */
+  streamKbps: number;
 }
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
@@ -88,6 +92,8 @@ function loadSettings(): Settings {
     broadcast: false,
     areaId: null,
     liveTitle: '',
+    pushProtocol: 'srt',
+    streamKbps: 4500,
     ...saved,
   };
   if (!settings.stageToken) {
@@ -187,6 +193,8 @@ export const broadcast = new Broadcast({
   stageUrl: () => server.url,
   areaId: () => settings.areaId,
   title: () => settings.liveTitle.trim() || null,
+  protocol: () => settings.pushProtocol,
+  kbps: () => settings.streamKbps,
   // 开播账号的直播间：记下来、标成自己的直播间（记住观众），连上它的弹幕
   onRoom: (roomId) => {
     updateSettings({ roomId, ownRooms: [...new Set([...settings.ownRooms, roomId])] });

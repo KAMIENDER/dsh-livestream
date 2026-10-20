@@ -23,6 +23,8 @@ export interface BroadcastStatus {
   error: string | null;
   health: StreamHealth | null;
   startedAt: number | null;
+  /** 这次用的推流协议 */
+  protocol?: 'rtmp' | 'srt';
 }
 
 export interface BroadcastOptions {
@@ -31,6 +33,10 @@ export interface BroadcastOptions {
   /** 开播用的分区（子分区 id）；不给就用 B 站给这个账号准备的默认分区 */
   areaId(): number | null;
   title(): string | null;
+  /** 推流协议：srt（有就用，跨境更稳）还是 rtmp */
+  protocol(): 'srt' | 'rtmp';
+  /** 推流码率（kbps） */
+  kbps(): number;
   /** 开通了直播间：记下房间号（身体连弹幕、标成自己的直播间） */
   onRoom(roomId: number): void;
   log?(level: 'info' | 'warn', message: string): void;
@@ -94,7 +100,7 @@ export class Broadcast {
     while (!stream) {
       if (this.cancelled) return;
       const result = await room.start(roomId, areaId);
-      if (result.kind === 'live') stream = result.stream;
+      if (result.kind === 'live') stream = this.options.protocol() === 'srt' && result.srt ? result.srt : result.stream;
       else if (result.kind === 'verify') throw new Error(`B 站要求先过一次风控验证（${result.message}）：用官方直播姬或 B 站 App 开播一次，之后这里就能开了`);
       else {
         // 人脸认证：等主人用 B 站 App 扫码，认证过了再开播一次
@@ -110,8 +116,8 @@ export class Broadcast {
 
     this.set({ step: '打开 OBS、设好画质' });
     this.obs = await connectObs(true);
-    await prepareObs(this.obs, this.options.stageUrl());
-    this.set({ step: '开始推流' });
+    await prepareObs(this.obs, this.options.stageUrl(), this.options.kbps());
+    this.set({ step: `开始推流（${stream.protocol.toUpperCase()}，${this.options.kbps()} kbps）`, protocol: stream.protocol });
     await startStreaming(this.obs, stream.addr, stream.code);
     this.set({ phase: 'streaming', step: '推流中', startedAt: Date.now() });
     this.healthTimer = setInterval(() => void this.poll(), 2000);

@@ -20,14 +20,16 @@ const LIVEHIME = { appkey: 'aae92bc66f3edfab', appsec: 'af125a0d5279fd576c1b4418
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 export interface Stream {
-  /** RTMP 推流地址（OBS 的「服务器」） */
+  /** 推流地址（OBS 的「服务器」）：rtmp:// 或 srt:// */
   addr: string;
   /** 推流码（OBS 的「推流码」） */
   code: string;
+  protocol: 'rtmp' | 'srt';
 }
 
 export type StartResult =
-  | { kind: 'live'; stream: Stream }
+  /** srt：B 站给了 SRT 推流地址就有（跨境、丢包的网络上比 RTMP 稳） */
+  | { kind: 'live'; stream: Stream; srt: Stream | null }
   /** 要人脸认证：qr 是给 B 站 App 扫的链接 */
   | { kind: 'face'; qr: string; message: string }
   /** 风控验证（60043）：要用官方直播姬或 B 站 App 过一次 */
@@ -129,8 +131,15 @@ export class BiliRoom {
   /** 开播：拿推流地址和推流码；要人脸认证时返回扫码链接 */
   async start(roomId: number, areaId: number): Promise<StartResult> {
     const form = livehimeSign({ area_v2: areaId, csrf: this.csrf, csrf_token: this.csrf, room_id: roomId, type: 2 });
-    const r = await this.call<{ rtmp?: { addr?: string; code?: string }; qr?: string }>('https://api.live.bilibili.com/room/v1/Room/startLive', form);
-    if (r.code === 0 && r.data?.rtmp?.addr && r.data.rtmp.code) return { kind: 'live', stream: { addr: r.data.rtmp.addr, code: r.data.rtmp.code } };
+    const r = await this.call<{ rtmp?: { addr?: string; code?: string }; protocols?: Array<{ protocol?: string; addr?: string; code?: string }>; qr?: string }>('https://api.live.bilibili.com/room/v1/Room/startLive', form);
+    if (r.code === 0 && r.data?.rtmp?.addr && r.data.rtmp.code) {
+      const srt = (r.data.protocols ?? []).find((p) => p.protocol?.toLowerCase() === 'srt' && p.addr && p.code);
+      return {
+        kind: 'live',
+        stream: { addr: r.data.rtmp.addr, code: r.data.rtmp.code, protocol: 'rtmp' },
+        srt: srt ? { addr: srt.addr!, code: srt.code!, protocol: 'srt' } : null,
+      };
+    }
     if (r.code === 60024 && r.data?.qr) return { kind: 'face', qr: r.data.qr, message: r.message };
     if (r.code === 60043) return { kind: 'verify', message: r.message };
     throw new BiliRoomError(r.code, `开播失败（${r.code}）：${r.message}`);

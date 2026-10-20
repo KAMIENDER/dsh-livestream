@@ -3,7 +3,8 @@
  *
  * 画面清不清楚全看编码设置（以前 OBS 简单模式 x264 veryfast 1.4Mbps 糊过）：
  *   - 画布和输出都是 1920×1080，不缩放；舞台页本来就是 1080p
- *   - NVENC H.264 硬件编码，CBR 6000 kbps（B 站要恒定码率），关键帧 2 秒
+ *   - NVENC H.264 硬件编码，CBR（B 站要恒定码率，码率是设置，默认 4500 kbps），关键帧 2 秒
+ *   - RTMP 开「动态码率」：网络堵的时候降码率，不丢帧（实测日本推到 B 站的 RTMP 只有 3 Mbps 左右，丢了三分之二的帧）
  *   - P6 + 高质量调优 + 两遍编码 + 心理视觉 AQ + 2 个 B 帧：码率花在文字和边缘上
  *   - 30 帧：舞台大部分是静的，同样码率 30 帧比 60 帧清楚
  *   - 声音只要舞台页自己的（浏览器源交给 OBS 控制音频），不要麦克风和桌面音频
@@ -25,7 +26,7 @@ const OBS_EXE = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe';
 /** 推流编码设置（写进配置文件目录的 streamEncoder.json） */
 const STREAM_ENCODER = {
   rate_control: 'CBR',
-  bitrate: 6000,
+  bitrate: 4500,
   keyint_sec: 2,
   preset2: 'p6',
   tune: 'hq',
@@ -112,7 +113,7 @@ export async function connectObs(launch = true): Promise<Obs> {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** 切到自己的配置文件和场景集合，设好画质；舞台页当浏览器源 */
-export async function prepareObs(obs: Obs, stageUrl: string): Promise<void> {
+export async function prepareObs(obs: Obs, stageUrl: string, kbps = STREAM_ENCODER.bitrate): Promise<void> {
   // 配置文件：画质、声音
   const { profiles, currentProfileName } = await obs.call<{ profiles: string[]; currentProfileName: string }>('GetProfileList');
   if (!profiles.includes(OBS_NAME)) await obs.call('CreateProfile', { profileName: OBS_NAME });
@@ -130,6 +131,8 @@ export async function prepareObs(obs: Obs, stageUrl: string): Promise<void> {
     ['Output', 'Reconnect', 'true'],
     ['Output', 'RetryDelay', '2'],
     ['Output', 'MaxRetries', '25'],
+    // 网络堵的时候降码率而不是丢帧（只对 RTMP 生效）
+    ['Output', 'DynamicBitrate', 'true'],
   ];
   for (const [parameterCategory, parameterName, parameterValue] of params) {
     await obs.call('SetProfileParameter', { parameterCategory, parameterName, parameterValue });
@@ -140,7 +143,7 @@ export async function prepareObs(obs: Obs, stageUrl: string): Promise<void> {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, 'streamEncoder.json');
   const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  const wanted = JSON.stringify(STREAM_ENCODER, null, 1);
+  const wanted = JSON.stringify({ ...STREAM_ENCODER, bitrate: kbps }, null, 1);
   if (current.trim() !== wanted.trim()) {
     writeFileSync(file, wanted);
     const other = profiles.find((p) => p !== OBS_NAME);

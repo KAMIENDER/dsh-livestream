@@ -87,7 +87,7 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -465,7 +465,15 @@ export function Console() {
             <div className="dl-field">
               <label>直播分区 id（子分区；空着就用 B 站给这个账号准备的默认分区）</label>
               <input defaultValue={settings?.areaId ?? ''} inputMode="numeric" placeholder="比如 371（虚拟日常）" onBlur={(e) => { const digits = e.target.value.replace(/\D/g, ''); choose({ areaId: digits ? Number(digits) : null }); }} />
-              <p className="dl-hint">开播时：没有直播间会自动开通；B 站要人脸认证时这里弹出二维码，用 B 站 App 扫一下；推流码自动填进 OBS（专用配置「dsh-livestream」，1080p30、NVENC、CBR 6000k），不用手动配 OBS。</p>
+              <div className="dl-row">
+                <select value={settings?.pushProtocol ?? 'srt'} onChange={(e) => choose({ pushProtocol: e.target.value })}>
+                  <option value="srt">SRT（推荐：跨境、Wi-Fi 更稳）</option>
+                  <option value="rtmp">RTMP</option>
+                </select>
+                <input defaultValue={settings?.streamKbps ?? 4500} inputMode="numeric" title="码率 kbps" onBlur={(e) => choose({ streamKbps: Number(e.target.value.replace(/\D/g, '')) || 4500 })} />
+                <span className="dl-meta">kbps</span>
+              </div>
+              <p className="dl-hint">开播时：没有直播间会自动开通；B 站要人脸认证时这里弹出二维码，用 B 站 App 扫一下；推流码自动填进 OBS（专用配置「dsh-livestream」，1080p30、NVENC、CBR，RTMP 网络堵时自动降码率），不用手动配 OBS。推流时上面会显示码率和丢帧，丢帧多就换 SRT 或调低码率。</p>
             </div>
             <h3>密钥</h3>
             <SecretField label="豆包语音 API Key" ref_={SECRET_REFS.tts} configured={secrets.tts} hint="火山引擎新版控制台的 API Key（和 dsh-game 共用）" />
