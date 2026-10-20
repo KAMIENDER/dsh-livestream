@@ -76,7 +76,7 @@ interface ShowStatus {
 interface HostState {
   ok: boolean;
   show: ShowStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[] };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -345,11 +345,14 @@ export function Console() {
               <div className="dl-field">
                 <label>B 站直播间房间号</label>
                 <div className="dl-row">
-                  <input value={room} inputMode="numeric" placeholder="比如 21452505" onChange={(e) => setRoom(e.target.value.replace(/\D/g, ''))} />
+                  <input value={room} inputMode="numeric" placeholder="你的直播间房间号（直播间网址最后那串数字）" onChange={(e) => setRoom(e.target.value.replace(/\D/g, ''))} />
                   {conn === 'idle' || conn === 'error'
                     ? <button disabled={busy || !room} onClick={saveRoom}>连接</button>
                     : <button disabled={busy} onClick={() => run(async () => setHost(await api('disconnect', {})))}>断开</button>}
                 </div>
+                {settings?.roomId ? (
+                  <label className="dl-check"><input type="checkbox" checked={settings.ownRooms.includes(settings.roomId)} onChange={(e) => choose({ ownRoom: e.target.checked })} /> 这是我自己的直播间：记住常来的观众（别人的直播间只旁观，不记）</label>
+                ) : null}
                 {show?.live.state === 'connected' && !show.live.loggedIn && <p className="dl-hint">匿名连接：部分观众的名字会被 B 站打码。填上 Cookie 就能看到完整名字。</p>}
                 {show?.live.lastError && <p className="dl-error">{show.live.lastError}</p>}
               </div>

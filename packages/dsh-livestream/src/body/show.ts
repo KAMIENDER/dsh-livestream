@@ -103,6 +103,8 @@ export class LiveShow {
   private lastRoom = '';
   private roomId: number | null = null;
   private unsubscribe: (() => void) | null = null;
+  /** 记住这个直播间的观众：只有主人说这是自己的直播间才记（连别人的直播间旁观时不建档） */
+  rememberViewers = false;
 
   constructor(private readonly hooks: ShowHooks, private readonly options: ShowOptions) {
     mkdirSync(options.dataDir, { recursive: true });
@@ -124,7 +126,8 @@ export class LiveShow {
 
   // ── 直播间连接 ─────────────────────────────────────
 
-  connect(roomId: number, cookie: string): LiveStatus {
+  connect(roomId: number, cookie: string, rememberViewers = false): LiveStatus {
+    this.rememberViewers = rememberViewers;
     this.unsubscribe?.();
     const status = this.hub.connect({ platform: 'bilibili', roomId, cookie });
     this.roomId = roomId;
@@ -151,8 +154,8 @@ export class LiveShow {
   private observe(event: LiveEvent, isUpdate: boolean): void {
     const now = Date.now();
     this.attention.observe(event, isUpdate, now);
-    // 模拟观众（控制台彩排）不进观众记忆
-    if (this.onAir && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
+    // 只记自己直播间的观众（主人在控制台勾了的）；模拟观众（控制台彩排）不记
+    if (this.onAir && this.rememberViewers && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
     const shown = toStage(event);
     if (shown) this.stage.broadcast({ type: 'live', event: shown, isUpdate });
     if (this.onAir && !isUpdate && (event.kind === 'superchat' || event.kind === 'membership' || (event.kind === 'gift' && event.valueYuan > 0))) {

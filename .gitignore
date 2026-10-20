@@ -8,3 +8,4 @@ packages/*/lib/
 .env
 .dev.env
 packages/*/test/fixtures/
+tools/*.mjs

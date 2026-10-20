@@ -95,6 +95,13 @@ export function apply(ctx: HostContext): void {
     if (patch.voice !== undefined) next.voice = String(patch.voice).trim();
     if (patch.idleAfterSec !== undefined) next.idleAfterSec = Math.max(10, Math.min(600, Number(patch.idleAfterSec) || 45));
     if (patch.distillModel !== undefined) next.distillModel = String(patch.distillModel).trim() || settings.distillModel;
+    const own = (patch as { ownRoom?: boolean }).ownRoom;
+    if (own !== undefined && settings.roomId) {
+      const rooms = new Set(settings.ownRooms);
+      if (own) rooms.add(settings.roomId); else rooms.delete(settings.roomId);
+      next.ownRooms = [...rooms];
+      show.rememberViewers = own && show.status().roomId === settings.roomId;
+    }
     const repaint = (next.character && next.character !== settings.character) || (next.template && next.template !== settings.template);
     updateSettings(next);
     if (next.character) show.setNames(currentCharacter()?.names ?? []);
@@ -104,7 +111,7 @@ export function apply(ctx: HostContext): void {
 
   route('/api/dsh-livestream/connect', ['POST'], async () => {
     if (!settings.roomId) return fail('先填直播间房间号');
-    show.connect(settings.roomId, await cookie());
+    show.connect(settings.roomId, await cookie(), settings.ownRooms.includes(settings.roomId));
     return json(state());
   }, 'connect');
 

@@ -32,6 +32,8 @@ export interface Settings {
   distillModel: string;
   /** 没话题多少秒后自己找话说 */
   idleAfterSec: number;
+  /** 主人说是自己的直播间（记住常来的观众）；别的房间只旁观、不建档 */
+  ownRooms: number[];
 }
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
@@ -75,6 +77,7 @@ function loadSettings(): Settings {
     stageToken: '',
     distillModel: 'deepseek-official/deepseek-flash',
     idleAfterSec: 45,
+    ownRooms: [],
     ...saved,
   };
   if (!settings.stageToken) {
