@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
-import { assetUrl, dropAlert, getState, litChars, subscribe, type Alert, type ReplyItem, type StageState } from './store';
+import { assetUrl, dropAlert, getState, litChars, preview, subscribe, type Alert, type ReplyItem, type StageState } from './store';
 
 export function useStage(): StageState {
   return useSyncExternalStore(subscribe, getState);
@@ -645,7 +645,9 @@ function Ending() {
 /** 整屏的过场（模板把它放在 0,0、和画布一样大，盖在最上面） */
 export function Scene() {
   const { phase } = useStage();
-  const [shown, leaving] = useLinger(phase === 'live' ? null : phase, 700);
+  // 控制台里的小预览不盖等待画面：主人没开播时也要看得到这张皮开播后的样子（OBS 里照常是等待画面）
+  const hidden = phase === 'live' || (preview && phase === 'waiting');
+  const [shown, leaving] = useLinger(hidden ? null : phase, 700);
   if (!shown) return null;
   return (
     <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>

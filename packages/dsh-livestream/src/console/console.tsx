@@ -341,7 +341,7 @@ export function Console() {
             <section className="dl-monitor">
               <div className="dl-preview">
                 {previewUrl && <iframe src={previewUrl} title="舞台预览" />}
-                <span className={`dl-preview-tag${show?.onAir ? ' dl-preview-live' : ''}`}><i />{show?.onAir ? '直播中' : '预览'} · 和 OBS 里一样（静音）</span>
+                <span className={`dl-preview-tag${show?.onAir ? ' dl-preview-live' : ''}`}><i />{show?.onAir ? '直播中 · 和 OBS 里一样（静音）' : '预览：开播后的样子 · OBS 里现在是「马上开始」的等待画面'}</span>
               </div>
               <div className="dl-monitor-bar">
                 <div className="dl-obs">
