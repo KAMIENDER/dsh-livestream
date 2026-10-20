@@ -9,11 +9,14 @@
  * 身体往会话里推一件事：DSH 的 agent 句柄 followup（追加一条消息并唤醒她）。
  */
 
+import { defineTool } from '@deepseek-ai/dsh-tools';
 import { randomUUID } from 'node:crypto';
+import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
 import { splitByMood } from '../core/moodText';
 import { currentMoods, hooks, show } from './runtime';
 
 export const name = 'dsh-livestream-agent';
+export const inject = ['tools'];
 
 interface AgentContext {
   effect(effect: () => () => void, label?: string): unknown;
@@ -120,4 +123,31 @@ export function apply(ctx: AgentContext): void {
     const timer = setInterval(() => void watch(ctx).catch((err) => hooks.log('warn', `盯会话出错：${(err as Error).message}`)), 300);
     return () => clearInterval(timer);
   }, 'dsh-livestream session watch');
+
+  // 看观众的 B 站主页（公开信息）
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'view_profile',
+    description: '看一位观众的 B 站个人主页：等级、签名、粉丝和关注数、最近投稿、置顶视频、代表作、空间公告、有没有直播间。'
+      + '只看得到主页上公开的东西。要几秒钟。',
+    parameters: {
+      who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const viewer = show.findViewer(String(args.who ?? ''));
+      if (!viewer) return `这场直播里没找到「${args.who}」（名字被打码的观众也看不到主页）。`;
+      if ('simulated' in viewer) return `${viewer.name} 是主人在控制台里模拟的观众（彩排用），没有真的 B 站主页。`;
+      if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
+      show.doing(`在看${viewer.user.name}的主页`);
+      const profile = await fetchProfile(viewer.uid);
+      if (!profile) return `没打开 ${viewer.user.name} 的主页（B 站没返回，可能是网络问题）。`;
+      const marks = [
+        viewer.user.guardLevel ? ['', '总督', '提督', '舰长'][viewer.user.guardLevel] : '',
+        viewer.user.medal?.ofThisRoom ? `粉丝牌${viewer.user.medal.level}级` : '',
+        viewer.user.isAdmin ? '房管' : '',
+      ].filter(Boolean).join('，');
+      show.rememberProfile(viewer.uid, profileSummary(profile));
+      return profileText(profile, marks || undefined);
+    },
+  })), 'view_profile tool');
 }

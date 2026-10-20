@@ -343,6 +343,43 @@ export class LiveShow {
     return this.brainSession;
   }
 
+  // ── 她的工具用到的 ──────────────────────────────────
+
+  /**
+   * 按她看到的名字（或 UID）在这场直播最近的事件里找观众。
+   * 找不到、被平台打码（匿名连接时）返回 null；模拟观众返回 simulated。
+   */
+  findViewer(who: string): { uid: string; user: LiveUser } | { simulated: true; name: string } | null {
+    const target = who.trim().replace(/^@/, '');
+    if (!target) return null;
+    const events = this.hub.recentEvents().slice().reverse();
+    const match = events.find((e) => e.user.id === target)
+      ?? events.find((e) => cleanName(e.user.name) === target || e.user.name === target)
+      ?? events.find((e) => cleanName(e.user.name).includes(target));
+    if (match) {
+      if (match.user.id.startsWith(SIMULATED_PREFIX)) return { simulated: true, name: match.user.name };
+      if (!match.user.id || match.user.id === '0' || match.user.masked) return null;
+      return { uid: match.user.id, user: match.user };
+    }
+    // 直接给了 UID（主人让她看某个人）
+    return /^\d{1,20}$/.test(target) ? { uid: target, user: { id: target, name: target } } : null;
+  }
+
+  /** 这位观众说过「忘了我」：不看、不记 */
+  optedOut(uid: string): boolean {
+    return this.memory.store.isOptedOut('bilibili', uid);
+  }
+
+  /** 她看了这位观众的主页：自己的直播间里记一句，下次见到他卡片里会提 */
+  rememberProfile(uid: string, summary: string): void {
+    if (this.memoryStream && this.memory.store.getViewer('bilibili', uid)) this.memory.store.setAppraisal('bilibili', uid, { summary, at: Date.now() });
+  }
+
+  /** 她在用工具做事：舞台上显示她在干什么 */
+  doing(detail: string): void {
+    if (this.onAir) this.setBrain('thinking', detail);
+  }
+
   get isOnAir(): boolean {
     return this.onAir;
   }
