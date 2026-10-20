@@ -37,3 +37,15 @@ describe('cover size', () => {
     expect(imageSize(png)).toEqual({ width: 1600, height: 1200 });
   });
 });
+
+describe('same cover', () => {
+  it('matches Bilibili image URLs by the image SHA1', async () => {
+    const { sameCover } = await import('../src/body/biliRoom');
+    const { createHash } = await import('node:crypto');
+    const data = new TextEncoder().encode('a cover');
+    const sha = createHash('sha1').update(data).digest('hex');
+    expect(sameCover(`http://i0.hdslb.com/bfs/live/new_room_cover/${sha}.jpg`, data)).toBe(true);
+    expect(sameCover('http://i0.hdslb.com/bfs/live/new_room_cover/0000.jpg', data)).toBe(false);
+    expect(sameCover('', data)).toBe(false);
+  });
+});

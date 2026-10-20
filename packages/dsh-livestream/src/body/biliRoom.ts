@@ -58,6 +58,15 @@ export function imageSize(data: Uint8Array): { width: number; height: number } |
   return null;
 }
 
+/**
+ * 直播间现在的封面是不是这张图：B 站图床的文件名就是图片内容的 SHA1（实测 2026-10），
+ * 同一张图不用再传——再传一次会重新审核，审核期间直播间没有封面
+ */
+export function sameCover(currentUrl: string, data: Uint8Array): boolean {
+  if (!currentUrl) return false;
+  return currentUrl.includes(createHash('sha1').update(data).digest('hex'));
+}
+
 export class BiliRoomError extends Error {
   constructor(readonly code: number, message: string) {
     super(message);
@@ -134,12 +143,12 @@ export class BiliRoom {
   }
 
   /** 开播前的标题和分区（PreLive：B 站给这个账号准备好的默认值） */
-  async preLive(): Promise<{ title: string; areaId: number; areaName: string }> {
-    const r = await this.call<{ title?: string; area?: Record<string, { subAreaID: number; subAreaName: string }> }>(
+  async preLive(): Promise<{ title: string; areaId: number; areaName: string; coverUrl: string }> {
+    const r = await this.call<{ title?: string; area?: Record<string, { subAreaID: number; subAreaName: string }>; cover?: { url?: string } }>(
       `https://api.live.bilibili.com/xlive/app-blink/v1/preLive/PreLive?platform=pc&mobi_app=pc&build=${LIVEHIME.build}`,
     );
     const area = Object.values(r.data?.area ?? {})[0];
-    return { title: r.data?.title ?? '', areaId: area?.subAreaID ?? 0, areaName: area?.subAreaName ?? '' };
+    return { title: r.data?.title ?? '', areaId: area?.subAreaID ?? 0, areaName: area?.subAreaName ?? '', coverUrl: r.data?.cover?.url ?? '' };
   }
 
   /** 改标题、分区（area 是子分区 id） */
@@ -151,7 +160,10 @@ export class BiliRoom {
     if (r.code !== 0) throw new BiliRoomError(r.code, `改直播间信息失败：${r.message}`);
   }
 
-  /** 换直播间封面：传图到 B 站图床，再设成直播间封面；返回图片地址 */
+  /**
+   * 换直播间封面：传图到 B 站图床，再设成直播间封面；返回图片地址。
+   * 封面每换一次都要重新审核（审核中直播间不显示封面），所以调用前先用 sameCover 看是不是同一张。
+   */
   async setCover(data: Uint8Array, mime: string): Promise<string> {
     const size = imageSize(data);
     // 实测（2026-10）：宽 1024 能传，1280 被拒「宽像素不合法」

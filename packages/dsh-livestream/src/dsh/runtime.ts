@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +49,6 @@ export interface Settings {
   streamKbps: number;
   /** 直播间封面图片的路径（本机文件）；空串不换 */
   liveCover: string;
-  /** 上次传上去的封面版本（路径 + 修改时间） */
-  coverUploaded: string | null;
 }
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
@@ -101,7 +99,6 @@ function loadSettings(): Settings {
     pushProtocol: 'srt',
     streamKbps: 4500,
     liveCover: '',
-    coverUploaded: null,
     ...saved,
   };
   if (!settings.stageToken) {
@@ -208,10 +205,8 @@ export const broadcast = new Broadcast({
     if (!file || !existsSync(file)) return null;
     const ext = extname(file).toLowerCase();
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-    return { data: new Uint8Array(readFileSync(file)), mime, key: `${file}@${statSync(file).mtimeMs}` };
+    return { data: new Uint8Array(readFileSync(file)), mime };
   },
-  coverUploaded: () => settings.coverUploaded,
-  onCoverUploaded: (key) => { updateSettings({ coverUploaded: key }); },
   // 开播账号的直播间：记下来、标成自己的直播间（记住观众），连上它的弹幕
   onRoom: (roomId) => {
     updateSettings({ roomId, ownRooms: [...new Set([...settings.ownRooms, roomId])] });

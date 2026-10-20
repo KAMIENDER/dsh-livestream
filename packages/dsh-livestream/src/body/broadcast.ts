@@ -8,7 +8,7 @@
  * 状态给控制台看：哪一步、二维码、OBS 的码率和丢帧。
  */
 
-import { BiliRoom, type Stream } from './biliRoom';
+import { BiliRoom, sameCover, type Stream } from './biliRoom';
 import { connectObs, prepareObs, startStreaming, stopStreaming, streamHealth, type Obs, type StreamHealth } from './obs';
 
 export type BroadcastPhase = 'idle' | 'preparing' | 'face' | 'streaming' | 'stopping' | 'error';
@@ -37,10 +37,8 @@ export interface BroadcastOptions {
   protocol(): 'srt' | 'rtmp';
   /** 推流码率（kbps） */
   kbps(): number;
-  /** 直播间封面：图片和它的版本（文件路径 + 修改时间）；版本和上次传过的一样就不再传（封面要过审核） */
-  cover(): { data: Uint8Array; mime: string; key: string } | null;
-  coverUploaded(): string | null;
-  onCoverUploaded(key: string): void;
+  /** 直播间封面（没设就不换）；和直播间现在的封面是同一张就不再传（封面每换一次都要重新审核） */
+  cover(): { data: Uint8Array; mime: string } | null;
   /** 开通了直播间：记下房间号（身体连弹幕、标成自己的直播间） */
   onRoom(roomId: number): void;
   log?(level: 'info' | 'warn', message: string): void;
@@ -98,10 +96,9 @@ export class Broadcast {
     const title = this.options.title();
     if (title) await room.update(roomId, { title });
     const cover = this.options.cover();
-    if (cover && cover.key !== this.options.coverUploaded()) {
+    if (cover && !sameCover(pre.coverUrl, cover.data)) {
       this.set({ step: '换直播间封面' });
       await room.setCover(cover.data, cover.mime);
-      this.options.onCoverUploaded(cover.key);
     }
 
     this.set({ step: '向 B 站申请开播' });
