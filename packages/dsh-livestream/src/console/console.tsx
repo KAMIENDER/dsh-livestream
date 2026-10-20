@@ -277,6 +277,12 @@ export function Console() {
   });
 
   const choose = (patch: Record<string, unknown>) => run(async () => setHost(await api('settings', patch)));
+  // 换了主题：预览重新打开、演示一遍开场动画和直播中的样子（直播中不演示，直接换）
+  const [demo, setDemo] = useState(0);
+  const chooseTheme = (id: string) => run(async () => {
+    setHost(await api('settings', { template: id }));
+    if (!(status ?? host?.show)?.onAir) setDemo((n) => n + 1);
+  });
 
   const copyUrl = () => {
     if (!host) return;
@@ -285,7 +291,7 @@ export function Console() {
 
   const conn = show?.live.state ?? 'idle';
   const connTone = conn === 'connected' ? 'ok' : conn === 'error' ? 'bad' : conn === 'idle' ? 'idle' : 'warn';
-  const previewUrl = host ? `${host.stageUrl}&preview=1` : '';
+  const previewUrl = host ? `${host.stageUrl}&preview=1${demo ? `&demo=${demo}` : ''}` : '';
   const brainTone = !show?.onAir ? 'idle' : show.brain === 'away' ? 'bad' : show.brain === 'speaking' ? 'warn' : 'ok';
   const brainText = show?.onAir ? (show.brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[show.brain]) : '没在播';
   const pending = show ? (show.pending.chats ?? 0) + (show.pending.gifts ?? 0) + (show.pending.thanks ?? 0) + (show.pending.superchats ?? 0) : 0;
@@ -357,7 +363,7 @@ export function Console() {
                 <span className="dl-label">主题</span>
                 <div className="dl-skin-list">
                   {host && [...host.templates].sort((a, b) => Number(b.id === 'default') - Number(a.id === 'default')).map((t) => (
-                    <button key={t.id} className={`dl-skin${t.id === settings?.template ? ' dl-on' : ''}`} onClick={() => choose({ template: t.id })}>
+                    <button key={t.id} className={`dl-skin${t.id === settings?.template ? ' dl-on' : ''}`} onClick={() => chooseTheme(t.id)}>
                       <Img className="dl-skin-img" src={stageFile(host.stageUrl, 'templates', t.id, 'preview.jpg')} fallback={<span className="dl-skin-img dl-skin-blank" />} />
                       <b>{t.name}</b>{t.builtin ? null : <small>自定义</small>}
                     </button>

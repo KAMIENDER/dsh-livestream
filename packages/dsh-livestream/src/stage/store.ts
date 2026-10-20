@@ -3,7 +3,7 @@
  * 唯一往回发的是「这句念完了」（出声的页面才发；预览页静音、不回执）。
  */
 
-import type { BrainState, CharacterManifest, StageEvent, StageLiveEvent, TemplateManifest } from './protocol';
+import type { BrainState, CharacterManifest, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
 
 export interface ChatRow {
   id: string;
@@ -160,6 +160,8 @@ const params = new URLSearchParams(location.search);
 export const token = params.get('token') ?? '';
 /** 控制台里的预览：静音、不回执 */
 export const preview = params.get('preview') === '1';
+/** 控制台里刚换了主题：预览页演示一遍开场动画和直播中的样子（只在预览页、没在播的时候） */
+const demo = preview && params.has('demo');
 
 export function assetUrl(kind: 'characters' | 'templates', id: string, file: string): string {
   return `/${kind}/${id}/${encodeURIComponent(file)}?token=${encodeURIComponent(token)}`;
@@ -334,7 +336,9 @@ function handle(event: StageEvent): void {
   switch (event.type) {
     case 'hello':
       helloAt = Date.now();
-      return update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
+      update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
+      if (demo && !demoStarted) startDemo(event.character.name);
+      return;
     case 'say':
       update((s) => term(s, 'say', `${MOOD_TEXT[event.mood] ? `（${MOOD_TEXT[event.mood]}）` : ''}${short(event.text, 26)}`));
       return onSay(event);
@@ -351,6 +355,32 @@ function handle(event: StageEvent): void {
       });
     case 'reload': location.reload(); return;
   }
+}
+
+// ── 换主题时的演示（只在控制台预览里）────────────────
+
+let demoStarted = false;
+
+/** 先放开场动画，再来几条示例弹幕、她说一句：看得出这个主题直播时是什么样 */
+function startDemo(name: string): void {
+  demoStarted = true;
+  setTimeout(() => {
+    // 补发过来的状态说明真的在播：不演示
+    if (state.onAir) return;
+    setPhase('opening', { ms: OPENING_MS, next: 'live' });
+    const at = Date.now();
+    const user = (id: string, n: string, guard?: number): StageUser => ({ id: `demo:${id}`, name: n, ...(guard ? { guard } : {}) });
+    const chats: Array<[string, string, number?]> = [['晚风', '晚上好呀！'], ['橘子汽水', '这个主题好可爱', 3], ['放学路上', `${name}今天吃了几碗饭？`], ['云朵收集者', '来啦来啦']];
+    const v = 1 as const;
+    const script: Array<[number, StageEvent]> = [
+      ...chats.map(([n, text, guard], i) => [OPENING_MS + 300 + i * 450, { v, type: 'live', isUpdate: false, at, event: { kind: 'chat', id: `demo-${i}`, user: user(n, n, guard), text } }] as [number, StageEvent]),
+      [OPENING_MS + 2200, { v, type: 'live', isUpdate: false, at, event: { kind: 'gift', id: 'demo-gift', user: user('晚风', '晚风'), gift: '小花花', count: 5, yuan: 0.5 } }],
+      [OPENING_MS + 2400, { v, type: 'usage', tokens: 12_800, turn: 640, at }],
+      [OPENING_MS + 2600, { v, type: 'focus', userIds: ['demo:放学路上'], at }],
+      [OPENING_MS + 2700, { v, type: 'say', id: 'demo-say', text: `放学路上，今天吃了三碗！${name}的小屋装修好啦，大家随便坐～`, mood: 'laugh', audio: null, estimateMs: 5200, at }],
+    ];
+    for (const [ms, event] of script) setTimeout(() => handle(event), ms);
+  }, CATCHUP_MS);
 }
 
 export function connect(): void {
