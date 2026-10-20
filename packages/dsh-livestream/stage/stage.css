@@ -28,6 +28,15 @@ html, body {
   /* 主题变量的默认值：模板的 theme 覆盖它们 */
   --ls-font: "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --ls-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  /* 可爱的字体：字幕、名牌、标题用（模板自带字体时改它，见海边小屋） */
+  --ls-font-cute: var(--ls-font);
+  /* 字幕每句一种颜色，描边是 --ls-sub-ink */
+  --ls-sub-1: #ff6f9f;
+  --ls-sub-2: #3d9bff;
+  --ls-sub-3: #a77bff;
+  --ls-sub-4: #ff9a2e;
+  --ls-sub-5: #22b98a;
+  --ls-sub-ink: #2b3366;
   /* 面板上的字 */
   --ls-text: #34405e;
   --ls-dim: #7b87a8;
@@ -199,17 +208,35 @@ html, body {
 .ls-subtitle.ls-ended { animation: ls-fade-out 0.9s 1.7s ease forwards; }
 @keyframes ls-fade-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
 @keyframes ls-pop-bubble { from { transform: scale(0.85) translateY(14px); opacity: 0; } }
-.ls-subtitle p { margin: 0; font-size: var(--ls-subtitle-size); line-height: 1.5; font-weight: 700; letter-spacing: 0.5px; }
+.ls-subtitle p { margin: 0; font-family: var(--ls-font-cute); font-size: var(--ls-subtitle-size); line-height: 1.55; font-weight: 700; letter-spacing: 2px; }
 .ls-subtitle.ls-long p { font-size: calc(var(--ls-subtitle-size) * 0.82); }
-.ls-subtitle p span { transition: color 0.2s ease; }
-.ls-lit { color: var(--ls-text); }
-.ls-dim { color: var(--ls-unlit); }
+/* 一个字一个字弹出来：念到时从下面跳上来、带一点回弹，每个字歪一点点 */
+.ls-subtitle p span { display: inline-block; transform: rotate(var(--r, 0deg)); }
+.ls-lit {
+  color: var(--ls-sub, var(--ls-text));
+  -webkit-text-stroke: 3px color-mix(in srgb, var(--ls-sub-ink) 85%, var(--ls-sub)); paint-order: stroke fill;
+  text-shadow: 0 3px 0 color-mix(in srgb, var(--ls-sub-ink) 18%, transparent);
+  animation: ls-char-pop 0.34s cubic-bezier(0.2, 1.7, 0.4, 1) both;
+}
+.ls-dim { visibility: hidden; }
+/* 点到的观众名、数字：大一号、换强调色 */
+.ls-em.ls-lit { color: var(--ls-accent-2); font-size: 1.12em; }
+@keyframes ls-char-pop {
+  0% { transform: translateY(18px) scale(0.2) rotate(var(--r, 0deg)); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: rotate(var(--r, 0deg)); }
+}
+/* 说话时气泡的尾巴轻轻晃 */
+.ls-subtitle:not(.ls-ended)::before, .ls-subtitle:not(.ls-ended)::after { animation: ls-tail 1.2s ease-in-out infinite; transform-origin: 50% 100%; }
+@keyframes ls-tail { 50% { transform: rotate(-8deg) translateX(-2px); } }
 .ls-speaker {
   position: absolute; left: 32px; top: -22px; z-index: 1; display: inline-flex; align-items: center; padding: 6px 20px 6px 16px; border-radius: 999px;
-  font-size: 21px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
+  font-family: var(--ls-font-cute); font-size: 22px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
   background: linear-gradient(90deg, var(--ls-mood), var(--ls-accent-2));
   box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--ls-mood) 80%, transparent), 0 0 0 4px var(--ls-rim);
 }
+.ls-mood-mark { display: inline-block; margin-left: 6px; font-style: normal; font-weight: 900; animation: ls-mark 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both, ls-hop 1.4s 0.9s ease-in-out infinite; }
+@keyframes ls-mark { from { transform: scale(0) rotate(-40deg); } }
 /* 她在回谁：引用在气泡上方 */
 .ls-quote {
   display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; padding: 8px 16px 8px 8px; border-radius: 16px;
@@ -231,7 +258,7 @@ html, body {
 }
 .ls-chat-head {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 24px 12px;
-  font-size: 22px; font-weight: 800; letter-spacing: 2px; color: var(--ls-accent);
+  font-family: var(--ls-font-cute); font-size: 24px; font-weight: 800; letter-spacing: 2px; color: var(--ls-accent);
 }
 .ls-chat-head::before {
   content: ''; width: 26px; height: 22px; border-radius: 10px 10px 10px 3px;
@@ -317,7 +344,7 @@ html, body {
 @keyframes ls-reply-out { to { opacity: 0; transform: translateY(-14px) scale(0.96); } }
 .ls-reply-tag {
   align-self: flex-start; display: inline-flex; align-items: center; padding: 5px 18px 5px 14px; border-radius: 999px;
-  font-size: 19px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
+  font-family: var(--ls-font-cute); font-size: 20px; font-weight: 800; letter-spacing: 2px; color: var(--ls-ink);
   background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2)); box-shadow: 0 0 0 4px var(--ls-rim);
   animation: ls-tag-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
@@ -351,7 +378,10 @@ html, body {
 .ls-alert b { color: var(--ls-accent); }
 @keyframes ls-pop { from { transform: translateY(-20px) scale(0.6); opacity: 0; } }
 @keyframes ls-alert-out { to { transform: translateY(-12px) scale(0.9); opacity: 0; } }
-.ls-alert-art { position: absolute; right: -18px; bottom: -10px; width: 100px; z-index: 4; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.3)); animation: ls-peek 0.6s 0.15s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+/* 举着礼物蹦：弹出来以后一直小跳 */
+.ls-alert-art { position: absolute; right: -18px; bottom: -10px; width: 100px; z-index: 4; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.3)); transform-origin: 50% 100%;
+  animation: ls-peek 0.6s 0.15s cubic-bezier(0.2, 1.5, 0.4, 1) both, ls-jump 0.9s 0.8s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
+@keyframes ls-jump { 0%, 100% { transform: translateY(0) scale(1); } 15% { transform: translateY(0) scale(1.06, 0.92); } 45% { transform: translateY(-14px) scale(0.97, 1.04); } 75% { transform: translateY(0) scale(1.04, 0.95); } }
 @keyframes ls-peek { from { transform: translateY(30px) rotate(10deg) scale(0.5); opacity: 0; } }
 
 /* 礼物 */
@@ -434,7 +464,7 @@ html, body {
 @keyframes ls-sail { 50% { transform: rotate(-6deg) translateY(-3px); } }
 .ls-guard-text { display: flex; flex-direction: column; line-height: 1.15; }
 .ls-guard-text small { font-size: 14px; font-weight: 800; letter-spacing: 6px; color: rgba(255, 255, 255, 0.9); }
-.ls-guard-text b { font-size: 30px; font-weight: 900; color: #fff !important; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.15); }
+.ls-guard-text b { font-family: var(--ls-font-cute); font-size: 32px; font-weight: 900; color: #fff !important; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.15); }
 .ls-guard-text span { font-size: 19px; }
 .ls-guard .ls-avatar { width: 54px; height: 54px; }
 
@@ -457,7 +487,7 @@ html, body {
   box-shadow: var(--ls-shadow); color: var(--ls-text);
 }
 .ls-status > .ls-room {
-  height: 52px; padding: 0 24px; font-size: 24px; font-weight: 900; letter-spacing: 2px; color: #fff;
+  height: 52px; padding: 0 24px; font-family: var(--ls-font-cute); font-size: 26px; font-weight: 900; letter-spacing: 2px; color: #fff;
   background: linear-gradient(100deg, var(--ls-accent), var(--ls-accent-2)); border-color: #fff;
 }
 .ls-live { font-family: var(--ls-mono); font-weight: 800; letter-spacing: 2px; color: var(--ls-dim) !important; }
@@ -496,13 +526,18 @@ html, body {
   position: relative; display: flex; align-items: center; gap: 14px; padding: 18px 22px 18px 150px; min-height: 150px; box-sizing: border-box;
   background: var(--ls-panel-strong); border: 3px solid var(--ls-rim); border-radius: 30px; box-shadow: var(--ls-shadow);
 }
-.ls-rice-art { position: absolute; left: -10px; bottom: -6px; width: 160px; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.25)); transform-origin: 50% 100%; animation: ls-munch 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
-@keyframes ls-munch { 40% { transform: scale(1.06, 0.94); } }
+/* 一直在小口吃饭：一点头一点头；涨米粒时咬一大口 */
+.ls-rice-art { position: absolute; left: -22px; bottom: -10px; width: 186px; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.25)); transform-origin: 50% 100%;
+  animation: ls-munch 0.5s cubic-bezier(0.2, 1.6, 0.4, 1), ls-eat 1.7s 0.5s ease-in-out infinite; }
+@keyframes ls-munch { 40% { transform: scale(1.1, 0.9); } }
+/* 动图自己会动，不再叠 CSS 的小动作 */
+.ls-rice-art.ls-anim, .ls-term-art.ls-anim { animation: none !important; }
+@keyframes ls-eat { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-3deg) translateY(2px) scale(1.01, 0.98); } 45% { transform: rotate(1deg); } }
 .ls-rice-body { flex: 1; min-width: 0; }
-.ls-rice-label { font-size: 17px; font-weight: 700; color: var(--ls-dim); letter-spacing: 2px; }
+.ls-rice-label { font-family: var(--ls-font-cute); font-size: 18px; font-weight: 700; color: var(--ls-dim); letter-spacing: 2px; }
 .ls-rice-count { position: relative; display: flex; align-items: baseline; gap: 6px; }
 .ls-rice-count b { font-size: 48px; font-weight: 900; line-height: 1.1; color: var(--ls-accent); font-family: var(--ls-mono); animation: ls-combo 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
-.ls-rice-count span { font-size: 20px; font-weight: 800; color: var(--ls-text); }
+.ls-rice-count span { font-family: var(--ls-font-cute); font-size: 22px; font-weight: 800; color: var(--ls-text); }
 .ls-rice-count em { position: absolute; right: 0; top: -6px; font-style: normal; font-weight: 900; font-size: 20px; color: var(--ls-accent-2); animation: ls-float-up 1.6s ease-out forwards; }
 @keyframes ls-float-up { 0% { opacity: 0; transform: translateY(10px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
 .ls-rice-bowl { position: relative; height: 16px; margin: 6px 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--ls-accent) 12%, #fff); overflow: hidden; }
@@ -518,7 +553,14 @@ html, body {
   border-radius: 24px; background: #262b45; border: 3px solid var(--ls-rim); box-shadow: var(--ls-shadow);
   font-family: var(--ls-mono); color: #dfe6ff;
 }
-.ls-term-art { position: absolute; right: 8px; top: -92px; width: 128px; z-index: 2; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.3)); }
+/* 敲键盘：一直轻轻抖；她在想的时候敲得更快，说话时停下来晃一晃 */
+.ls-term-art { position: absolute; right: 0; top: -104px; width: 144px; z-index: 2; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.3)); transform-origin: 50% 100%; animation: ls-type 0.5s steps(2) infinite; }
+.ls-term-thinking .ls-term-art { animation-duration: 0.22s; }
+.ls-term-speaking .ls-term-art { animation: ls-sway 1.6s ease-in-out infinite; }
+.ls-term-off .ls-term-art, .ls-term-away .ls-term-art { animation: ls-breathe-art 3.6s ease-in-out infinite; }
+@keyframes ls-type { 50% { transform: translateY(-2px) rotate(-1deg); } }
+@keyframes ls-sway { 50% { transform: rotate(-4deg); } }
+@keyframes ls-breathe-art { 50% { transform: scale(1.02, 0.98); } }
 .ls-term-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .ls-term-bar i { width: 13px; height: 13px; border-radius: 50%; background: #ff7a8a; }
 .ls-term-bar i:nth-child(2) { background: #ffcf5c; }
@@ -560,9 +602,9 @@ html, body {
   backdrop-filter: blur(10px); text-align: center; animation: ls-pop-bubble 0.8s cubic-bezier(0.2, 1.3, 0.4, 1);
 }
 .ls-wait-art { position: absolute; left: 50%; top: -150px; width: 330px; margin-left: -165px; animation: ls-snooze 3.6s ease-in-out infinite; transform-origin: 50% 100%; filter: drop-shadow(0 10px 14px rgba(40, 70, 130, 0.25)); }
-@keyframes ls-snooze { 50% { transform: scale(1.02, 0.97) translateY(3px); } }
-.ls-wait-room { display: inline-block; padding: 6px 22px; border-radius: 999px; font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #fff; background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2)); }
-.ls-wait-title { margin-top: 20px; font-size: 64px; font-weight: 900; letter-spacing: 4px; color: var(--ls-text); }
+@keyframes ls-snooze { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.03, 0.95) translateY(5px) rotate(-1deg); } }
+.ls-wait-room { display: inline-block; font-family: var(--ls-font-cute); padding: 6px 22px; border-radius: 999px; font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #fff; background: linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2)); }
+.ls-wait-title { margin-top: 20px; font-family: var(--ls-font-cute); font-size: 68px; font-weight: 900; letter-spacing: 4px; color: var(--ls-text); }
 .ls-wait-title i { display: inline-block; width: 12px; height: 12px; margin-left: 8px; border-radius: 50%; background: var(--ls-accent); animation: ls-hop 1.2s ease-in-out infinite; }
 .ls-wait-title i:nth-child(2) { animation-delay: 0.15s; background: var(--ls-accent-2); }
 .ls-wait-title i:nth-child(3) { animation-delay: 0.3s; background: var(--ls-gold); }
@@ -586,7 +628,7 @@ html, body {
 .ls-open-kv { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: ls-kv 5.2s ease-out both; }
 @keyframes ls-kv { from { transform: scale(1.12) translateX(3%); } to { transform: scale(1); } }
 .ls-open-title { position: absolute; left: 140px; top: 50%; transform: translateY(-55%); display: flex; flex-direction: column; gap: 10px; }
-.ls-open-title b { display: flex; font-size: 168px; font-weight: 900; letter-spacing: 8px; color: #fff;
+.ls-open-title b { display: flex; font-family: var(--ls-font-cute); font-size: 176px; font-weight: 900; letter-spacing: 8px; color: #fff;
   -webkit-text-stroke: 10px var(--ls-accent); paint-order: stroke fill; text-shadow: 0 12px 0 color-mix(in srgb, var(--ls-accent) 50%, #1d3d7a); }
 .ls-open-title b span { display: inline-block; animation: ls-letter 0.6s calc(1.2s + var(--i) * 0.12s) cubic-bezier(0.2, 1.6, 0.4, 1) both; }
 @keyframes ls-letter { from { transform: translateY(-120px) scale(0.4) rotate(-14deg); opacity: 0; } }
@@ -601,7 +643,7 @@ html, body {
   background: rgba(255, 255, 255, 0.86); border: 4px solid var(--ls-rim); border-radius: 44px; box-shadow: 0 30px 60px -24px rgba(120, 60, 120, 0.45);
   backdrop-filter: blur(10px); animation: ls-pop-bubble 0.9s 0.3s cubic-bezier(0.2, 1.3, 0.4, 1) both;
 }
-.ls-end-title { font-size: 60px; font-weight: 900; letter-spacing: 3px; color: var(--ls-text); }
+.ls-end-title { font-family: var(--ls-font-cute); font-size: 64px; font-weight: 900; letter-spacing: 3px; color: var(--ls-text); }
 .ls-end-sub { margin-top: 8px; font-size: 26px; color: var(--ls-dim); }
 .ls-end-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 30px; }
 .ls-end-stats div { padding: 16px 8px; border-radius: 22px; text-align: center; background: color-mix(in srgb, var(--ls-accent) 8%, #fff); animation: ls-row-in 0.5s both; }

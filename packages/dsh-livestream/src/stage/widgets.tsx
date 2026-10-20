@@ -29,10 +29,11 @@ function useArt(name: string): string | null {
   return character && file ? assetUrl('characters', character.id, file) : null;
 }
 
-/** 角色的小插画：文件缺了就不画（不出现破图标） */
+/** 角色的小插画：图片，或者带透明通道的循环动图（.webm）；文件缺了就不画（不出现破图标） */
 function ArtImg({ src, className }: { src: string; className: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
+  if (/\.(webm|mp4)\?/.test(src)) return <video className={`${className} ls-anim`} src={src} autoPlay loop muted playsInline onError={() => setBroken(true)} />;
   return <img className={className} src={src} alt="" onError={() => setBroken(true)} />;
 }
 
@@ -221,6 +222,36 @@ function Sparks({ n = 12 }: { n?: number }) {
 // ── 字幕 ─────────────────────────────────────────────
 
 /** 她正在说的话：念到哪亮到哪（按豆包给的逐字时间和音频的真实播放位置，不按字数估）；说完留一会儿再淡出 */
+/** 字幕每句换一种颜色（模板用 --ls-sub-1 … --ls-sub-5 改） */
+const SUB_COLORS = 5;
+/** 名牌旁边跟着表情冒的小符号 */
+const MOOD_MARK: Record<string, string> = { laugh: '♪', shy: '♡', angry: '!!', sad: '…', scared: '!?', shocked: '!', think: '?' };
+
+function hashOf(text: string): number {
+  let h = 0;
+  for (const c of text) h = (h * 33 + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+/** 要强调的字：她点到的观众名、数字 */
+function emphasis(chars: string[], names: string[]): Set<number> {
+  const marks = new Set<number>();
+  const text = chars.join('');
+  for (const name of names) {
+    if ([...name].length < 2) continue;
+    let from = 0;
+    for (;;) {
+      const at = text.indexOf(name, from);
+      if (at < 0) break;
+      const start = [...text.slice(0, at)].length;
+      for (let i = 0; i < [...name].length; i++) marks.add(start + i);
+      from = at + name.length;
+    }
+  }
+  chars.forEach((c, i) => { if (/[0-9０-９]/.test(c)) marks.add(i); });
+  return marks;
+}
+
 export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   const { line, character, reply } = useStage();
   const [shown, ended] = useLinger(line, 2600);
@@ -241,9 +272,12 @@ export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   const upTo = ended ? chars.length : lit.id === shown.id ? lit.n : 0;
   // 她在回谁：像聊天软件的「回复」一样引用在字幕上方（options.quote: false 关掉，改用 reply 挂件）
   const quoted = options?.quote !== false && !ended ? reply[0] : undefined;
+  const marks = emphasis(chars, reply.map((r) => r.event.user.name));
+  const color = `var(--ls-sub-${(hashOf(shown.id) % SUB_COLORS) + 1})`;
+  const mark = MOOD_MARK[shown.mood];
   return (
-    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined}>
-      <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}</span>
+    <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${chars.length > 46 ? ' ls-long' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined} style={{ '--ls-sub': color } as React.CSSProperties}>
+      <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}{mark && <i className="ls-mood-mark">{mark}</i>}</span>
       {quoted && (
         <div className="ls-quote" key={quoted.key}>
           <Avatar user={quoted.event.user} />
@@ -251,7 +285,10 @@ export function Subtitle({ options }: { options?: Record<string, unknown> }) {
           <span>{eventText(quoted.event)}</span>
         </div>
       )}
-      <p>{chars.map((c, i) => <span key={i} className={i < upTo ? 'ls-lit' : 'ls-dim'}>{c}</span>)}</p>
+      {/* 念到的字一个个弹出来（还没念到的占着位置、不显示，气泡不会跟着变大） */}
+      <p>{chars.map((c, i) => (
+        <span key={i} className={`${i < upTo ? 'ls-lit' : 'ls-dim'}${marks.has(i) ? ' ls-em' : ''}`} style={{ '--r': `${((hashOf(`${shown.id}${i}`) % 9) - 4) * 1.2}deg` } as React.CSSProperties}>{c}</span>
+      ))}</p>
     </div>
   );
 }
@@ -512,7 +549,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
   useEffect(() => { prev.current = tokens; }, [tokens]);
   return (
     <div className="ls-rice">
-      {art && <ArtImg className="ls-rice-art" key={grains} src={art} />}
+      {art && <ArtImg className="ls-rice-art" src={art} />}
       <div className="ls-rice-body">
         <div className="ls-rice-label">今天吃了</div>
         <div className="ls-rice-count"><b key={grains}>{grains.toLocaleString()}</b><span>粒米</span>{added > 0 && <em key={tokens}>+{Math.max(1, grainsOf(added))}</em>}</div>
@@ -539,7 +576,7 @@ export function Terminal({ options }: { options?: Record<string, unknown> }) {
   const rows = term.slice(-Number(options?.rows ?? 9));
   const title = String(options?.title ?? `${character?.id ?? 'her'}@dsh-livestream`);
   return (
-    <div className="ls-term">
+    <div className={`ls-term ls-term-${brain}`}>
       {art && <ArtImg className="ls-term-art" src={art} />}
       <div className="ls-term-bar"><i /><i /><i /><span>{title}</span></div>
       <div className="ls-term-lines">

@@ -22,6 +22,7 @@
 
 `art/` 里的 Q 版贴纸（rice、sleep、wave、laptop、gift）和原比例插画（kv、waiting、ending、portrait）用 OpenAI 的图像模型（经 Codex）生成：
 Q 版贴纸以上面的动画片段截帧为参考，原比例插画以上述社区设定图为参考。同样是衍生作品，按 CC BY-NC-SA 4.0 发布。
+`art/rice.webm`、`art/laptop.webm` 两段循环动图是用 Seedance 以对应的 Q 版贴纸为首尾帧生成、再抠掉绿幕的，同样按 CC BY-NC-SA 4.0 发布。
 默认模板「海边小屋」的背景（`templates/default/room.jpg`）也是这样生成的，不含角色。
 
 ## 你可以

@@ -5,6 +5,14 @@
  * 能画的地方：.ls-backdrop（挂件下面）和 .ls-overlay（挂件上面）各自的 .ls-layer-1/2/3 和 ::before / ::after。
  */
 
+/* 字体：站酷快乐体（fonts/，SIL OFL 1.1，见 fonts/ZCOOLKuaiLe-OFL.txt），圆滚滚的，字幕、名牌、标题用 */
+@font-face {
+  font-family: "ZCOOL KuaiLe";
+  src: url("fonts/ZCOOLKuaiLe.woff2") format("woff2");
+  font-display: block;
+}
+.ls-canvas.ls-template-default { --ls-font-cute: "ZCOOL KuaiLe", var(--ls-font); }
+
 .ls-template-default .ls-backdrop {
   background: #f6efe4 url("room.jpg") center / cover no-repeat;
 }

@@ -6,10 +6,10 @@
   "voice": "zh_female_mengyatou_uranus_bigtts",
   "renderer": "clips",
   "art": {
-    "rice": "art/rice.webp",
+    "rice": "art/rice.webm",
     "sleep": "art/sleep.webp",
     "wave": "art/wave.webp",
-    "laptop": "art/laptop.webp",
+    "laptop": "art/laptop.webm",
     "gift": "art/gift.webp",
     "kv": "art/kv.jpg",
     "waiting": "art/waiting.jpg",
