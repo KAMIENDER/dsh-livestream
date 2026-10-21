@@ -608,7 +608,7 @@ export function Terminal({ options }: { options?: Record<string, unknown> }) {
   const { term, brain, brainDetail, character } = useStage();
   const art = useArt('laptop');
   const rows = term.slice(-Number(options?.rows ?? 9));
-  const title = String(options?.title ?? `${character?.id ?? 'her'}@dsh-livestream`);
+  const title = String(options?.title ?? `${character?.id ?? 'her'}@live`);
   return (
     <div className={`ls-term ls-term-${brain}`}>
       {art && <ArtImg className="ls-term-art" src={art} />}
