@@ -1,17 +1,67 @@
-# dsh-livestream
+<p align="center">
+  <img src="docs/hero.jpg" alt="大肥鱼直播计划" width="100%">
+</p>
 
-DeepSeek Harness（DSH）的直播插件：让 DSH 里的 agent 在 B 站直播间当主播。默认角色是「大肥鱼」。
+<h1 align="center">dsh-livestream</h1>
 
-演示视频：《大肥鱼直播计划》（B 站，链接待补）
+<p align="center">
+  <b>DeepSeek Harness 的直播插件：让 DSH 里的 agent 在 B 站直播间当主播。</b><br>
+  默认角色是「大肥鱼」。她自己看弹幕、谢礼物、点播视频、给观众写私信，用自己的声音说话。
+</p>
 
-## 能做什么
+<p align="center">
+  <a href="LICENSE"><img alt="code: MIT" src="https://img.shields.io/badge/code-MIT-3f7cf0"></a>
+  <a href="packages/dsh-livestream/assets/characters/dafeiyu/LICENSE.md"><img alt="大肥鱼素材: CC BY-NC-SA 4.0" src="https://img.shields.io/badge/大肥鱼素材-CC%20BY--NC--SA%204.0-e0763c"></a>
+  <img alt="DeepSeek Harness 插件" src="https://img.shields.io/badge/DeepSeek%20Harness-插件-283270">
+  <img alt="Bilibili 直播" src="https://img.shields.io/badge/Bilibili-直播-fb7299">
+</p>
 
-- **直播间**：一个网页舞台（OBS 用浏览器源推流），有角色动画、字幕、弹幕列表、礼物特效、终端和「今天吃了几碗饭」（这场用掉的 token 换算成米饭）。
-- **接住直播间里的事**：弹幕、礼物、SC、上舰、进场、关注，由插件按轻重缓急一件一件交给她，她自己决定怎么回。
-- **自己的声音**：豆包语音合成，字幕按发音逐字走；说话时换表情。
-- **工具**：看观众主页、给观众发私信、搜 B 站视频、看视频字幕、在直播间里放视频、停视频。她每调用一次工具，舞台终端里都记一行，观众看得到她做了什么。
-- **记得常客**：本场和以前来过的观众、他们说过的话。
-- **开播**：控制台里一键开播（B 站开播接口 + 本机 OBS 推流），下播前她先道别，舞台出谢幕画面。也可以只在本地彩排、不推流。
+<p align="center">演示视频：《大肥鱼直播计划》（B 站，链接待补）</p>
+
+---
+
+## 是真的在直播
+
+<p align="center"><img src="docs/live-proof.jpg" alt="左边本机 DSH 里的她，右边 B 站直播间里的她" width="100%"></p>
+
+左边是本机 DSH 控制台里的她，右边是 B 站直播间里观众看到的她：同一个她，B 站那边晚几秒。插件调 B 站开播接口、驱动本机 OBS 推流，弹幕和礼物从 B 站直播间的消息服务实时收进来。
+
+## 她会做什么
+
+<table>
+<tr>
+<td width="38%" align="center"><img src="docs/expressions.gif" alt="边说话边换表情" width="100%"></td>
+<td>
+
+**自己的声音、自己的表情**
+豆包语音合成，字幕按发音一个字一个字亮；她在话里写个 `[shocked]`、`[shy]`，念到那里就换表情。换表情时挑姿势最像的那一帧切，不叠影。
+
+**接住直播间里的事**
+弹幕、礼物、SC、上舰、进场、关注，插件按轻重缓急一件一件交给她，她自己决定怎么回。人多的时候先回舰长和老粉，冷场了她会自己找话说。
+
+**记得人**
+这一场和以前来过的观众、他们说过的话，她都记得；常来的人会被认出来。
+
+</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/video.jpg" alt="在直播间里放 B 站视频" width="100%"></td>
+<td width="50%"><img src="docs/ending.jpg" alt="下播谢幕" width="100%"></td>
+</tr>
+<tr>
+<td><b>点播视频</b>：观众想看什么，她自己去 B 站搜、在直播间里放，她说话时视频自动调小声；还能看主页、写私信。每次用工具，舞台终端里都记一行「调用 …」，观众看得到她做了什么。</td>
+<td><b>开播和下播</b>：控制台一键开播，下播前她先道别，舞台出谢幕画面（播了多久、几条弹幕、吃了几粒米、谢谢的人）。右上角的饭碗是这场用掉的 token 换算成的米饭。</td>
+</tr>
+</table>
+
+## 控制台
+
+<p align="center"><img src="docs/console.jpg" alt="DSH 里的直播控制台" width="100%"></p>
+
+在 DSH 侧边栏打开「直播」：看舞台预览、换皮肤、开播下播、跟她说话、模拟观众（不开播也能彩排）。
 
 ## 需要
 
@@ -42,5 +92,6 @@ DOUBAO_TTS_ACCESS_KEY=...
 
 ## 许可
 
-- 代码：MIT（见 `LICENSE`）。
-- 大肥鱼的动画片段（`packages/dsh-livestream/assets/characters/dafeiyu/`）：CC BY-NC-SA 4.0，是社区作品的衍生作品，署名和来源见那个目录里的 `LICENSE.md`。非商业使用；商业用途请自备角色素材，或向原作者申请许可。
+- **代码**：MIT（见 [`LICENSE`](LICENSE)）。
+- **大肥鱼的动画片段**（`packages/dsh-livestream/assets/characters/dafeiyu/`）：CC BY-NC-SA 4.0，是社区作品的衍生作品，署名和来源见那个目录里的 [`LICENSE.md`](packages/dsh-livestream/assets/characters/dafeiyu/LICENSE.md)。只能非商业使用；商业用途请自备角色素材，或向原作者申请许可。
+- `docs/` 里的截图来自演示视频的录制，其中 B 站视频的画面做了模糊处理。
