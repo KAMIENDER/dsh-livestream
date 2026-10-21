@@ -3,6 +3,8 @@
  * 所以换主题不会把直播弄坏；别人写的模板和挂件按这个版本号对接。
  *
  * 连接：GET /events?token=…（SSE，每条 data 是一个 StageEvent）。舞台念完一句回执 POST /said?id=…&token=…。
+ * 放视频：视频从 GET <src>&token=… 取（舞台服务器转发）；开始放、放完、放不出来回执
+ * POST /media?id=…&state=playing|ended|error&at=<秒>&token=…。
  */
 
 export const STAGE_PROTOCOL = 1;
@@ -55,12 +57,27 @@ export interface TemplateManifest {
   canvas: [number, number];
   /** CSS 变量：颜色、字体……挂件都读这些变量 */
   theme: Record<string, string>;
+  /** 平时（聊天）的布局 */
   widgets: WidgetPlacement[];
   /**
    * 事件名（见 triggers.ts）→ 放哪些整屏特效（effects 挂件放；有哪些、怎么自己加见 effects.tsx）。
    * 不写用默认的一套；写了就整个换掉默认的；某个事件写 [] 就是什么都不放。
    */
   effects?: Record<string, EffectSpec[]>;
+  /**
+   * 同一个主题里的别的布局：舞台进入这种状态时挂件平滑挪到这里写的位置，结束了挪回来。
+   * video：放视频的时候（video 挂件只在这里出现）。没写的挂件留在原处；hidden 的淡出。
+   * 画布上还会加 ls-mode-<布局名> 这个 class，模板的 style.css 可以跟着换样式
+   */
+  layouts?: { video?: LayoutPlacement[] };
+}
+
+/** 布局里的一个挂件：按 type 对上平时布局里的同一个挂件（同类型有几个时按出现顺序） */
+export interface LayoutPlacement extends Partial<WidgetPlacement> {
+  type: WidgetType;
+  /** 整体缩放（以左上角为原点），角色缩到角落用 */
+  scale?: number;
+  hidden?: boolean;
 }
 
 /** 一个特效：名字，或者名字加参数（ms 是放多久，其余参数看特效自己） */
@@ -71,9 +88,10 @@ export type EffectSpec = string | { name: string; ms?: number; [option: string]:
  * rice：她吃了多少饭（这场用掉的 token 换算成电、再换算成米饭）
  * terminal：终端，滚动显示身体和大脑在干什么（推了什么给她、她想了多久、用了多少 token）
  * scene：整屏的过场：开播前的等待画面、开场动画、下播谢幕（放在画布 0,0，宽高和画布一样）
+ * video：放视频的画面（她在放视频时才有，放在 layouts.video 里）
  * effects：整屏特效层：进场、礼物、上舰时放的彩带、横幅……（放在画布 0,0，宽高和画布一样，排在 scene 前面）
  */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'effects';
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects';
 
 export interface WidgetPlacement {
   type: WidgetType;
@@ -121,5 +139,11 @@ export type StageEvent =
   | { v: 1; type: 'room'; online?: number; title?: string; onAir: boolean; at: number }
   /** 这场直播她用掉的 token（累计）；turn 是刚结束的这一步用的，model 是哪个模型 */
   | { v: 1; type: 'usage'; tokens: number; turn?: number; model?: string; at: number }
+  /**
+   * 放视频（她用 play_video）：舞台换成 video 布局，从 from 秒放到 until 秒；她说话时视频声音调小。
+   * 中途连上的舞台从 from + (现在 - at) 接着放。stop：停下、换回平时的布局
+   */
+  | { v: 1; type: 'media'; action: 'play'; id: string; title: string; up: string; src: string; from: number; until: number; at: number }
+  | { v: 1; type: 'media'; action: 'stop'; id: string; at: number }
   /** 模板或角色换了：舞台重新加载 */
   | { v: 1; type: 'reload'; at: number };

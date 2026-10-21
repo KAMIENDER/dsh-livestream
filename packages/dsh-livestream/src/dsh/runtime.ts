@@ -14,6 +14,7 @@ import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveShow } from '../body/show';
 import { BiliAccount } from '../body/biliAccount';
+import { BiliVideos } from '../body/biliVideo';
 import { Broadcast } from '../body/broadcast';
 import { DmManager } from '../body/dm';
 import { Packs } from '../body/packs';
@@ -185,6 +186,10 @@ export const server = new StageServer({
   packs,
   stage: show.stage,
   current: () => ({ character: settings.character, template: settings.template }),
+  media: {
+    source: (id) => show.player.source(id),
+    report: (id, state, positionSec) => show.player.report(id, state, positionSec),
+  },
   log: (level, message) => hooks.log(level, message),
 });
 
@@ -222,3 +227,6 @@ export const broadcast = new Broadcast({
 
 /** 她给观众发私信（开播账号）：B 站「对方没关注只能发一条」等规矩在这里管 */
 export const dm = new DmManager(new BiliAccount(cookie), join(dataDir, 'dm.json'));
+
+/** 她搜视频、看视频、在舞台上放视频（开播账号的 Cookie：AI 字幕要登录才给） */
+export const videos = new BiliVideos(cookie);
