@@ -76,4 +76,9 @@
 .ls-template-default .ls-slot-subtitle { z-index: 5; --ls-tail-x: 50%; }
 .ls-template-default .ls-slot-alerts { z-index: 6; }
 .ls-template-default .ls-slot-terminal { z-index: 4; }
+/* 放视频时终端挪到视频下面、和字幕同一个位置：她不说话时露出终端（在想、在放什么、用了多少 token），说话时字幕盖在上面。
+   那里放不下敲电脑的小人（会戳到视频上），藏起来 */
+.ls-template-default.ls-mode-video .ls-term-art { display: none; }
+.ls-template-default.ls-mode-video .ls-slot-terminal { transition: opacity 0.25s; }
+.ls-template-default.ls-mode-video:has(.ls-slot-subtitle .ls-subtitle:not(.ls-empty)) .ls-slot-terminal { opacity: 0; }
 .ls-template-default .ls-ai-label { float: right; }
