@@ -18,6 +18,7 @@ export interface ConsoleServices {
   sessions: {
     create(opts: { workspaceId: string }): Promise<string>;
     using<T>(target: string, options: { source: string }, operation: (reference: { ready: Promise<{ session: any }> }) => T | Promise<T>): Promise<T>;
+    rename?(sessionId: string, title: string): Promise<unknown>;
   };
   remote: { agentPresets: { select(sessionId: string, presetId: string): Promise<RemoteResult> } };
   layout: { selectPanel(panelId: string | null): void };
@@ -168,6 +169,9 @@ async function createBrainSession(svc: ConsoleServices): Promise<string> {
   const sessionId = await svc.sessions.create({ workspaceId: workspace.workspaceId });
   const selected = await svc.remote.agentPresets.select(sessionId, PRESET_ID);
   if (!selected.ok) throw new Error(selected.error?.message ?? '没能用上「大肥鱼直播」预设。');
+  // 会话列表里一眼认得出是哪一场（不然叫「未命名」）
+  const d = new Date();
+  void svc.sessions.rename?.(sessionId, `直播 · ${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`).catch(() => {});
   // 让会话就绪（agent 起来），身体才能往里推
   await svc.sessions.using(sessionId, { source: 'controllerOperation' }, async (reference) => { await reference.ready; });
   return sessionId;
