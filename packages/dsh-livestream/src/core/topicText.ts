@@ -129,9 +129,18 @@ function body(topic: Topic, ctx: TopicContext): Body {
         how: '像搭档一样直接回他：可以吐槽、接梗、反驳或者撒娇；需要的话最后把话头拉回直播间。',
         maxChars: 70,
       };
+    case 'video':
+      return topic.how === 'ended'
+        ? { what: [`你放的视频「${cleanText(topic.title)}」放完了（放了 ${minutes(topic.playedSec)}），舞台换回了聊天的样子。`], how: '可以说说看完的感想、问问大家觉得怎么样，或者接着聊弹幕。', maxChars: 60 }
+        : { what: [`你要放的视频「${cleanText(topic.title)}」没放出来（舞台加载不了 B 站的视频地址）。`], how: '跟大家说一声，可以换一个或者接着聊。', maxChars: 40 };
     case 'idle':
       return { what: ['直播间这会儿没人发弹幕。'], how: '自己找点话说：讲一件你作为 AI 的真实小事，或者问观众一个具体、好回答的问题。', maxChars: 70 };
   }
+}
+
+function minutes(sec: number): string {
+  const s = Math.round(sec);
+  return s >= 60 ? `${Math.floor(s / 60)} 分${s % 60 ? ` ${s % 60} 秒` : '钟'}` : `${s} 秒`;
 }
 
 export function topicText(topic: Topic, ctx: TopicContext): string {

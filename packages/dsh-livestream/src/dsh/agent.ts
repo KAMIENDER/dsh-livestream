@@ -12,9 +12,10 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { randomUUID } from 'node:crypto';
 import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
+import { clock, infoText, searchText, subtitleText, type VideoInfo, type VideoPart } from '../body/biliVideo';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { currentMoods, dm, hooks, show } from './runtime';
+import { currentMoods, dm, hooks, show, videos } from './runtime';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -87,6 +88,31 @@ async function push(ctx: AgentContext, sessionId: string, text: string): Promise
   // 和 DSH 自己的 createUserMessage 一样：带 id、role，冻结（消息进会话后不能再改）
   await agent.followup(Object.freeze({ id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'dsh-livestream' } }));
   return true;
+}
+
+/** 默认放多久、最多放多久（秒）：一个长视频不会把整场直播占掉 */
+const PLAY_DEFAULT_SEC = 180;
+const PLAY_MAX_SEC = 600;
+
+/** 「1:30」「90」→ 秒 */
+function seconds(value: unknown): number {
+  if (typeof value === 'number') return Math.max(0, value);
+  const text = String(value ?? '').trim();
+  if (!text) return 0;
+  return Math.max(0, text.split(':').reduce((sum, n) => sum * 60 + (Number(n) || 0), 0));
+}
+
+/** 她给的视频（BV 号、av 号、链接）和第几 P → 视频详情；认不出、找不到时返回告诉她怎么改的话 */
+async function findVideo(video: unknown, part: unknown): Promise<{ info: VideoInfo; part: VideoPart } | string> {
+  const text = String(video ?? '').trim();
+  const ref = await videos.resolve(text);
+  if (!ref) return `没认出「${text.slice(0, 40)}」是哪个视频：video 填 BV 号（BV 开头的 12 位，search_videos 的结果和 view_profile 的投稿里都有）、av 号或者视频链接。`;
+  const info = await videos.info(ref);
+  if (!info) return `${ref.bvid ?? `av${ref.aid}`} 打不开：可能没有这个视频、被删了，或者 B 站没返回（网络问题）。检查一下号码。`;
+  const page = Math.floor(Number(part) || ref.part || 1);
+  const found = info.parts.find((p) => p.page === page);
+  if (!found) return `「${info.title}」只有 ${info.parts.length} P，没有 P${page}。`;
+  return { info, part: found };
 }
 
 /** 调一次模型（下播提炼记忆）：不思考，只要文字 */
@@ -176,4 +202,101 @@ export function apply(ctx: AgentContext): void {
       return result.text;
     },
   })), 'send_dm tool');
+
+  // 搜 B 站视频
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'search_videos',
+    description: '搜 B 站视频，返回一页候选（BV 号、标题、UP 主、时长、播放量、发布日期、标签、简介）。'
+      + '可以只搜某位 UP 主的投稿（up），可以按最新或播放最多排（order），可以翻页（page）。',
+    parameters: {
+      query: { type: 'string', required: true, description: '关键词（观众说的大概意思就行）；只看某位 UP 主最新的投稿时可以留空' },
+      up: { type: 'string', description: 'UP 主的名字或 UID：只在他的投稿里找' },
+      order: { type: 'string', enum: ['relevance', 'newest', 'views'], description: 'relevance 相关度（默认）、newest 最新、views 播放最多（填了 up 时按发布时间）' },
+      page: { type: 'number', description: '第几页，默认 1' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const query = String(args.query ?? '').trim();
+      const up = String(args.up ?? '').trim() || undefined;
+      if (!query && !up) return 'query 和 up 至少填一个。';
+      const order = (['relevance', 'newest', 'views'] as const).find((o) => o === args.order);
+      const options = { up, order, page: Number(args.page) || 1 };
+      show.doing(`在搜视频：${query || up}`);
+      const result = await videos.search(query, options);
+      if (!result) return 'B 站搜索没返回（可能是网络问题或者被限流了），过一会儿再搜。';
+      return searchText(query, result, options);
+    },
+  })), 'search_videos tool');
+
+  // 看一个视频：详情和字幕
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'watch_video',
+    description: '看一个 B 站视频：详情（标题、UP 主、时长、播放点赞投币收藏、标签、简介、分 P）和带时间的字幕。'
+      + '字幕一次给一段，长的用 from 接着往后看；没有字幕的视频只有详情。',
+    parameters: {
+      video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
+      part: { type: 'number', description: '多 P 视频的第几 P，默认 1' },
+      from: { type: 'number', description: '从第几秒的字幕开始看（接着看时填上次给的数）；填了就只给字幕' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const found = await findVideo(args.video, args.part);
+      if (typeof found === 'string') return found;
+      const { info, part } = found;
+      const from = seconds(args.from);
+      show.doing(`在看「${info.title.slice(0, 20)}」`);
+      const sub = await videos.subtitles(info.bvid, part.cid);
+      const partArg = part.page > 1 ? `, part=${part.page}` : '';
+      const subtitle = subtitleText(info, part, sub, from, partArg);
+      const noLogin = !sub && !(await videos.loggedIn()) ? '（开播账号没登录：B 站的 AI 字幕要登录才给）' : '';
+      if (from > 0) return `「${info.title}」${part.page > 1 ? `P${part.page} ` : ''}从 ${clock(from)} 起：\n${subtitle}${noLogin}`;
+      return `${infoText(info, part)}\n\n${subtitle}${noLogin}`;
+    },
+  })), 'watch_video tool');
+
+  // 在舞台上放视频
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'play_video',
+    description: '在直播间的舞台上放一个 B 站视频给大家看：舞台换成看视频的布局，放完换回来，放完了会告诉你。'
+      + `默认从头放 ${PLAY_DEFAULT_SEC / 60} 分钟，可以指定从哪里开始、放多久（最长 ${PLAY_MAX_SEC / 60} 分钟）。`
+      + '放的时候你照常说话、回弹幕，你说话时视频声音会自动调小。正在放的会被换掉。',
+    parameters: {
+      video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
+      part: { type: 'number', description: '多 P 视频的第几 P，默认 1' },
+      from: { type: 'string', description: '从哪里开始放：秒数或「分:秒」，默认 0' },
+      seconds: { type: 'number', description: `放多少秒，默认 ${PLAY_DEFAULT_SEC}，最多 ${PLAY_MAX_SEC}` },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const found = await findVideo(args.video, args.part);
+      if (typeof found === 'string') return found;
+      const { info, part } = found;
+      const from = Math.floor(seconds(args.from));
+      if (part.durationSec && from >= part.durationSec) return `「${info.title}」一共只有 ${clock(part.durationSec)}，从 ${clock(from)} 开始就没有了。`;
+      const length = Math.min(PLAY_MAX_SEC, Math.max(5, Number(args.seconds) || PLAY_DEFAULT_SEC));
+      const until = part.durationSec ? Math.min(part.durationSec, from + length) : from + length;
+      const url = await videos.playUrl(info.bvid, part.cid);
+      if (!url) return `B 站没给「${info.title}」的播放地址（可能是付费、番剧、充电专属或者有地区限制），放不了。`;
+      const { replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until });
+      const lines = [
+        `舞台上开始放「${info.title}」（UP ${info.up.name}），${clock(from)}–${clock(until)}，共 ${clock(until - from)}。舞台换成了看视频的布局。`,
+        '放完了会告诉你；想停用 stop_video，想换直接 play_video 别的。',
+      ];
+      if (replaced) lines.push(`（换掉了正在放的「${replaced.title}」）`);
+      if (!show.stage.watchers) lines.push('（现在没有出声的舞台页开着：观众看不到画面，按时长算放完）');
+      return lines.join('\n');
+    },
+  })), 'play_video tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'stop_video',
+    description: '停下舞台上正在放的视频，舞台换回聊天的布局。',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute() {
+      const stopped = show.player.stop();
+      if (!stopped) return '现在没在放视频。';
+      return `停了「${stopped.video.title}」（放了 ${clock(stopped.playedSec)}），舞台换回了聊天的布局。`;
+    },
+  })), 'stop_video tool');
 }

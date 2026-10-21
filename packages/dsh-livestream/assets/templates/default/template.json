@@ -83,5 +83,42 @@
       "w": 1920,
       "h": 1080
     }
-  ]
+  ],
+  "layouts": {
+    "video": [
+      {
+        "type": "video",
+        "x": 580,
+        "y": 72,
+        "w": 1240,
+        "h": 698
+      },
+      {
+        "type": "character",
+        "x": 1650,
+        "y": 690,
+        "scale": 0.42
+      },
+      {
+        "type": "subtitle",
+        "x": 560,
+        "y": 850,
+        "w": 1060,
+        "h": 220
+      },
+      {
+        "type": "alerts",
+        "x": 1380,
+        "y": 130
+      },
+      {
+        "type": "rice",
+        "hidden": true
+      },
+      {
+        "type": "terminal",
+        "hidden": true
+      }
+    ]
+  }
 }

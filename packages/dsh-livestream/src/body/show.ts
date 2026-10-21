@@ -24,6 +24,7 @@ import { speakable } from '../core/speakable';
 import { topicText } from '../core/topicText';
 import { lookupViewer, type ViewerLookup } from '../core/viewerLookup';
 import type { BrainState, StageLiveEvent, StageUser } from '../stage/protocol';
+import { Player, type PlayRequest } from './player';
 import { Stage } from './stage';
 
 export interface ShowHooks {
@@ -79,6 +80,11 @@ export const SIMULATED_PREFIX = 'sim-';
 export class LiveShow {
   readonly hub = new LiveHub();
   readonly stage = new Stage();
+  /** 舞台上放视频（她用 play_video）：放完了告诉她 */
+  readonly player = new Player(this.stage, (video, how, playedSec) => {
+    this.record({ type: 'video', bvid: video.bvid, title: video.title, how, playedSec: Math.round(playedSec) });
+    if (this.onAir && !this.ending) this.priority.push({ kind: 'video', title: video.title, how, playedSec });
+  });
   private attention: LiveAttention;
   private memory: LiveMemory;
   private onAir = false;
@@ -215,6 +221,7 @@ export class LiveShow {
     if (this.endingTimer) clearTimeout(this.endingTimer);
     this.endingTimer = null;
     if (!this.onAir) return;
+    this.player.stop();
     this.onAir = false;
     this.ending = false;
     this.endingPushed = false;
@@ -300,7 +307,13 @@ export class LiveShow {
   private take(now: number): Topic | null {
     const body = this.priority.shift();
     if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
-    return this.attention.next(now);
+    const topic = this.attention.next(now);
+    // 在放视频：大家在看，不用她找话说（没人说话的时间从现在重新算）
+    if (topic?.kind === 'idle' && this.player.current) {
+      this.attention.speechEnded(now);
+      return null;
+    }
+    return topic;
   }
 
   /** 念她写的话：合成语音、交给舞台、等念完 */
@@ -371,6 +384,14 @@ export class LiveShow {
     if (this.memoryStream && this.memory.store.getViewer('bilibili', uid)) this.memory.store.setAppraisal('bilibili', uid, { summary, at: Date.now() });
   }
 
+  /** 在舞台上放一个视频（换掉正在放的）；记进这场的记录 */
+  playVideo(request: PlayRequest) {
+    const replaced = this.player.current;
+    const video = this.player.play(request);
+    this.record({ type: 'play', bvid: request.bvid, title: request.title, from: request.fromSec, until: request.untilSec });
+    return { video, replaced };
+  }
+
   /** 她在用工具做事：舞台上显示她在干什么 */
   doing(detail: string): void {
     if (this.onAir) this.setBrain('thinking', detail);
@@ -439,6 +460,7 @@ export function estimateSpeechMs(text: string): number {
 const KIND_LABEL: Record<Topic['kind'], string> = {
   chat: '在看弹幕', superchat: '在看醒目留言', thanks: '在谢礼物', gifts: '在谢礼物', trend: '在看大家刷屏',
   welcome: '在欢迎新观众', follow: '在谢关注', idle: '在找话说', opening: '在准备开场', ending: '在准备道别', owner: '在听主人说话',
+  video: '视频放完了',
 };
 
 function topicLabel(topic: Topic): string {

@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
-import { assetUrl, dropAlert, getState, litChars, preview, subscribe, type Alert, type ReplyItem, type StageState } from './store';
+import { assetUrl, dropAlert, getState, litChars, mediaUrl, preview, reportMedia, subscribe, type Alert, type ReplyItem, type StageState } from './store';
 
 export function useStage(): StageState {
   return useSyncExternalStore(subscribe, getState);
@@ -723,6 +723,92 @@ export function Scene() {
   return (
     <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>
       {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : <Ending />}
+    </div>
+  );
+}
+
+// ── 放视频 ─────────────────────────────────────────
+
+/** 中途连上的舞台：身体开始放已经过去这么久以上，就跳到现在该放到的地方 */
+const CATCHUP_SEC = 3;
+
+/**
+ * 她在放的视频（只出现在模板的 video 布局里）。她说话时声音调小，放到 until 秒或放完回执给身体。
+ * options：duck（她说话时的音量，默认 0.25）、caption（顶上写片名，默认开）
+ */
+export function Video({ options }: { options?: Record<string, unknown> }) {
+  const { media, line } = useStage();
+  const ref = useRef<HTMLVideoElement>(null);
+  const speaking = !!line;
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || !media) return;
+    let done = false;
+    let started = false;
+    const finish = (state: 'ended' | 'error') => {
+      if (done) return;
+      done = true;
+      video.pause();
+      reportMedia(media.id, state);
+    };
+    const elapsed = (Date.now() - media.at) / 1000;
+    const start = media.from + (elapsed > CATCHUP_SEC ? elapsed : 0);
+    if (start >= media.until) return;
+    const onMeta = () => {
+      video.currentTime = start;
+      // 普通浏览器标签页没交互过不让出声：先静音放着（OBS 的浏览器源可以出声）
+      void video.play().catch(() => {
+        video.muted = true;
+        void video.play().catch(() => finish('error'));
+      });
+    };
+    const onPlaying = () => {
+      if (started) return;
+      started = true;
+      reportMedia(media.id, 'playing', video.currentTime);
+    };
+    const onTime = () => { if (video.currentTime >= media.until) finish('ended'); };
+    const onEnded = () => finish('ended');
+    const onError = () => finish('error');
+    video.addEventListener('loadedmetadata', onMeta);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('timeupdate', onTime);
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('error', onError);
+    video.muted = preview;
+    video.src = mediaUrl(media.src);
+    return () => {
+      video.removeEventListener('loadedmetadata', onMeta);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('timeupdate', onTime);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('error', onError);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [media?.id]);
+
+  // 她说话时把视频声音慢慢压下去，说完慢慢回来。用定时器不用 requestAnimationFrame：页面不在前台时那个会停，音量就卡在半路
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    const target = speaking ? Number(options?.duck ?? 0.25) : 1;
+    const timer = setInterval(() => {
+      const next = video.volume + (target - video.volume) * 0.18;
+      video.volume = Math.abs(target - next) < 0.01 ? target : next;
+      if (video.volume === target) clearInterval(timer);
+    }, 30);
+    return () => clearInterval(timer);
+  }, [speaking, media?.id]);
+
+  return (
+    <div className={`ls-video${media ? '' : ' ls-empty'}`}>
+      <video ref={ref} playsInline preload="auto" />
+      {media && options?.caption !== false && (
+        <div className="ls-video-caption"><b>{media.title}</b><span>{media.up}</span></div>
+      )}
     </div>
   );
 }

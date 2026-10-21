@@ -6,6 +6,8 @@
  *   GET  /characters/<id>/<file>   角色包、/templates/<id>/<file> 模板（见 packs.ts）
  *   GET  /events?token=…           舞台事件流（SSE）
  *   POST /said?id=…&token=…        舞台念完一句
+ *   GET  /video?id=…&token=…       正在放的视频（转发 B 站 CDN，带它要的 Referer，支持 Range）
+ *   POST /media?id=…&state=…&token=…  视频开始放、放完、放不出来
  *
  * 所有请求都要带 token（OBS 里填的地址自带），只监听本机。
  */
@@ -13,6 +15,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
+import { Readable } from 'node:stream';
 import type { StageEvent } from '../stage/protocol';
 import type { Packs } from './packs';
 import type { Stage } from './stage';
@@ -43,6 +46,11 @@ export interface StageServerOptions {
   stage: Stage;
   /** 现在用哪个角色、哪个模板 */
   current(): { character: string; template: string };
+  /** 舞台上放的视频：id → CDN 地址；舞台的回执 */
+  media?: {
+    source(id: string): string | null;
+    report(id: string, state: 'playing' | 'ended' | 'error', positionSec?: number): void;
+  };
   log?(level: 'info' | 'warn', message: string): void;
 }
 
@@ -96,12 +104,22 @@ export class StageServer {
       res.end();
       return;
     }
+    if (req.method === 'POST' && path === '/media') {
+      const state = url.searchParams.get('state');
+      if (state === 'playing' || state === 'ended' || state === 'error') {
+        this.options.media?.report(url.searchParams.get('id') ?? '', state, Number(url.searchParams.get('at') ?? NaN));
+      }
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (req.method !== 'GET') {
       res.writeHead(405);
       res.end();
       return;
     }
     if (path === '/events') return this.events(req, res, url);
+    if (path === '/video') return this.video(req, res, url.searchParams.get('id') ?? '');
     if (path === '/' || path === '/index.html') return this.file(res, join(this.options.packageDir, 'stage', 'index.html'));
     if (path === '/stage.js') return this.file(res, join(this.options.packageDir, 'lib', 'stage.js'));
     if (path === '/stage.css') return this.file(res, join(this.options.packageDir, 'stage', 'stage.css'));
@@ -132,6 +150,42 @@ export class StageServer {
       clearInterval(ping);
       unsubscribe();
     });
+  }
+
+  /** 转发视频：B 站 CDN 要 Referer；浏览器拖进度、OBS 边下边放都靠 Range */
+  private async video(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+    const source = this.options.media?.source(id);
+    if (!source) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const abort = new AbortController();
+    req.on('close', () => abort.abort());
+    let upstream: Response;
+    try {
+      upstream = await fetch(source, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+          Referer: 'https://www.bilibili.com/',
+          ...(req.headers.range ? { Range: req.headers.range } : {}),
+        },
+        signal: abort.signal,
+      });
+    } catch (err) {
+      if (!abort.signal.aborted) this.options.log?.('warn', `视频取不到：${(err as Error).message}`);
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+      return;
+    }
+    const headers: Record<string, string> = { 'content-type': upstream.headers.get('content-type') ?? 'video/mp4', 'accept-ranges': 'bytes', 'cache-control': 'no-store' };
+    for (const name of ['content-length', 'content-range']) {
+      const value = upstream.headers.get(name);
+      if (value) headers[name] = value;
+    }
+    res.writeHead(upstream.status, headers);
+    if (!upstream.body) return void res.end();
+    Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream).on('error', () => res.destroy()).pipe(res);
   }
 
   private file(res: ServerResponse, file: string, within?: string): void {

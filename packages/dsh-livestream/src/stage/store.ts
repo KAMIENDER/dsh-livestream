@@ -23,6 +23,17 @@ export interface ReplyItem {
   event: StageLiveEvent;
 }
 
+/** 舞台上正在放的视频（media 事件）；at 是身体开始放的时刻 */
+export interface Media {
+  id: string;
+  title: string;
+  up: string;
+  src: string;
+  from: number;
+  until: number;
+  at: number;
+}
+
 export interface Line {
   id: string;
   text: string;
@@ -107,6 +118,8 @@ export interface StageState {
   term: TermLine[];
   /** 浏览器拦住了自动播放：要点一下 */
   needsClick: boolean;
+  /** 在放视频：舞台换成 video 布局 */
+  media: Media | null;
 }
 
 const MAX_CHATS = 30;
@@ -136,7 +149,7 @@ function freshStats(): ShowStats {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [],
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -201,6 +214,18 @@ function onSay(event: Extract<StageEvent, { type: 'say' }>): void {
     pendingClick = () => update((s) => ({ ...s, needsClick: false }));
     fallback();
   });
+}
+
+/** 视频地址（舞台服务器转发的） */
+export function mediaUrl(src: string): string {
+  return `${src}${src.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
+
+/** 视频开始放、放完、放不出来：告诉身体（出声的页面才发） */
+export function reportMedia(id: string, state: 'playing' | 'ended' | 'error', atSec?: number): void {
+  if (preview) return;
+  const at = atSec !== undefined && Number.isFinite(atSec) ? `&at=${atSec.toFixed(1)}` : '';
+  void fetch(`/media?id=${encodeURIComponent(id)}&state=${state}${at}&token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {});
 }
 
 export function unlockAudio(): void {
@@ -353,6 +378,12 @@ function handle(event: StageEvent): void {
         const next = { ...s, tokens: event.tokens, model: event.model ?? s.model };
         return event.turn ? term(next, 'token', `+${event.turn.toLocaleString()}${event.model ? ` · ${event.model}` : ''} · 累计 ${event.tokens.toLocaleString()}`) : next;
       });
+    case 'media':
+      if (event.action === 'play') {
+        const { id, title, up, src, from, until, at } = event;
+        return update((s) => term({ ...s, media: { id, title, up, src, from, until, at } }, 'video', `放视频：${short(title, 24)}`));
+      }
+      return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
   }
 }

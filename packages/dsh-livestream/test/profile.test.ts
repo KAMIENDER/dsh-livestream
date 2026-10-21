@@ -12,7 +12,7 @@ describe('viewer profile text', () => {
     expect(text).toContain('5 级');
     expect(text).toContain('在这个直播间：粉丝牌21级');
     expect(text).toContain('<签名>上岸！</签名>');
-    expect(text).toContain('「复习日记 Day 30」（1234播放');
+    expect(text).toContain('「复习日记 Day 30」（BV1xx，1234播放');
   });
   it('says so when the page is empty', () => {
     expect(profileText({ ...base, videos: 0, sign: '', recent: [] })).toContain('主页很空');

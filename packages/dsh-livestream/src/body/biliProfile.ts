@@ -104,7 +104,8 @@ function date(sec?: number): string {
 }
 
 function line(v: ProfileVideo): string {
-  const meta = [v.views !== undefined ? `${count(v.views)}播放` : '', date(v.pubdate)].filter(Boolean).join('，');
+  // 带上 BV 号：她看完主页可以接着用 watch_video、play_video 看这个视频
+  const meta = [v.bvid, v.views !== undefined ? `${count(v.views)}播放` : '', date(v.pubdate)].filter(Boolean).join('，');
   return `「${v.title}」${meta ? `（${meta}）` : ''}`;
 }
 
