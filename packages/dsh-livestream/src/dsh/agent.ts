@@ -259,7 +259,8 @@ export function apply(ctx: AgentContext): void {
     name: 'play_video',
     description: '在直播间的舞台上放一个 B 站视频给大家看：舞台换成看视频的布局，放完换回来，放完了会告诉你。'
       + `默认从头放 ${PLAY_DEFAULT_SEC / 60} 分钟，可以指定从哪里开始、放多久（最长 ${PLAY_MAX_SEC / 60} 分钟）。`
-      + '放的时候你照常说话、回弹幕，你说话时视频声音会自动调小。正在放的会被换掉。',
+      + '放的时候你照常说话、回弹幕，你说话时视频声音会自动调小。正在放的会被换掉。'
+      + '舞台只在这个工具被调用时开始放：你说「我放一下」只是念给大家听，视频要靠这次调用才出现在舞台上。',
     parameters: {
       video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
       part: { type: 'number', description: '多 P 视频的第几 P，默认 1' },
