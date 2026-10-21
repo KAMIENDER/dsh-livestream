@@ -17,7 +17,8 @@ import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
-import { broadcast, cookie, currentCharacter, currentMoods, dm, packs, server, settings, show, updateSettings, type Settings } from './runtime';
+import { speakable } from '../core/speakable';
+import { broadcast, cookie, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -186,10 +187,15 @@ export function apply(ctx: HostContext): void {
     return json({ ok: true });
   }, 'owner');
 
-  // 念稿：主人写好的话由她原样念出来（口播、公告、彩排台词），不经过她的会话；[mood] 标记照样换表情。念完才返回
+  // 念稿：主人写好的话由她原样念出来（口播、公告、彩排台词），不经过她的会话；[mood] 标记照样换表情。念完才返回。
+  // prepare: true 只提前合成好语音（一串台词先全部 prepare，念的时候句和句之间不用等合成）
   route('/api/dsh-livestream/say', ['POST'], async (request) => {
-    const { text } = await body<{ text?: string }>(request);
+    const { text, prepare } = await body<{ text?: string; prepare?: boolean }>(request);
     if (!text?.trim()) return fail('念什么');
+    if (prepare) {
+      for (const part of splitByMood(text.slice(0, 500), currentMoods())) prepareSpeech(speakable(part.text));
+      return json({ ok: true });
+    }
     const said: string[] = [];
     for (const part of splitByMood(text.slice(0, 500), currentMoods())) said.push(await show.say(part.text, part.mood, AbortSignal.timeout(120_000)));
     return json({ ok: true, said: said.filter(Boolean) });

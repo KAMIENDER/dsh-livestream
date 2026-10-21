@@ -166,18 +166,38 @@ const distill: DistillLlm = async (system, user) => {
 export const show = new LiveShow(
   {
     push: (sessionId, text) => hooks.push(sessionId, text),
-    synthesize: async (text, signal) => {
-      const voice = currentVoice();
-      const auth = await ttsAuth(voice);
-      if (!auth) return null;
-      const { audio, words } = await synthesize(auth, voice, text, signal);
-      return { audio, timeline: subtitleTimeline(text, words) };
+    synthesize: (text, signal) => {
+      const ready = prepared.get(`${currentVoice()}|${text}`);
+      if (ready) {
+        prepared.delete(`${currentVoice()}|${text}`);
+        return ready.catch(() => speech(text, signal));
+      }
+      return speech(text, signal);
     },
     distill,
     log: (level, message) => hooks.log(level, message),
   },
   { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000 },
 );
+
+async function speech(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null> {
+  const voice = currentVoice();
+  const auth = await ttsAuth(voice);
+  if (!auth) return null;
+  const { audio, words } = await synthesize(auth, voice, text, signal);
+  return { audio, timeline: subtitleTimeline(text, words) };
+}
+
+/** 提前合成好的句子（念稿时先合成、念的时候直接用，句和句之间不空等）：音色|文字 → 语音 */
+const prepared = new Map<string, Promise<Awaited<ReturnType<typeof speech>>>>();
+
+/** 提前合成一句（text 是 speakable 处理过的那段）；最多留 40 句，用掉就删 */
+export function prepareSpeech(text: string): void {
+  const key = `${currentVoice()}|${text}`;
+  if (!text || prepared.has(key)) return;
+  prepared.set(key, speech(text, AbortSignal.timeout(60_000)));
+  while (prepared.size > 40) prepared.delete(prepared.keys().next().value!);
+}
 
 export const server = new StageServer({
   port: settings.stagePort,
