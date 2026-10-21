@@ -28,6 +28,11 @@ export interface CharacterManifest {
     out?: string;
     in?: string;
     moods: Record<string, string>;
+    /**
+     * 边带表情边说话的循环（可选）：表情名 → 片段。首尾都是说话循环的姿势，带这个表情的话直接播它、不经过 out / in，
+     * 开口不用等（moods 里的是不说话的反应，播完放下、拿起饭碗要好几秒）
+     */
+    talkMoods?: Record<string, string>;
   };
   /**
    * 角色自己的小插画（可选）：名字 → 角色包里的图片文件。挂件按名字取，没有就不画。

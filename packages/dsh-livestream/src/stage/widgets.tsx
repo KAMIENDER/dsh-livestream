@@ -59,7 +59,8 @@ export function Character() {
 }
 
 /**
- * 动画片段渲染器：待机循环；说话时换「说话」循环；带表情的话先播 out → 表情 → in 再接说话。
+ * 动画片段渲染器：待机循环；说话时换「说话」循环；带表情的话有「边带表情边说话」的循环（talkMoods）就直接播它，
+ * 没有就先播 out → 表情 → in 再接说话。
  * 队列里最后一个循环播，前面的播完一个出队一个。
  */
 function ClipCharacter({ character }: { character: CharacterManifest }) {
@@ -77,7 +78,13 @@ function ClipCharacter({ character }: { character: CharacterManifest }) {
   useEffect(() => {
     if (!line) {
       // 说完了：说话循环换回待机（表情片段还在播就让它播完再接上）
-      setQueue((q) => q.map((n) => (n === clips.talk ? clips.idle : n)));
+      const talking = new Set([clips.talk, ...Object.values(clips.talkMoods ?? {})]);
+      setQueue((q) => q.map((n) => (talking.has(n) ? clips.idle : n)));
+      return;
+    }
+    const talkMood = clips.talkMoods?.[line.mood];
+    if (talkMood) {
+      setQueue([talkMood]);
       return;
     }
     const reaction = clips.moods[line.mood];
@@ -98,7 +105,7 @@ function ClipCharacter({ character }: { character: CharacterManifest }) {
 
 function allClips(c: CharacterManifest): string[] {
   const clips = c.clips!;
-  return [clips.idle, clips.talk, clips.out, clips.in, ...Object.values(clips.moods)].filter((n): n is string => !!n);
+  return [clips.idle, clips.talk, clips.out, clips.in, ...Object.values(clips.moods), ...Object.values(clips.talkMoods ?? {})].filter((n): n is string => !!n);
 }
 
 /** 片段先整段下载进内存，切换表情时不再等网络 */
