@@ -16,7 +16,7 @@
   <img alt="Bilibili 直播" src="https://img.shields.io/badge/Bilibili-直播-fb7299">
 </p>
 
-<p align="center">演示视频：《大肥鱼直播计划》（B 站，链接待补）</p>
+<p align="center">演示视频：<a href="https://www.bilibili.com/video/BV1xpn66GExn/">《大肥鱼你来B站直播嘛！大肥鱼彩排、Claudia被记仇？》</a>（B 站）</p>
 
 ---
 
