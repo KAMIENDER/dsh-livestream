@@ -94,11 +94,16 @@ function ClipCharacter({ character }: { character: CharacterManifest }) {
   }, [lineId]);
 
   const next = () => setQueue((q) => (q.length > 1 ? q.slice(1) : q));
+  const [graph, setGraph] = useState<ClipGraph | null>(null);
+  useEffect(() => {
+    if (!clips.graph) return;
+    void fetch(assetUrl('characters', character.id, clips.graph)).then((r) => (r.ok ? r.json() : null)).then(setGraph).catch(() => {});
+  }, [character.id, clips.graph]);
   const [w, h] = clips.size;
   return (
     <div className={`ls-character${line ? ' ls-speaking' : ''}`} data-mood={line?.mood || undefined} style={{ aspectRatio: `${w} / ${h}` }}>
       <Halo />
-      <ClipPlayer src={(name) => assetUrl('characters', character.id, name)} name={queue[0]} loop={queue.length <= 1} onEnded={next} names={allClips(character)} />
+      <ClipPlayer src={(name) => assetUrl('characters', character.id, name)} name={queue[0]} loop={queue.length <= 1} onEnded={next} names={allClips(character)} graph={graph} />
     </div>
   );
 }
@@ -122,11 +127,22 @@ async function preload(urls: string[]): Promise<void> {
   }
 }
 
+/** 角色包的 transitions.json（tools/clip-graph.ts）：键是「旧片段>新片段」，值按旧片段当前帧查 */
+interface ClipGraph {
+  fps: number;
+  /** 切到循环片段：从第几帧开播 */
+  best: Record<string, number[]>;
+  /** 切到要从头播的片段：再等几帧 */
+  wait: Record<string, number[]>;
+}
+
 /**
- * 两个 <video> 轮流当前台：下一段先在后台开播，真的画出第一帧才换上来，新的淡入 90 毫秒、旧的垫在下面——
+ * 两个 <video> 轮流当前台：下一段先在后台开播，真的画出第一帧才换上来，旧的垫在下面——
  * 不会有一帧空白（照 dsh-game 的大肥鱼）。
+ * 有转场表（graph）时挑最像的帧切、直接切再轻轻回弹；没有就新的淡入 0.18 秒
  */
-function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) => string; name: string; loop: boolean; onEnded: () => void; names: string[] }) {
+function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: string) => string; name: string; loop: boolean; onEnded: () => void; names: string[]; graph: ClipGraph | null }) {
+  const box = useRef<HTMLDivElement>(null);
   const refs = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
   const [front, setFront] = useState(0);
   const [prev, setPrev] = useState<number | null>(null);
@@ -151,8 +167,23 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
     const nextIndex = 1 - frontRef.current;
     const back = videos[nextIndex];
     let cancelled = false;
+    // 旧片段现在播到第几帧：查表决定新片段从哪一帧开播、要不要再等几帧
+    const key = `${shown.current}>${name}`;
+    const frameOf = () => (graph ? Math.floor(current.currentTime * graph.fps) : 0);
+    const pick = (table: number[] | undefined, ahead = 0) => {
+      if (!table?.length) return undefined;
+      const i = frameOf() + ahead;
+      return table[current.loop ? i % table.length : Math.min(table.length - 1, i)];
+    };
+    const waitFrames = pick(graph?.wait[key]) ?? 0;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const go = () => {
+    if (cancelled) return;
     back.src = url(name);
     back.loop = loop;
+    // 跳到中间那一帧要解码一小会儿（片段每 8 帧一个关键帧，见 tools/clip-graph.ts），这段时间旧片段还在往前走：按两帧以后查
+    const start = pick(graph?.best[key], 2);
+    if (start !== undefined && graph) back.currentTime = start / graph.fps;
     // 只换一次：play() 慢过兜底时间时定时器先换上来，之后真出帧的回调再来一次的话，
     // 会把「上一个」记成自己、150 毫秒后把正在前台的这段暂停（角色定住或消失）
     let revealed = false;
@@ -163,25 +194,39 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
       setPrev(frontRef.current);
       frontRef.current = nextIndex;
       setFront(nextIndex);
+      // 直接切：整个角色轻轻挤一下再弹回来，切的那一下藏进动作里
+      if (graph && box.current) { box.current.classList.remove('ls-pop'); void box.current.offsetWidth; box.current.classList.add('ls-pop'); }
     };
     // 兜底：play() 迟迟不回（或浏览器不支持出帧回调）时 0.6 秒后也换上；太早换会露出还没解码出来的空帧（看着像卡了一下）
-    const fallback = setTimeout(reveal, 600);
+    fallback = setTimeout(reveal, 600);
     back.play().then(() => {
       if ('requestVideoFrameCallback' in back) back.requestVideoFrameCallback(() => { clearTimeout(fallback); reveal(); });
       else { clearTimeout(fallback); reveal(); }
     }).catch(() => { clearTimeout(fallback); reveal(); });
-    return () => { cancelled = true; clearTimeout(fallback); };
+    };
+    // 要从头播的片段：等旧片段转到最像的那一帧再切（表里最多等零点几秒）
+    const delay = graph && waitFrames > 0 ? setTimeout(go, (waitFrames / graph.fps) * 1000) : undefined;
+    if (!delay) go();
+    return () => { cancelled = true; clearTimeout(fallback); clearTimeout(delay); };
   }, [name, loop]);
 
   useEffect(() => {
     if (prev === null) return;
-    // 等新的一段淡入完（0.18 秒）再撤掉上一段，不然中间会透一下
-    const timer = setTimeout(() => { refs[prev].current?.pause(); setPrev(null); }, 250);
-    return () => clearTimeout(timer);
+    const shownVideo = refs[front].current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let raf = 0;
+    // 兜底换上来的那段可能还在解码（跳帧时尤其慢）：真有画面了才撤上一段，不然角色会整个消失
+    const drop = () => {
+      if (shownVideo && (shownVideo.seeking || shownVideo.readyState < 2)) { raf = requestAnimationFrame(drop); return; }
+      // 等新的一段淡入完（0.18 秒）再撤掉上一段，不然中间会透一下；直接切的不用等
+      timer = setTimeout(() => { refs[prev].current?.pause(); setPrev(null); }, graph ? 60 : 250);
+    };
+    drop();
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, [prev]);
 
   return (
-    <div className="ls-clips">
+    <div className={`ls-clips${graph ? ' ls-cut' : ''}`} ref={box}>
       {refs.map((ref, i) => (
         <video key={i} ref={ref} muted playsInline
           data-role={i === front ? 'front' : i === prev ? 'prev' : undefined}

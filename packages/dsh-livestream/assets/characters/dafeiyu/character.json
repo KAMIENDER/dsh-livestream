@@ -24,6 +24,7 @@
     "talk": "ricetalk.webm",
     "out": "rice-exit.webm",
     "in": "rice-enter.webm",
+    "graph": "transitions.json",
     "moods": {
       "laugh": "laugh.webm",
       "shocked": "shocked.webm",

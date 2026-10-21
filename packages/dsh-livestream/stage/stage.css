@@ -159,6 +159,10 @@ html, body {
 /* 换片段时新的一段淡入 0.18 秒：盖住两段动作、色调的小差异（太短会看出跳一下） */
 .ls-clips video[data-role=front] { opacity: 1; z-index: 2; animation: ls-clip-in 0.18s ease-out; }
 @keyframes ls-clip-in { from { opacity: 0; } }
+/* 有转场表的角色包：挑最像的帧直接切，整个角色轻轻挤一下再弹回来（不淡化：两个姿势半透明叠在一起会出两个头） */
+.ls-clips.ls-cut video[data-role=front] { animation: none; }
+.ls-clips.ls-pop { transform-origin: 50% 100%; animation: ls-clip-pop 0.14s ease-out; }
+@keyframes ls-clip-pop { from { transform: scale(1.025, 0.975); } }
 .ls-image { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
 .ls-image.ls-talking { animation: ls-bounce 0.36s ease-in-out infinite alternate; }
 @keyframes ls-bounce { from { transform: translateY(0) scale(1, 1); } to { transform: translateY(-10px) scale(1.01, 0.99); } }

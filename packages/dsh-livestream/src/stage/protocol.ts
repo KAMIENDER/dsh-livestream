@@ -33,6 +33,12 @@ export interface CharacterManifest {
      * 开口不用等（moods 里的是不说话的反应，播完放下、拿起饭碗要好几秒）
      */
     talkMoods?: Record<string, string>;
+    /**
+     * 片段之间怎么切最不显眼的表（可选，tools/clip-graph.ts 算出来的 transitions.json）：
+     * 切到循环片段时从和旧片段当前帧最像的那一帧开播，切到要从头播的片段时等旧片段转到最像的那一帧再切；
+     * 有这张表时直接切 + 轻轻回弹，没有就交叉淡化
+     */
+    graph?: string;
   };
   /**
    * 角色自己的小插画（可选）：名字 → 角色包里的图片文件。挂件按名字取，没有就不画。
