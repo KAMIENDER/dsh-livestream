@@ -153,7 +153,7 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
     let cancelled = false;
     back.src = url(name);
     back.loop = loop;
-    // 只换一次：play() 慢过 250 毫秒时兜底的定时器先换上来，之后真出帧的回调再来一次的话，
+    // 只换一次：play() 慢过兜底时间时定时器先换上来，之后真出帧的回调再来一次的话，
     // 会把「上一个」记成自己、150 毫秒后把正在前台的这段暂停（角色定住或消失）
     let revealed = false;
     const reveal = () => {
@@ -164,7 +164,8 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
       frontRef.current = nextIndex;
       setFront(nextIndex);
     };
-    const fallback = setTimeout(reveal, 250);
+    // 兜底：play() 迟迟不回（或浏览器不支持出帧回调）时 0.6 秒后也换上；太早换会露出还没解码出来的空帧（看着像卡了一下）
+    const fallback = setTimeout(reveal, 600);
     back.play().then(() => {
       if ('requestVideoFrameCallback' in back) back.requestVideoFrameCallback(() => { clearTimeout(fallback); reveal(); });
       else { clearTimeout(fallback); reveal(); }
@@ -174,7 +175,8 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
 
   useEffect(() => {
     if (prev === null) return;
-    const timer = setTimeout(() => { refs[prev].current?.pause(); setPrev(null); }, 150);
+    // 等新的一段淡入完（0.18 秒）再撤掉上一段，不然中间会透一下
+    const timer = setTimeout(() => { refs[prev].current?.pause(); setPrev(null); }, 250);
     return () => clearTimeout(timer);
   }, [prev]);
 

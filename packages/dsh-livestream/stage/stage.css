@@ -156,7 +156,8 @@ html, body {
 .ls-clips { position: absolute; inset: 0; z-index: 1; }
 .ls-clips video { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
 .ls-clips video[data-role=prev] { opacity: 1; z-index: 1; }
-.ls-clips video[data-role=front] { opacity: 1; z-index: 2; animation: ls-clip-in 0.09s linear; }
+/* 换片段时新的一段淡入 0.18 秒：盖住两段动作、色调的小差异（太短会看出跳一下） */
+.ls-clips video[data-role=front] { opacity: 1; z-index: 2; animation: ls-clip-in 0.18s ease-out; }
 @keyframes ls-clip-in { from { opacity: 0; } }
 .ls-image { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
 .ls-image.ls-talking { animation: ls-bounce 0.36s ease-in-out infinite alternate; }
