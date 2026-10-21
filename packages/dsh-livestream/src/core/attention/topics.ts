@@ -41,7 +41,7 @@ export type TopicBody =
   /** 谢幕：道别，可以提一下本场 */
   | { kind: 'ending'; summary: string }
   /** 主人（搭档）开口跟她说话：interrupted 是她被打断时正在说的那句 */
-  | { kind: 'owner'; text: string; interrupted?: string }
+  | { kind: 'owner'; text: string; interrupted?: string; who?: string }
   /** 她在舞台上放的视频放完了（error：没放出来）；playedSec 是放了多久 */
   | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number };
 

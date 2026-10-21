@@ -122,8 +122,9 @@ function body(topic: Topic, ctx: TopicContext): Body {
     case 'owner':
       return {
         what: [
-          '主人（你的搭档）在直播间跟你说话，观众也看得到：',
-          `<主人>${cleanText(topic.text)}</主人>`,
+          ...(topic.who
+            ? [`${cleanText(topic.who)}（在电脑前和主人一起管这场直播）在直播间跟你说话，观众也看得到：`, `<${cleanText(topic.who)}>${cleanText(topic.text)}</${cleanText(topic.who)}>`]
+            : ['主人（你的搭档）在直播间跟你说话，观众也看得到：', `<主人>${cleanText(topic.text)}</主人>`]),
           ...(topic.interrupted ? [`你刚才正说到「${cleanText(topic.interrupted).slice(0, 60)}」，被他打断了。`] : []),
         ],
         how: '像搭档一样直接回他：可以吐槽、接梗、反驳或者撒娇；需要的话最后把话头拉回直播间。',

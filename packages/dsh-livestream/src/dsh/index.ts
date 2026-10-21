@@ -16,7 +16,8 @@ import { checkObs, connectObs } from '../body/obs';
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
-import { broadcast, cookie, currentCharacter, dm, packs, server, settings, show, updateSettings, type Settings } from './runtime';
+import { splitByMood } from '../core/moodText';
+import { broadcast, cookie, currentCharacter, currentMoods, dm, packs, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -179,11 +180,20 @@ export function apply(ctx: HostContext): void {
   }, 'obs check');
 
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
-    const { text } = await body<{ text?: string }>(request);
+    const { text, who } = await body<{ text?: string; who?: string }>(request);
     if (!text?.trim()) return fail('说点什么');
-    show.ownerSay(text);
+    show.ownerSay(text, who ? String(who).slice(0, 20) : undefined);
     return json({ ok: true });
   }, 'owner');
+
+  // 念稿：主人写好的话由她原样念出来（口播、公告、彩排台词），不经过她的会话；[mood] 标记照样换表情。念完才返回
+  route('/api/dsh-livestream/say', ['POST'], async (request) => {
+    const { text } = await body<{ text?: string }>(request);
+    if (!text?.trim()) return fail('念什么');
+    const said: string[] = [];
+    for (const part of splitByMood(text.slice(0, 500), currentMoods())) said.push(await show.say(part.text, part.mood, AbortSignal.timeout(120_000)));
+    return json({ ok: true, said: said.filter(Boolean) });
+  }, 'say');
 
   route('/api/dsh-livestream/simulate', ['POST'], async (request) => {
     const event = simulated(await body(request));

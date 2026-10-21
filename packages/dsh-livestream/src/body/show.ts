@@ -242,10 +242,11 @@ export class LiveShow {
     }
   }
 
-  ownerSay(text: string): void {
+  /** 主人（或 who：主人那边别的人，比如帮忙管直播的经理）在控制台跟她说话 */
+  ownerSay(text: string, who?: string): void {
     const said = text.trim();
     if (!said) return;
-    this.priority.push({ kind: 'owner', text: said });
+    this.priority.push({ kind: 'owner', text: said, ...(who?.trim() ? { who: who.trim() } : {}) });
   }
 
   // ── 导演：她空下来就推下一件事 ─────────────────────
