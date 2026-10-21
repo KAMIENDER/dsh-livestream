@@ -49,8 +49,8 @@ export function registerEffect(name: string, def: EffectDef): void {
 }
 
 export const DEFAULT_EFFECTS: Record<string, EffectSpec[]> = {
-  enter: [],
-  'enter.guard': ['welcome'],
+  enter: ['welcome'],
+  'enter.guard': ['welcome', { name: 'confetti', count: 30 }],
   follow: ['hearts'],
   'gift.small': [{ name: 'hearts', count: 5 }],
   'gift.big': [{ name: 'confetti', count: 40 }],
@@ -137,16 +137,19 @@ function Banner({ event, options }: EffectProps) {
   );
 }
 
-/** 欢迎横条：从右边滑进来、停一下、从左边出去，她在旁边挥手。art 默认 wave；y：离画布顶多少像素（默认读主题变量 --ls-welcome-y，再没有是 130） */
+/** 欢迎横条：从上面弹下来、停一下、往上收走，她在旁边蹦着挥手，光扫两遍。art 默认 wave；y：离画布顶多少像素（默认读主题变量 --ls-welcome-y，再没有是 130） */
 function Welcome({ event, options }: EffectProps) {
   const art = useArt(String(options.art ?? 'wave'));
   const guard = event.user.guard ?? 0;
   const level = guard === 1 ? '总督' : guard === 2 ? '提督' : guard === 3 ? '舰长' : '';
   return (
-    <div className={`ls-welcome${guard ? ` ls-welcome-guard ls-welcome-g${guard}` : ''}`} style={options.y !== undefined ? ({ '--y': `${num(options.y, 130)}px` } as Vars) : undefined}>
-      {art && <ArtImg className="ls-welcome-art" src={art} />}
-      <span>欢迎{level && <em>{level}</em>}<b>{event.user.name}</b>进入直播间～</span>
-      <Sparks n={10} />
+    <div className="ls-welcome-wrap" style={options.y !== undefined ? ({ '--y': `${num(options.y, 130)}px` } as Vars) : undefined}>
+      <div className={`ls-welcome${guard ? ` ls-welcome-guard ls-welcome-g${guard}` : ''}`}>
+        <i className="ls-welcome-shine" />
+        {art && <ArtImg className="ls-welcome-art" src={art} />}
+        <span>欢迎{level && <em>{level}</em>}<b>{event.user.name}</b>进入直播间～</span>
+        <Sparks n={14} />
+      </div>
     </div>
   );
 }

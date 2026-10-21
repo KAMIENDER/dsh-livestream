@@ -491,7 +491,7 @@ html, body {
 @keyframes ls-name-pop { from { transform: scale(0.4); opacity: 0; } }
 /* 欢迎卡上她探出头挥手 */
 .ls-enter.ls-has-art { padding-left: 74px; }
-.ls-enter-art { position: absolute; left: -10px; bottom: -6px; width: 78px; filter: drop-shadow(0 4px 6px rgba(40, 70, 130, 0.25)); transform-origin: 50% 100%;
+.ls-enter-art { position: absolute; left: -6px; bottom: 0; width: 70px; filter: drop-shadow(0 4px 6px rgba(40, 70, 130, 0.25)); transform-origin: 50% 100%;
   animation: ls-peek 0.5s 0.15s cubic-bezier(0.2, 1.5, 0.4, 1) both, ls-hello 0.7s 0.65s ease-in-out 3; }
 @keyframes ls-hello { 50% { transform: rotate(-9deg) translateY(-3px); } }
 .ls-enter-guard { border-color: #ffd36e; color: var(--ls-text); background: linear-gradient(100deg, #fff8e6, var(--ls-panel-strong)); }
@@ -746,26 +746,42 @@ html, body {
 .ls-banner-superchat .ls-banner-card { background: linear-gradient(120deg, #fff, #fff) padding-box, linear-gradient(90deg, var(--ls-sc, var(--ls-accent)), var(--ls-accent-2)) border-box; }
 .ls-banner-superchat .ls-banner-card small { color: var(--ls-sc, var(--ls-accent)); }
 
-/* 欢迎横条 */
+/* 欢迎横条：从上面弹下来、停一会儿、往上收走；停在画面正中，不经过两边的卡片 */
+.ls-welcome-wrap { position: absolute; left: 0; right: 0; top: var(--y, var(--ls-welcome-y, 130px)); display: flex; justify-content: center; }
 .ls-welcome {
-  position: absolute; left: 50%; top: var(--y, var(--ls-welcome-y, 130px)); display: flex; align-items: center; gap: 14px; padding: 14px 40px 14px 130px; border-radius: 999px; white-space: nowrap;
-  font-size: 34px; font-weight: 700; color: var(--ls-text); background: var(--ls-panel-strong); border: 4px solid var(--ls-rim); box-shadow: var(--ls-shadow);
+  position: relative; display: flex; align-items: center; gap: 14px; padding: 16px 46px 16px 140px; border-radius: 999px; white-space: nowrap; overflow: visible;
+  font-size: 36px; font-weight: 700; color: var(--ls-text);
+  background: linear-gradient(100deg, #eef7ff, #fff 45%, #fff0f6) padding-box, linear-gradient(90deg, var(--ls-accent), var(--ls-accent-2)) border-box;
+  border: 5px solid transparent; box-shadow: 0 18px 40px -14px color-mix(in srgb, var(--ls-accent) 70%, transparent);
   animation: ls-welcome var(--ls-fx-ms) cubic-bezier(0.3, 0.9, 0.3, 1) both;
 }
 @keyframes ls-welcome {
-  0% { transform: translateX(900px); opacity: 0; }
-  14% { transform: translateX(-50%); opacity: 1; }
-  86% { transform: translateX(-50%); opacity: 1; }
-  100% { transform: translateX(-1600px); opacity: 0; }
+  0% { transform: translateY(-180px) scale(0.6); opacity: 0; }
+  9% { transform: translateY(14px) scale(1.06); opacity: 1; }
+  15% { transform: translateY(0) scale(1); }
+  88% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-40px) scale(0.9); opacity: 0; }
 }
-.ls-welcome b { margin: 0 8px; font-family: var(--ls-font-cute); font-size: 40px; font-weight: 900; color: var(--ls-accent); }
-.ls-welcome em { margin-left: 10px; padding: 2px 14px; border-radius: 10px; font-style: normal; font-size: 26px; font-weight: 800; color: #fff; background: linear-gradient(90deg, #3d8bff, #6fb4ff); }
+/* 一道光从左扫到右，扫两次 */
+.ls-welcome-shine { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.ls-welcome-shine::after {
+  content: ''; position: absolute; top: -20%; bottom: -20%; left: -30%; width: 22%; transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+  animation: ls-shine 1.1s 0.5s ease-in-out 2;
+}
+@keyframes ls-shine { from { left: -30%; } to { left: 120%; } }
+.ls-welcome b { display: inline-block; margin: 0 8px; font-family: var(--ls-font-cute); font-size: 48px; font-weight: 900; color: var(--ls-accent);
+  animation: ls-name-pop 0.55s 0.35s cubic-bezier(0.2, 1.8, 0.4, 1) both, ls-hop 1.3s 1.1s ease-in-out 2; }
+.ls-welcome em { margin-left: 10px; padding: 2px 14px; border-radius: 10px; font-style: normal; font-size: 28px; font-weight: 800; color: #fff; background: linear-gradient(90deg, #3d8bff, #6fb4ff); }
 .ls-welcome-g2 em { background: linear-gradient(90deg, #9a5cf0, #c48bff); }
 .ls-welcome-g1 em { background: linear-gradient(90deg, #ff9500, #ffc04a); }
-.ls-welcome-guard { background: linear-gradient(100deg, #fff6dc, #fff) padding-box, linear-gradient(90deg, #ffd36e, #ff9a3d, #ffd36e) border-box; border-color: transparent; }
-.ls-welcome-art { position: absolute; left: 4px; bottom: -14px; width: 124px; transform-origin: 50% 100%; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.25));
-  animation: ls-hello 0.7s 0.5s ease-in-out 4; }
-.ls-welcome .ls-sparks { left: 92%; }
+.ls-welcome-guard { background: linear-gradient(100deg, #fff6dc, #fff) padding-box, linear-gradient(90deg, #ffd36e, #ff9a3d, #ffd36e) border-box;
+  box-shadow: 0 18px 40px -14px rgba(255, 150, 50, 0.7); }
+.ls-welcome-guard b { color: #e08a00; }
+.ls-welcome-art { position: absolute; left: 0; bottom: -16px; width: 136px; transform-origin: 50% 100%; filter: drop-shadow(0 6px 10px rgba(40, 70, 130, 0.25));
+  animation: ls-peek 0.55s 0.2s cubic-bezier(0.2, 1.5, 0.4, 1) both, ls-jump 0.9s 0.8s cubic-bezier(0.3, 0, 0.3, 1) 3; }
+.ls-welcome .ls-sparks { left: 50%; }
+.ls-welcome .ls-sparks b { --r: 300px; animation-delay: 0.35s; }
 
 /* 四周亮一圈 */
 .ls-glow { position: absolute; inset: 0; --c: var(--ls-glow-c, var(--ls-sc, var(--ls-accent)));
