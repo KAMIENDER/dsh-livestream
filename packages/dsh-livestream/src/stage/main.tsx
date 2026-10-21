@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { WidgetPlacement, WidgetType } from './protocol';
 import { assetUrl, connect, preview, unlockAudio } from './store';
+import { Effects } from './effects';
 import { AiLabel, Alerts, Character, Chat, Reply, Rice, Scene, Status, Subtitle, Terminal, useStage } from './widgets';
 
 const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string, unknown> }>> = {
@@ -20,6 +21,7 @@ const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string,
   rice: Rice,
   terminal: Terminal,
   scene: Scene,
+  effects: Effects,
 };
 
 function useViewport(): { width: number; height: number } {

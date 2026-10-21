@@ -4,6 +4,7 @@
  */
 
 import type { BrainState, CharacterManifest, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
+import { type FxEvent, giftTier, pick, triggersOf } from './triggers';
 
 export interface ChatRow {
   id: string;
@@ -14,6 +15,15 @@ export interface ChatRow {
 export interface Alert {
   key: string;
   event: Exclude<StageLiveEvent, { kind: 'chat' }>;
+  at: number;
+}
+
+/** 一次要放的特效：effects 挂件拿去按模板配置放，放上了就 dropFx */
+export interface Fx {
+  key: string;
+  /** 事件名，从具体到笼统（triggers.ts） */
+  triggers: string[];
+  event: FxEvent;
   at: number;
 }
 
@@ -105,6 +115,9 @@ export interface StageState {
   tokens: number;
   model: string;
   term: TermLine[];
+  fx: Fx[];
+  /** 她对刚才那件事的反应（角色包 reactions 配的表情）；key 每次不同 */
+  reaction: { key: string; mood: string } | null;
   /** 浏览器拦住了自动播放：要点一下 */
   needsClick: boolean;
 }
@@ -115,6 +128,11 @@ const MAX_ALERTS = 6;
 const MAX_RECENT = 120;
 const recent: StageLiveEvent[] = [];
 const MAX_TERM = 40;
+const MAX_FX = 8;
+/** 进场一多（热闹的房间一分钟几十个），特效最多两秒一个；卡片照常 */
+const ENTER_FX_GAP_MS = 2000;
+/** 角色反应最多八秒一次：别一直做表情 */
+const REACTION_GAP_MS = 8000;
 /** 开场动画、谢幕各放多久 */
 export const OPENING_MS = 5200;
 export const ENDING_MS = 16_000;
@@ -136,7 +154,7 @@ function freshStats(): ShowStats {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [],
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -284,8 +302,43 @@ function countLive(s: StageState, event: StageLiveEvent, isUpdate: boolean): Sta
   return { ...s, stats };
 }
 
+let fxSeq = 0;
+let lastEnterFx = 0;
+let lastReaction = 0;
+
+/**
+ * 有事发生：排一个特效，她没在说话就让她先做个反应。
+ * 礼物连击（同 id 更新）只在跨档时再来一次：小礼物连到 100 元以上，按大礼物再热闹一次。
+ */
+function fire(event: FxEvent): void {
+  const now = Date.now();
+  if (event.kind === 'enter') {
+    if (now - lastEnterFx < ENTER_FX_GAP_MS) return;
+    lastEnterFx = now;
+  }
+  const triggers = triggersOf(event);
+  const mood = pick(state.character?.reactions, triggers);
+  update((s) => {
+    const next = { ...s, fx: [...s.fx, { key: `f${++fxSeq}`, triggers, event, at: now }].slice(-MAX_FX) };
+    if (mood && !s.line && now - lastReaction >= REACTION_GAP_MS) {
+      lastReaction = now;
+      next.reaction = { key: `r${fxSeq}`, mood };
+    }
+    return next;
+  });
+}
+
+export function dropFx(key: string): void {
+  update((s) => ({ ...s, fx: s.fx.filter((f) => f.key !== key) }));
+}
+
 function onLive(event: StageLiveEvent, isUpdate: boolean): void {
   remember(event);
+  if (event.kind !== 'chat') {
+    const before = state.alerts.find((a) => a.event.id === event.id)?.event;
+    const tierUp = event.kind === 'gift' && before?.kind === 'gift' && giftTier(event.yuan) !== giftTier(before.yuan);
+    if (!isUpdate || tierUp) fire(event);
+  }
   update((s) => {
     let next = countLive(s, event, isUpdate);
     if (!isUpdate) {
@@ -361,7 +414,7 @@ function handle(event: StageEvent): void {
 
 let demoStarted = false;
 
-/** 先放开场动画，再来几条示例弹幕、她说一句：看得出这个主题直播时是什么样 */
+/** 先放开场动画，再来几条示例弹幕、进场、关注、礼物，她说一句：看得出这个主题直播时是什么样 */
 function startDemo(name: string): void {
   demoStarted = true;
   setTimeout(() => {
@@ -374,10 +427,14 @@ function startDemo(name: string): void {
     const v = 1 as const;
     const script: Array<[number, StageEvent]> = [
       ...chats.map(([n, text, guard], i) => [OPENING_MS + 300 + i * 450, { v, type: 'live', isUpdate: false, at, event: { kind: 'chat', id: `demo-${i}`, user: user(n, n, guard), text } }] as [number, StageEvent]),
+      [OPENING_MS + 900, { v, type: 'live', isUpdate: false, at, event: { kind: 'enter', id: 'demo-enter', user: user('橘子汽水', '橘子汽水', 3) } }],
+      [OPENING_MS + 1500, { v, type: 'live', isUpdate: false, at, event: { kind: 'follow', id: 'demo-follow', user: user('云朵收集者', '云朵收集者') } }],
       [OPENING_MS + 2200, { v, type: 'live', isUpdate: false, at, event: { kind: 'gift', id: 'demo-gift', user: user('晚风', '晚风'), gift: '小花花', count: 5, yuan: 0.5 } }],
       [OPENING_MS + 2400, { v, type: 'usage', tokens: 12_800, turn: 640, at }],
       [OPENING_MS + 2600, { v, type: 'focus', userIds: ['demo:放学路上'], at }],
       [OPENING_MS + 2700, { v, type: 'say', id: 'demo-say', text: `放学路上，今天吃了三碗！${name}的小屋装修好啦，大家随便坐～`, mood: 'laugh', audio: null, estimateMs: 5200, at }],
+      // 说完以后来个大礼物：横幅、彩带、她自己的反应都看得到
+      [OPENING_MS + 8600, { v, type: 'live', isUpdate: false, at, event: { kind: 'gift', id: 'demo-big', user: user('橘子汽水', '橘子汽水', 3), gift: '嘉年华', count: 1, yuan: 500 } }],
     ];
     for (const [ms, event] of script) setTimeout(() => handle(event), ms);
   }, CATCHUP_MS);

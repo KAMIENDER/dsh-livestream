@@ -16,6 +16,7 @@
     "ending": "art/ending.jpg",
     "portrait": "art/portrait.webp"
   },
+  "reactions": { "gift.big": "shy", "gift.huge": "laugh", "superchat.big": "shocked", "membership": "shocked" },
   "license": "CC BY-NC-SA 4.0（见 LICENSE.md）",
   "clips": {
     "size": [496, 864],

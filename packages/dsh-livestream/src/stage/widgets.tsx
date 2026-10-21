@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
 import { assetUrl, dropAlert, getState, litChars, preview, subscribe, type Alert, type ReplyItem, type StageState } from './store';
+import { giftTier } from './triggers';
 
 export function useStage(): StageState {
   return useSyncExternalStore(subscribe, getState);
@@ -23,14 +24,14 @@ function useLinger<T>(value: T | null, ms: number): [T | null, boolean] {
 }
 
 /** 角色包里的小插画（character.json 的 art）：没有返回 null，挂件就不画 */
-function useArt(name: string): string | null {
+export function useArt(name: string): string | null {
   const { character } = useStage();
   const file = character?.art?.[name];
   return character && file ? assetUrl('characters', character.id, file) : null;
 }
 
 /** 角色的小插画：图片，或者带透明通道的循环动图（.webm）；文件缺了就不画（不出现破图标） */
-function ArtImg({ src, className }: { src: string; className: string }) {
+export function ArtImg({ src, className }: { src: string; className: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
   if (/\.(webm|mp4)\?/.test(src)) return <video className={`${className} ls-anim`} src={src} autoPlay loop muted playsInline onError={() => setBroken(true)} />;
@@ -63,9 +64,15 @@ export function Character() {
  */
 function ClipCharacter({ character }: { character: CharacterManifest }) {
   const clips = character.clips!;
-  const { line } = useStage();
+  const { line, reaction } = useStage();
   const [queue, setQueue] = useState<string[]>([clips.idle]);
   const lineId = line?.id ?? null;
+
+  // 对直播间里的事做个反应（角色包 reactions）：和说话时的表情走同一条路，最后回到待机；说着话就不打断
+  useEffect(() => {
+    const clip = reaction && !line ? clips.moods[reaction.mood] : undefined;
+    if (clip) setQueue([...(clips.out ? [clips.out] : []), clip, ...(clips.in ? [clips.in] : []), clips.idle]);
+  }, [reaction?.key]);
 
   useEffect(() => {
     if (!line) {
@@ -178,30 +185,44 @@ function ClipPlayer({ src, name, loop, onEnded, names }: { src: (name: string) =
 /** 立绘渲染器：一张图，说话时轻轻弹跳；有表情差分就换图 */
 function ImageCharacter({ character }: { character: CharacterManifest }) {
   const image = character.image!;
-  const { line } = useStage();
-  const file = (line && image.moods?.[line.mood]) || image.idle;
+  const { line, reaction } = useStage();
+  const reacting = useReaction(reaction, 1800);
+  const mood = line?.mood ?? reacting;
+  const file = (mood && image.moods?.[mood]) || image.idle;
   const [w, h] = image.size;
   return (
-    <div className={`ls-character${line ? ' ls-speaking' : ''}`} data-mood={line?.mood || undefined} style={{ aspectRatio: `${w} / ${h}` }}>
+    <div className={`ls-character${line ? ' ls-speaking' : ''}`} data-mood={mood || undefined} style={{ aspectRatio: `${w} / ${h}` }}>
       <Halo />
       <img className={`ls-image${line ? ' ls-talking' : ''}`} src={assetUrl('characters', character.id, file)} alt="" />
     </div>
   );
 }
 
+/** 立绘的反应：换上那张表情差分，ms 毫秒后换回来 */
+function useReaction(reaction: StageState['reaction'], ms: number): string | null {
+  const [mood, setMood] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reaction) return;
+    setMood(reaction.mood);
+    const timer = setTimeout(() => setMood(null), ms);
+    return () => clearTimeout(timer);
+  }, [reaction?.key]);
+  return mood;
+}
+
 // ── 小图标 ───────────────────────────────────────────
 
 const svg = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
 
-function GiftIcon() {
+export function GiftIcon() {
   return <svg {...svg}><rect x="3.5" y="9" width="17" height="11.5" rx="2" /><path d="M2.5 9h19M12 9v11.5M12 9c-1.6-3.4-5.8-4.6-6.4-2.2C5 9 9.4 9 12 9Zm0 0c1.6-3.4 5.8-4.6 6.4-2.2C19 9 14.6 9 12 9Z" /></svg>;
 }
 
-function ShipIcon() {
+export function ShipIcon() {
   return <svg {...svg}><path d="M12 2.5v9M12 3.5l5.5 6H12" /><path d="M3 14h18l-2.6 4.6a3 3 0 0 1-2.6 1.4H8.2a3 3 0 0 1-2.6-1.4Z" /><path d="M2 22.5c1.7 0 1.7-1 3.3-1s1.7 1 3.4 1 1.7-1 3.3-1 1.7 1 3.4 1 1.6-1 3.3-1 1.6 1 3.3 1" /></svg>;
 }
 
-function HeartIcon() {
+export function HeartIcon() {
   return <svg {...svg}><path d="M12 20.5s-8-4.7-8-10.6A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.9c0 5.9-8 10.6-8 10.6Z" /></svg>;
 }
 
@@ -215,7 +236,7 @@ function Voice() {
 }
 
 /** 爆开的小光点 */
-function Sparks({ n = 12 }: { n?: number }) {
+export function Sparks({ n = 12 }: { n?: number }) {
   return <i className="ls-sparks">{Array.from({ length: n }, (_, i) => <b key={i} style={{ '--i': i, '--n': n } as React.CSSProperties} />)}</i>;
 }
 
@@ -353,7 +374,7 @@ function hue(name: string): number {
   return h;
 }
 
-function Avatar({ user }: { user: StageUser }) {
+export function Avatar({ user }: { user: StageUser }) {
   const [broken, setBroken] = useState(false);
   const guard = user.guard ? { 'data-guard': user.guard } : {};
   if (!user.face || broken) return <span className="ls-avatar ls-avatar-letter" {...guard} style={{ '--ls-hue': hue(user.name) } as React.CSSProperties}>{[...user.name][0] ?? '?'}</span>;
@@ -434,18 +455,13 @@ export function Reply({ options }: { options?: Record<string, unknown> }) {
 // ── 礼物、醒目留言、上舰、进场 ─────────────────────────
 
 /** 醒目留言按金额分档（B 站的配色） */
-function scTier(yuan: number): string {
+export function scTier(yuan: number): string {
   if (yuan >= 2000) return 'red';
   if (yuan >= 1000) return 'orange';
   if (yuan >= 500) return 'pink';
   if (yuan >= 100) return 'yellow';
   if (yuan >= 50) return 'cyan';
   return 'blue';
-}
-
-/** 礼物按价钱分三档：小（一行带过）、大（金边、光点）、超大（再加光芒） */
-function giftSize(yuan: number): 'small' | 'big' | 'huge' {
-  return yuan >= 100 ? 'huge' : yuan >= 5 ? 'big' : 'small';
 }
 
 /** 总督 1、提督 2、舰长 3（和 StageUser.guard 一样） */
@@ -466,6 +482,7 @@ function alertTtl(e: Alert['event']): number {
 function AlertCard({ alert }: { alert: Alert }) {
   const e = alert.event;
   const giftArt = useArt('gift');
+  const waveArt = useArt('wave');
   const ttl = alertTtl(e);
   const [leaving, setLeaving] = useState(false);
   // 礼物连击：数量一变就重新计时
@@ -491,7 +508,8 @@ function AlertCard({ alert }: { alert: Alert }) {
         </div>
       );
     case 'gift': {
-      const size = giftSize(e.yuan);
+      // 小（一行带过）、大（金边、光点、举着礼物的她）、超大（再加光芒）
+      const size = giftTier(e.yuan);
       return (
         <div className={`ls-alert ls-gift ls-gift-${size}${size !== 'small' ? ' ls-big' : ''}${out}`}>
           {size === 'huge' && <i className="ls-rays" />}
@@ -522,7 +540,14 @@ function AlertCard({ alert }: { alert: Alert }) {
     case 'follow':
       return <div className={`ls-alert ls-follow${out}`}><span className="ls-follow-icon"><HeartIcon /></span><span><b>{e.user.name}</b> 关注了直播间</span></div>;
     case 'enter':
-      return <div className={`ls-alert ls-enter${e.user.guard ? ` ls-enter-guard ls-enter-guard-${e.user.guard}` : ''}${out}`}>{e.user.guard ? <Badge user={e.user} /> : null}<span><b>{e.user.name}</b> 进入直播间</span></div>;
+      // 欢迎卡：从右边滑进来，她探出头挥挥手
+      return (
+        <div className={`ls-alert ls-enter${e.user.guard ? ` ls-enter-guard ls-enter-guard-${e.user.guard}` : ''}${waveArt ? ' ls-has-art' : ''}${out}`}>
+          {waveArt && <ArtImg className="ls-enter-art" src={waveArt} />}
+          {e.user.guard ? <Badge user={e.user} /> : null}
+          <span>欢迎 <b>{e.user.name}</b> 进入直播间</span>
+        </div>
+      );
   }
 }
 

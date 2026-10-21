@@ -10,7 +10,8 @@
     "--ls-accent": "#ff8a65",
     "--ls-accent-2": "#ff7eb6",
     "--ls-bubble": "#fff3ef",
-    "--ls-shadow": "0 14px 34px -14px rgba(140, 50, 90, 0.45)"
+    "--ls-shadow": "0 14px 34px -14px rgba(140, 50, 90, 0.45)",
+    "--ls-welcome-y": "270px"
   },
   "widgets": [
     {
@@ -68,6 +69,13 @@
       "options": {
         "quote": false
       }
+    },
+    {
+      "type": "effects",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080
     },
     {
       "type": "scene",

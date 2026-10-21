@@ -19,7 +19,8 @@
     "--ls-rim": "rgba(160, 210, 255, 0.35)",
     "--ls-bubble": "rgba(255, 255, 255, 0.08)",
     "--ls-shadow": "0 24px 60px -24px rgba(0, 0, 0, 0.75)",
-    "--ls-blur": "22px"
+    "--ls-blur": "22px",
+    "--ls-welcome-y": "270px"
   },
   "widgets": [
     {
@@ -77,6 +78,13 @@
       "options": {
         "quote": false
       }
+    },
+    {
+      "type": "effects",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080
     },
     {
       "type": "scene",

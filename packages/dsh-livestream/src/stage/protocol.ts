@@ -39,6 +39,11 @@ export interface CharacterManifest {
     idle: string;
     moods?: Record<string, string>;
   };
+  /**
+   * 她对直播间里的事做什么反应（可选）：事件名（见 triggers.ts）→ 表情名（clips.moods 或 image.moods 里的）。
+   * 她没在说话的时候，礼物、上舰这些事一来先做个表情，再开口道谢。例：{ "gift.huge": "laugh", "membership": "shocked" }
+   */
+  reactions?: Record<string, string>;
 }
 
 /** 模板清单（templates/<id>/template.json）：只管布局、主题、放哪些挂件 */
@@ -51,15 +56,24 @@ export interface TemplateManifest {
   /** CSS 变量：颜色、字体……挂件都读这些变量 */
   theme: Record<string, string>;
   widgets: WidgetPlacement[];
+  /**
+   * 事件名（见 triggers.ts）→ 放哪些整屏特效（effects 挂件放；有哪些、怎么自己加见 effects.tsx）。
+   * 不写用默认的一套；写了就整个换掉默认的；某个事件写 [] 就是什么都不放。
+   */
+  effects?: Record<string, EffectSpec[]>;
 }
+
+/** 一个特效：名字，或者名字加参数（ms 是放多久，其余参数看特效自己） */
+export type EffectSpec = string | { name: string; ms?: number; [option: string]: unknown };
 
 /**
  * reply：「她在回」卡片（她正在回应的那几位观众和他们说的话；热闹时那条弹幕早滚出弹幕列表了）
  * rice：她吃了多少饭（这场用掉的 token 换算成电、再换算成米饭）
  * terminal：终端，滚动显示身体和大脑在干什么（推了什么给她、她想了多久、用了多少 token）
  * scene：整屏的过场：开播前的等待画面、开场动画、下播谢幕（放在画布 0,0，宽高和画布一样）
+ * effects：整屏特效层：进场、礼物、上舰时放的彩带、横幅……（放在画布 0,0，宽高和画布一样，排在 scene 前面）
  */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene';
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'effects';
 
 export interface WidgetPlacement {
   type: WidgetType;
