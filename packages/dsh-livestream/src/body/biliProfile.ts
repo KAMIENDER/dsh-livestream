@@ -7,6 +7,7 @@
  *   空间公告   x/space/notice
  *   直播间     room/v1/Room/getRoomInfoOld
  * 带 WBI 签名的主页接口（acc/info、arc/search）会被风控（-352），要伪造浏览器指纹才能过，不用。
+ * 这些接口不登录也能用，但不带 Cookie 时会随机被风控（412，实测 recArchivesByKeywords 时好时坏）：有开播账号的 Cookie 就带上。
  */
 
 import { cleanText } from '../core/safety';
@@ -40,10 +41,10 @@ export interface BiliProfile {
   live: { roomId: number; onAir: boolean; title: string } | null;
 }
 
-async function get<T>(url: string, uid: string): Promise<T | null> {
+async function get<T>(url: string, uid: string, cookie: string): Promise<T | null> {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Referer: `https://space.bilibili.com/${uid}`, Origin: 'https://space.bilibili.com' },
+      headers: { 'User-Agent': UA, Referer: `https://space.bilibili.com/${uid}`, Origin: 'https://space.bilibili.com', ...(cookie ? { Cookie: cookie } : {}) },
       signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) return null;
@@ -61,19 +62,19 @@ function video(v: RawVideo | null | undefined): ProfileVideo | null {
   return { title: cleanText(v.title), bvid: v.bvid ?? '', ...(v.stat?.view !== undefined ? { views: v.stat.view } : {}), ...(v.pubdate ? { pubdate: v.pubdate } : {}) };
 }
 
-/** 拉一位用户的主页；用户不存在（或接口全都失败）返回 null */
-export async function fetchProfile(uid: string): Promise<BiliProfile | null> {
+/** 拉一位用户的主页；用户不存在（或接口全都失败）返回 null。cookie：开播账号的（可以不给） */
+export async function fetchProfile(uid: string, cookie = ''): Promise<BiliProfile | null> {
   if (!/^\d{1,20}$/.test(uid)) return null;
   // 一个一个请求：同时发六个会被 B 站限流（412），总共也就一两秒
   const card = await get<{ card?: { name?: string; sex?: string; sign?: string; fans?: number; attention?: number; level_info?: { current_level?: number }; Official?: { title?: string }; vip?: { status?: number } }; archive_count?: number; follower?: number }>(
-    `https://api.bilibili.com/x/web-interface/card?mid=${uid}&photo=false`, uid);
+    `https://api.bilibili.com/x/web-interface/card?mid=${uid}&photo=false`, uid, cookie);
   const c = card?.card;
   if (!c?.name) return null;
-  const recent = card?.archive_count ? await get<{ archives?: RawVideo[] }>(`https://api.bilibili.com/x/series/recArchivesByKeywords?mid=${uid}&keywords=&ps=5`, uid) : null;
-  const pinned = card?.archive_count ? await get<RawVideo>(`https://api.bilibili.com/x/space/top/arc?vmid=${uid}`, uid) : null;
-  const master = card?.archive_count ? await get<RawVideo[]>(`https://api.bilibili.com/x/space/masterpiece?vmid=${uid}`, uid) : null;
-  const notice = await get<string>(`https://api.bilibili.com/x/space/notice?mid=${uid}`, uid);
-  const room = await get<{ roomid?: number; liveStatus?: number; title?: string }>(`https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid=${uid}`, uid);
+  const recent = card?.archive_count ? await get<{ archives?: RawVideo[] }>(`https://api.bilibili.com/x/series/recArchivesByKeywords?mid=${uid}&keywords=&ps=5`, uid, cookie) : null;
+  const pinned = card?.archive_count ? await get<RawVideo>(`https://api.bilibili.com/x/space/top/arc?vmid=${uid}`, uid, cookie) : null;
+  const master = card?.archive_count ? await get<RawVideo[]>(`https://api.bilibili.com/x/space/masterpiece?vmid=${uid}`, uid, cookie) : null;
+  const notice = await get<string>(`https://api.bilibili.com/x/space/notice?mid=${uid}`, uid, cookie);
+  const room = await get<{ roomid?: number; liveStatus?: number; title?: string }>(`https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid=${uid}`, uid, cookie);
   return {
     uid,
     name: cleanText(c.name),

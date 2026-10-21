@@ -15,7 +15,7 @@ import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
 import { clock, infoText, searchText, subtitleText, type VideoInfo, type VideoPart } from '../body/biliVideo';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { currentMoods, dm, hooks, show, videos } from './runtime';
+import { cookie, currentMoods, dm, hooks, show, videos } from './runtime';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -166,7 +166,7 @@ export function apply(ctx: AgentContext): void {
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
       show.doing(viewer.how === 'unseen-uid' ? `在看 UID ${viewer.uid} 的主页` : `在看${viewer.user.name}的主页`);
-      const profile = await fetchProfile(viewer.uid);
+      const profile = await fetchProfile(viewer.uid, await cookie());
       if (!profile) return viewer.how === 'unseen-uid' ? `UID ${viewer.uid} 打不开：可能没有这个用户，检查一下数字。` : `没打开 ${viewer.user.name} 的主页（B 站没返回，可能是网络问题）。`;
       const marks = [
         viewer.user.guardLevel ? ['', '总督', '提督', '舰长'][viewer.user.guardLevel] : '',
