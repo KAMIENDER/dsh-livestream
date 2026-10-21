@@ -165,7 +165,7 @@ export function apply(ctx: AgentContext): void {
       const viewer = show.lookupViewer(who);
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
-      show.doing(viewer.how === 'unseen-uid' ? `在看 UID ${viewer.uid} 的主页` : `在看${viewer.user.name}的主页`);
+      show.toolCall('view_profile', viewer.how === 'unseen-uid' ? `UID ${viewer.uid}` : viewer.user.name, viewer.how === 'unseen-uid' ? `在看 UID ${viewer.uid} 的主页` : `在看${viewer.user.name}的主页`);
       const profile = await fetchProfile(viewer.uid, await cookie());
       if (!profile) return viewer.how === 'unseen-uid' ? `UID ${viewer.uid} 打不开：可能没有这个用户，检查一下数字。` : `没打开 ${viewer.user.name} 的主页（B 站没返回，可能是网络问题）。`;
       const marks = [
@@ -196,7 +196,7 @@ export function apply(ctx: AgentContext): void {
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (!show.knowsViewer(viewer.uid)) return `UID ${viewer.uid} 没在这场直播里出现过，也不是以前来过的观众：私信只发给直播间里的观众。`;
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，就不私信他了。`;
-      show.doing(`在给${viewer.user.name}发私信`);
+      show.toolCall('send_dm', `→ ${viewer.user.name}`, `在给${viewer.user.name}发私信`);
       const result = await dm.send({ uid: viewer.uid, name: viewer.user.name }, String(args.text ?? ''));
       if (result.ok) show.noteDm(viewer.user.name, String(args.text ?? ''));
       return result.text;
@@ -221,7 +221,7 @@ export function apply(ctx: AgentContext): void {
       if (!query && !up) return 'query 和 up 至少填一个。';
       const order = (['relevance', 'newest', 'views'] as const).find((o) => o === args.order);
       const options = { up, order, page: Number(args.page) || 1 };
-      show.doing(`在搜视频：${query || up}`);
+      show.toolCall('search_videos', query ? `「${query}」` : `UP ${up}`, `在搜视频：${query || up}`);
       const result = await videos.search(query, options);
       if (!result) return 'B 站搜索没返回（可能是网络问题或者被限流了），过一会儿再搜。';
       return searchText(query, result, options);
@@ -244,7 +244,7 @@ export function apply(ctx: AgentContext): void {
       if (typeof found === 'string') return found;
       const { info, part } = found;
       const from = seconds(args.from);
-      show.doing(`在看「${info.title.slice(0, 20)}」`);
+      show.toolCall('watch_video', `「${info.title.slice(0, 16)}」`, `在看「${info.title.slice(0, 20)}」`);
       const sub = await videos.subtitles(info.bvid, part.cid);
       const partArg = part.page > 1 ? `, part=${part.page}` : '';
       const subtitle = subtitleText(info, part, sub, from, partArg);
@@ -278,6 +278,7 @@ export function apply(ctx: AgentContext): void {
       const until = part.durationSec ? Math.min(part.durationSec, from + length) : from + length;
       const url = await videos.playUrl(info.bvid, part.cid);
       if (!url) return `B 站没给「${info.title}」的播放地址（可能是付费、番剧、充电专属或者有地区限制），放不了。`;
+      show.toolCall('play_video', `「${info.title.slice(0, 16)}」`);
       const { replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until });
       const lines = [
         `舞台上开始放「${info.title}」（UP ${info.up.name}），${clock(from)}–${clock(until)}，共 ${clock(until - from)}。舞台换成了看视频的布局。`,
@@ -295,6 +296,7 @@ export function apply(ctx: AgentContext): void {
     parameters: {},
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute() {
+      show.toolCall('stop_video', '');
       const stopped = show.player.stop();
       if (!stopped) return '现在没在放视频。';
       return `停了「${stopped.video.title}」（放了 ${clock(stopped.playedSec)}），舞台换回了聊天的布局。`;

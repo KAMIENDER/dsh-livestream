@@ -143,6 +143,8 @@ export type StageEvent =
    */
   | { v: 1; type: 'say'; id: string; text: string; mood: string; audio: string | null; estimateMs: number; timeline?: Array<{ chars: number; atMs: number }>; at: number }
   | { v: 1; type: 'brain'; state: BrainState; detail?: string; at: number }
+  /** 她调用了一个工具（终端里记一行「调用 工具名 对象」）；doing：提示符上显示她在干什么 */
+  | { v: 1; type: 'tool'; name: string; detail: string; doing?: string; at: number }
   /** isUpdate：同 id 再来一次（礼物连击累加） */
   | { v: 1; type: 'live'; event: StageLiveEvent; isUpdate: boolean; at: number }
   /** 她正在回应这几位观众（弹幕流里高亮） */

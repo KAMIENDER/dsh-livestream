@@ -675,7 +675,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
 
 // ── 终端 ─────────────────────────────────────────────
 
-const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', token: 'token', gift: '礼物', sc: '留言', warn: '注意' };
+const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: 'token', gift: '礼物', sc: '留言', warn: '注意' };
 
 function clock(at: number): string {
   const d = new Date(at);

@@ -421,6 +421,7 @@ function handle(event: StageEvent): void {
       update((s) => term(s, 'say', `${MOOD_TEXT[event.mood] ? `（${MOOD_TEXT[event.mood]}）` : ''}${short(event.text, 26)}`));
       return onSay(event);
     case 'brain': return onBrain(event);
+    case 'tool': return update((s) => term({ ...s, brain: 'thinking', brainDetail: event.doing ?? s.brainDetail }, 'tool', `${event.name}${event.detail ? ` ${event.detail}` : ''}`));
     case 'live': return onLive(event.event, event.isUpdate);
     case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds), reply: replyItems(event.userIds), replySeq: s.replySeq + 1 }));
     case 'room':

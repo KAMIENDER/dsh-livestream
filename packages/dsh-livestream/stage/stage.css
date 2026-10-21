@@ -603,6 +603,8 @@ html, body {
 .ls-term-line b { flex: none; font-weight: 700; color: #8fc7ff; }
 .ls-term-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ls-tag-say b { color: #ffa8c9; }
+.ls-tag-tool b { color: #8fc7ff; }
+.ls-tag-tool span { color: #cfe6ff; font-family: Consolas, 'Cascadia Mono', monospace; }
 .ls-tag-token b { color: #ffd479; }
 .ls-tag-token span { color: #ffe9b8; }
 .ls-tag-gift b, .ls-tag-sc b { color: #7fe0b8; }

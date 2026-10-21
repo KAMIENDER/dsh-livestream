@@ -394,9 +394,14 @@ export class LiveShow {
     return { video, replaced };
   }
 
-  /** 她在用工具做事：舞台上显示她在干什么 */
-  doing(detail: string): void {
-    if (this.onAir) this.setBrain('thinking', detail);
+  /**
+   * 她调用了一个工具：舞台终端里记一行（观众看得出画面上的视频、私信是她自己动手做的），
+   * doing 写在提示符上（她正在干什么）
+   */
+  toolCall(name: string, detail: string, doing?: string): void {
+    if (!this.onAir) return;
+    this.brain = 'thinking';
+    this.stage.broadcast({ type: 'tool', name, detail, doing });
   }
 
   get isOnAir(): boolean {
