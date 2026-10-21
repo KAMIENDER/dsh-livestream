@@ -156,8 +156,9 @@ export class LiveShow {
 
   /** 测试用：不连直播间也能往里塞事件（控制台的「模拟观众」） */
   inject(event: LiveEvent): void {
-    this.hub.ingest(event);
+    // 先订阅再塞：反过来的话，没连直播间时塞的第一条事件谁也收不到（彩排里第一位进场的观众没被欢迎）
     if (!this.unsubscribe) this.unsubscribe = this.hub.subscribe((e, isUpdate) => this.observe(e, isUpdate));
+    this.hub.ingest(event);
   }
 
   private observe(event: LiveEvent, isUpdate: boolean): void {
