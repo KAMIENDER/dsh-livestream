@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveShow } from '../body/show';
+import { Whisper } from '../body/asr';
 import { BiliAccount } from '../body/biliAccount';
 import { BiliVideos } from '../body/biliVideo';
 import { Broadcast } from '../body/broadcast';
@@ -50,6 +51,10 @@ export interface Settings {
   streamKbps: number;
   /** 直播间封面图片的路径（本机文件）；空串不换 */
   liveCover: string;
+  /** 装了 faster-whisper 的 Python（视频没字幕时听写用）；空串不听写 */
+  asrPython: string;
+  /** whisper 模型：large-v3-turbo（有显卡）、small（只有 CPU）…… */
+  asrModel: string;
 }
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
@@ -100,6 +105,8 @@ function loadSettings(): Settings {
     pushProtocol: 'srt',
     streamKbps: 4500,
     liveCover: '',
+    asrPython: '',
+    asrModel: 'large-v3-turbo',
     ...saved,
   };
   if (!settings.stageToken) {
@@ -250,3 +257,12 @@ export const dm = new DmManager(new BiliAccount(cookie), join(dataDir, 'dm.json'
 
 /** 她搜视频、看视频、在舞台上放视频（开播账号的 Cookie：AI 字幕要登录才给） */
 export const videos = new BiliVideos(cookie);
+
+/** 视频没字幕时听写（本机的 faster-whisper） */
+export const asr = new Whisper({
+  python: () => settings.asrPython,
+  model: () => settings.asrModel.trim() || 'large-v3-turbo',
+  script: join(packageDir(), 'assets', 'asr', 'whisper_worker.py'),
+  dataDir,
+  log: (level, message) => hooks.log(level, message),
+});

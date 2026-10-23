@@ -12,10 +12,10 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { randomUUID } from 'node:crypto';
 import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
-import { clock, infoText, searchText, subtitleText, type VideoInfo, type VideoPart } from '../body/biliVideo';
+import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoInfo, type VideoPart } from '../body/biliVideo';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { cookie, currentMoods, dm, hooks, show, videos } from './runtime';
+import { asr, cookie, currentMoods, dm, hooks, show, videos } from './runtime';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -113,6 +113,17 @@ async function findVideo(video: unknown, part: unknown): Promise<{ info: VideoIn
   const found = info.parts.find((p) => p.page === page);
   if (!found) return `「${info.title}」只有 ${info.parts.length} P，没有 P${page}。`;
   return { info, part: found };
+}
+
+/** 视频没字幕：听 from 所在的那一段（没配语音识别、听失败返回 null，照「没有字幕」说） */
+async function listen(info: VideoInfo, part: VideoPart, from: number): Promise<Subtitles | null> {
+  try {
+    const heard = await asr.chunk({ bvid: info.bvid, cid: part.cid, durationSec: part.durationSec }, from, () => videos.audioUrl(info.bvid, part.cid));
+    return heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until } : null;
+  } catch (err) {
+    hooks.log('warn', `语音识别失败（${info.bvid}）：${(err as Error).message}`);
+    return null;
+  }
 }
 
 /** 调一次模型（下播提炼记忆）：不思考，只要文字 */
@@ -222,6 +233,7 @@ export function apply(ctx: AgentContext): void {
       const order = (['relevance', 'newest', 'views'] as const).find((o) => o === args.order);
       const options = { up, order, page: Number(args.page) || 1 };
       show.toolCall('search_videos', query ? `「${query}」` : `UP ${up}`, `在搜视频：${query || up}`);
+      asr.warm();
       const result = await videos.search(query, options);
       if (!result) return 'B 站搜索没返回（可能是网络问题或者被限流了），过一会儿再搜。';
       return searchText(query, result, options);
@@ -232,7 +244,7 @@ export function apply(ctx: AgentContext): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'watch_video',
     description: '看一个 B 站视频：详情（标题、UP 主、时长、播放点赞投币收藏、标签、简介、分 P）和带时间的字幕。'
-      + '字幕一次给一段，长的用 from 接着往后看；没有字幕的视频只有详情。',
+      + '字幕一次给一段，长的用 from 接着往后看；视频没有字幕时会听一遍、把说的话写下来（要几秒到十几秒）。',
     parameters: {
       video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
       part: { type: 'number', description: '多 P 视频的第几 P，默认 1' },
@@ -245,7 +257,7 @@ export function apply(ctx: AgentContext): void {
       const { info, part } = found;
       const from = seconds(args.from);
       show.toolCall('watch_video', `「${info.title.slice(0, 16)}」`, `在看「${info.title.slice(0, 20)}」`);
-      const sub = await videos.subtitles(info.bvid, part.cid);
+      const sub = (await videos.subtitles(info.bvid, part.cid)) ?? (await listen(info, part, from));
       const partArg = part.page > 1 ? `, part=${part.page}` : '';
       const subtitle = subtitleText(info, part, sub, from, partArg);
       const noLogin = !sub && !(await videos.loggedIn()) ? '（开播账号没登录：B 站的 AI 字幕要登录才给）' : '';

@@ -87,10 +87,11 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
+  asr: { available: boolean };
 }
 
 async function api<T = HostState>(path: string, body?: unknown): Promise<T> {
@@ -481,6 +482,16 @@ export function Console() {
                 <span className="dl-meta">kbps</span>
               </div>
               <p className="dl-hint">开播时：没有直播间会自动开通；B 站要人脸认证时这里弹出二维码，用 B 站 App 扫一下；推流码自动填进 OBS（专用配置「dsh-livestream」，1080p30、NVENC、CBR，RTMP 网络堵时自动降码率），不用手动配 OBS。推流时上面会显示码率和丢帧，丢帧多就换 SRT 或调低码率。</p>
+            </div>
+            <h3>看视频</h3>
+            <div className="dl-field">
+              <label>语音识别用的 Python {host?.asr.available ? <span className="dl-tag dl-ok-tag">能用</span> : <span className="dl-tag">没配好</span>}</label>
+              <input defaultValue={settings?.asrPython ?? ''} placeholder="装了 faster-whisper 的 python.exe 的完整路径" onBlur={(e) => choose({ asrPython: e.target.value })} />
+              <div className="dl-row">
+                <input defaultValue={settings?.asrModel ?? 'large-v3-turbo'} title="whisper 模型" onBlur={(e) => choose({ asrModel: e.target.value })} />
+                <span className="dl-meta">模型：有 N 卡用 large-v3-turbo，只有 CPU 用 small</span>
+              </div>
+              <p className="dl-hint">她看的 B 站视频没有字幕时，用本机的 faster-whisper 听一段（5 分钟一段，显卡上几秒）写成字幕给她看。不填就只告诉她「没有字幕」。装法：<code>python -m venv asr-venv</code>，再 <code>asr-venv\Scripts\python -m pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12</code>（没有 N 卡只装 faster-whisper）。模型第一次用时自动下载（约 1.6 GB，走 hf-mirror 镜像）。</p>
             </div>
             <h3>密钥</h3>
             <SecretField label="豆包语音 API Key" ref_={SECRET_REFS.tts} configured={secrets.tts} hint="火山引擎新版控制台的 API Key（和 dsh-game 共用）" />

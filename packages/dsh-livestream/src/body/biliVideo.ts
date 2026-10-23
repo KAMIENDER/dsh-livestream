@@ -68,10 +68,12 @@ export interface SubtitleLine {
 }
 
 export interface Subtitles {
-  /** human：UP 主或观众做的字幕；ai：B 站语音识别的（可能有错字） */
-  kind: 'human' | 'ai';
+  /** human：UP 主或观众做的字幕；ai：B 站语音识别的（可能有错字）；asr：没字幕，本机听写的（可能有错字） */
+  kind: 'human' | 'ai' | 'asr';
   lang: string;
   lines: SubtitleLine[];
+  /** asr：只听到这一秒，后面还没听 */
+  until?: number;
 }
 
 export interface VideoRef {
@@ -270,6 +272,17 @@ export class BiliVideos {
     }));
     return body?.code === 0 ? body.data?.durl?.[0]?.url ?? null : null;
   }
+
+  /** 只有声音的地址（DASH 里码率最低的那条，听写够用、读得快）和读它要带的请求头 */
+  async audioUrl(bvid: string, cid: number): Promise<{ url: string; headers: string } | null> {
+    const body = await this.get<{ dash?: { audio?: Array<{ bandwidth?: number; baseUrl?: string; base_url?: string }> } }>(await this.signed('https://api.bilibili.com/x/player/wbi/playurl', {
+      bvid, cid, fnval: 16, fourk: 0,
+    }));
+    const audio = (body?.code === 0 ? body.data?.dash?.audio ?? [] : []).filter((a) => a.baseUrl || a.base_url);
+    audio.sort((a, b) => (a.bandwidth ?? 0) - (b.bandwidth ?? 0));
+    const url = audio[0]?.baseUrl ?? audio[0]?.base_url ?? (await this.playUrl(bvid, cid));
+    return url ? { url, headers: `Referer: https://www.bilibili.com/\r\nUser-Agent: ${UA}\r\n` } : null;
+  }
 }
 
 // ── 写给她看 ────────────────────────────────────────
@@ -360,16 +373,32 @@ export function subtitleChunk(sub: Subtitles, fromSec: number, maxChars = 3000):
   return { text: out.join('\n'), startSec: lines[0]?.from ?? fromSec, endSec, next };
 }
 
+/** whisper 认出来的语言 */
+const LANGS: Record<string, string> = { zh: '中文', yue: '粤语', en: '英文', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西班牙语', ru: '俄语' };
+
+export function langName(code: string): string {
+  return LANGS[code] ?? code;
+}
+
 export function subtitleText(v: VideoInfo, part: VideoPart, sub: Subtitles | null, fromSec: number, partArg: string): string {
   if (!sub) return '这个视频没有字幕：只知道标题、简介和标签，里面具体说了什么看不到。';
   const chunk = subtitleChunk(sub, fromSec);
+  // 听写的只听了一段：这段完了、视频还没完，就接着听下一段
+  const heardUntil = sub.kind === 'asr' && sub.until !== undefined && sub.until < part.durationSec ? sub.until : null;
+  const next = chunk.next ?? heardUntil;
+  const more = next !== null ? `后面还有：watch_video(video="${v.bvid}"${partArg}, from=${next}) 接着看。` : '字幕到这里完了。';
+  if (!chunk.text && sub.kind === 'asr') {
+    return `${clock(fromSec)}–${clock(sub.until ?? fromSec)} 这段视频没字幕，听了一遍也没听到有人说话（可能是音乐、游戏声或者没人说话）。\n${more}`;
+  }
   if (!chunk.text) return `${clock(fromSec)} 以后没有字幕了（视频一共 ${clock(part.durationSec)}）。`;
-  const kind = sub.kind === 'ai' ? `B 站 AI 识别的${sub.lang}字幕（听写的，可能有错字）` : `${sub.lang}字幕`;
+  const kind = sub.kind === 'ai' ? `B 站 AI 识别的${sub.lang}字幕（听写的，可能有错字）`
+    : sub.kind === 'asr' ? `视频没字幕，这是听了一遍写下来的${langName(sub.lang)}（听写的，可能有错字，人名和专有名词常写错）`
+    : `${sub.lang}字幕`;
   return [
     `${kind}，${clock(chunk.startSec)}–${clock(chunk.endSec)}：`,
     '<字幕>',
     chunk.text,
     '</字幕>',
-    chunk.next !== null ? `后面还有：watch_video(video="${v.bvid}"${partArg}, from=${chunk.next}) 接着看。` : '字幕到这里完了。',
+    more,
   ].join('\n');
 }

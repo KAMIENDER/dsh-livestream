@@ -18,7 +18,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { broadcast, cookie, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { asr, broadcast, cookie, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -48,6 +48,7 @@ function state() {
     stageUrl: server.url,
     characters: packs.list('characters'),
     templates: packs.list('templates'),
+    asr: { available: asr.available },
   };
 }
 
@@ -77,6 +78,7 @@ export function apply(ctx: HostContext): void {
     return () => server.stop();
   }, 'dsh-livestream stage server');
   ctx.effect(() => () => show.dispose(), 'dsh-livestream show');
+  ctx.effect(() => () => asr.close(), 'dsh-livestream asr');
 
   const route = (path: string, methods: string[], fetch: (request: Request) => Response | Promise<Response>, label: string) =>
     ctx.effect(() => ctx.connection.fetch.register({ path, methods, requestBody: 'buffered', fetch }), label);
@@ -108,6 +110,8 @@ export function apply(ctx: HostContext): void {
     if (patch.liveCover !== undefined) next.liveCover = String(patch.liveCover).trim().replace(/^"|"$/g, '');
     if (patch.pushProtocol !== undefined) next.pushProtocol = patch.pushProtocol === 'rtmp' ? 'rtmp' : 'srt';
     if (patch.streamKbps !== undefined) next.streamKbps = Math.max(1000, Math.min(12000, Number(patch.streamKbps) || 4500));
+    if (patch.asrPython !== undefined) next.asrPython = String(patch.asrPython).trim().replace(/^"|"$/g, '');
+    if (patch.asrModel !== undefined) next.asrModel = String(patch.asrModel).trim() || 'large-v3-turbo';
     const own = (patch as { ownRoom?: boolean }).ownRoom;
     if (own !== undefined && settings.roomId) {
       const rooms = new Set(settings.ownRooms);
@@ -116,6 +120,8 @@ export function apply(ctx: HostContext): void {
       show.rememberViewers = own && show.status().roomId === settings.roomId;
     }
     const repaint = (next.character && next.character !== settings.character) || (next.template && next.template !== settings.template);
+    // 换了 Python 或模型：关掉正在跑的识别进程，下次用新的
+    if ((next.asrPython !== undefined && next.asrPython !== settings.asrPython) || (next.asrModel !== undefined && next.asrModel !== settings.asrModel)) asr.close();
     updateSettings(next);
     if (next.character) show.setNames(currentCharacter()?.names ?? []);
     if (repaint) show.stage.broadcast({ type: 'reload' });

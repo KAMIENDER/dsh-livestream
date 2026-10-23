@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clock, parseVideoRef, searchText, subtitleChunk, subtitleText, type Subtitles, type VideoInfo } from '../src/body/biliVideo';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Whisper } from '../src/body/asr';
 import { Player } from '../src/body/player';
 import { Stage } from '../src/body/stage';
 import { arrange } from '../src/stage/layout';
@@ -60,6 +64,38 @@ describe('subtitles', () => {
   });
   it('says when there are none', () => {
     expect(subtitleText(info, info.parts[0], null, 0, '')).toContain('没有字幕');
+  });
+  it('continues a heard chunk where listening stopped', () => {
+    const long = { bvid: 'BV1YFQPB8Ee2', parts: [{ cid: 1, page: 1, title: 'p1', durationSec: 900 }] } as VideoInfo;
+    const heard: Subtitles = { kind: 'asr', lang: 'zh', lines: [{ from: 2, to: 5, text: '大家好' }], until: 300 };
+    const text = subtitleText(long, long.parts[0], heard, 0, '');
+    expect(text).toContain('听了一遍写下来的中文');
+    expect(text).toContain('from=300) 接着看');
+    expect(subtitleText(long, long.parts[0], { ...heard, until: 900 }, 0, '')).toContain('字幕到这里完了');
+  });
+  it('says a heard chunk had no talking', () => {
+    const text = subtitleText(info, info.parts[0], { kind: 'asr', lang: '', lines: [], until: 120 }, 0, '');
+    expect(text).toContain('没听到有人说话');
+    expect(text).toContain('字幕到这里完了');
+  });
+});
+
+describe('listening', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-asr-'));
+  const whisper = (python = '') => new Whisper({ python: () => python, model: () => 'small', script: join(dir, 'none.py'), dataDir: dir, log: () => {} });
+  it('reuses a heard chunk without starting whisper', async () => {
+    mkdirSync(join(dir, 'transcripts'), { recursive: true });
+    const saved = { lang: 'zh', lines: [{ from: 310, to: 312, text: '第二段' }], until: 600 };
+    writeFileSync(join(dir, 'transcripts', 'BV1-7-300.json'), JSON.stringify(saved));
+    const audio = vi.fn(async () => null);
+    // 437 秒在 300–600 那一段里
+    expect(await whisper().chunk({ bvid: 'BV1', cid: 7, durationSec: 900 }, 437, audio)).toEqual(saved);
+    expect(audio).not.toHaveBeenCalled();
+  });
+  it('gives nothing when whisper is not set up or the video is over', async () => {
+    expect(whisper().available).toBe(false);
+    expect(await whisper().chunk({ bvid: 'BV1', cid: 7, durationSec: 900 }, 0, async () => null)).toBeNull();
+    expect(await whisper().chunk({ bvid: 'BV1', cid: 7, durationSec: 900 }, 900, async () => null)).toBeNull();
   });
 });
 
