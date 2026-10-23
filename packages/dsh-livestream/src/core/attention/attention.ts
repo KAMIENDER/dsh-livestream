@@ -28,6 +28,11 @@ import type { ChatPick, RoomHeat, Topic, TopicBody } from './topics';
 
 /** 可调参数集中在这里 */
 export const TUNING = {
+  /**
+   * 冷清 / 正常 / 热闹：看最近一分钟有几个人在说话（不是几条弹幕，也不是在线人数）。
+   * 一个人刷得再快也只算一个人；在线很多但只有一个人说话，也是冷清——她要好好陪这一个人聊。
+   * 真实直播间里一个人一分钟大约发一条（热闹的房间每分钟 34～77 人、46～111 条），所以分档和以前按条数时一样
+   */
   heat: { quietBelowPerMin: 8, busyFromPerMin: 30 },
   /** 弹幕「凉掉」的时间常数（秒）：分数按 e^(-age/τ) 衰减，超过 3τ 丢弃 */
   chatTauSec: { quiet: 90, normal: 40, busy: 20 } as Record<RoomHeat, number>,
@@ -114,7 +119,8 @@ export class LiveAttention {
   private users = new Map<string, UserMemory>();
   /** 这场已经打过招呼的人（欢迎过或回过他的话） */
   private greeted = new Set<string>();
-  private chatTimes: number[] = [];
+  /** 最近一分钟的弹幕：什么时候、谁发的（冷热按人数算） */
+  private chatTimes: Array<{ at: number; uid: string }> = [];
   /** 没话题时多久开始自己找话说；可在直播中调整 */
   idleAfterMs = TUNING.idleAfterMs;
 
@@ -194,7 +200,7 @@ export class LiveAttention {
   // ── 输出 ─────────────────────────────────────────────
 
   heat(now: number): RoomHeat {
-    const perMin = this.chatsPerMin(now);
+    const perMin = this.chattersPerMin(now);
     if (perMin >= TUNING.heat.busyFromPerMin) return 'busy';
     if (perMin < TUNING.heat.quietBelowPerMin) return 'quiet';
     return 'normal';
@@ -282,7 +288,7 @@ export class LiveAttention {
       if (clean.text && !event.emoteOnly) this.ownerChats.push(clean.text);
       return;
     }
-    this.chatTimes.push(now);
+    this.chatTimes.push({ at: now, uid });
     const memory = this.remember(uid, now);
     memory.chats += 1;
 
@@ -478,8 +484,14 @@ export class LiveAttention {
   }
 
   private chatsPerMin(now: number): number {
-    while (this.chatTimes.length && now - this.chatTimes[0] > 60_000) this.chatTimes.shift();
+    while (this.chatTimes.length && now - this.chatTimes[0].at > 60_000) this.chatTimes.shift();
     return this.chatTimes.length;
+  }
+
+  /** 最近一分钟有几个人在说话 */
+  private chattersPerMin(now: number): number {
+    this.chatsPerMin(now);
+    return new Set(this.chatTimes.map((c) => c.uid)).size;
   }
 
   private prune(now: number): void {

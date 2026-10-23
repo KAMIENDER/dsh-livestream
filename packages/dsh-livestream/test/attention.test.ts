@@ -183,6 +183,15 @@ describe('attention rules', () => {
     expect(a.next(17_000)).toBeNull();
   });
 
+  it('many watching, one person talking fast: still a quiet room, and she answers him', () => {
+    const a = new LiveAttention(0);
+    a.setOnline(500);
+    for (let i = 0; i < 40; i++) a.observe(chat(`f${i}`, '1', `刷屏第${i}条消息呀`), false, i * 1400);
+    expect(a.heat(56_000)).toBe('quiet');
+    const t = a.next(56_100);
+    expect(t?.kind === 'chat' && t.picks[0].event.user.id).toBe('1');
+  });
+
   it('lets stale chat go instead of answering it a minute late in a busy room', () => {
     const a = new LiveAttention(0);
     // 一直保持每分钟 60 条的热度
