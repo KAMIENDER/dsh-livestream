@@ -152,6 +152,37 @@ describe('attention rules', () => {
     expect(second?.kind === 'chat' && second.picks[0].event.user.id).toBe('3');
   });
 
+  it('quiet room with one viewer: a short reply to her is still answered', () => {
+    const a = new LiveAttention(0);
+    a.observe(chat('c1', '1', '你今天吃饭了吗'), false, 0);
+    expect(a.next(100)?.kind).toBe('chat');
+    // 她回完（问了他一句），他只回了一个「嗯」
+    a.observe(chat('c2', '1', '嗯'), false, 15_000);
+    const t = a.next(15_100);
+    expect(t?.kind === 'chat' && t.picks[0].text).toBe('嗯');
+    expect(t?.kind === 'chat' && t.picks[0].tags).toContain('在接你刚才跟他说的话');
+  });
+
+  it('quiet room with one viewer: keeps talking with him while nobody else is waiting', () => {
+    const a = new LiveAttention(0);
+    a.observe(chat('c1', '1', '你喜欢什么颜色'), false, 0);
+    a.next(100);
+    a.observe(chat('c2', '1', '我喜欢蓝色的鲸鱼'), false, 20_000);
+    // 没别人排队：不因为「刚回过他」打折
+    const t = a.next(60_000);
+    expect(t?.kind === 'chat' && t.picks[0].text).toBe('我喜欢蓝色的鲸鱼');
+  });
+
+  it('hands her every pending line from the same viewer, not only the ones close together', () => {
+    const a = new LiveAttention(0);
+    // 她在说话的这段时间里，他隔着十几秒发了两句
+    a.observe(chat('c1', '1', '你喜欢猫吗'), false, 0);
+    a.observe(chat('c2', '1', '我家也有一只橘猫'), false, 15_000);
+    const t = a.next(16_000);
+    expect(t?.kind === 'chat' && t.picks[0].text).toBe('你喜欢猫吗 我家也有一只橘猫');
+    expect(a.next(17_000)).toBeNull();
+  });
+
   it('lets stale chat go instead of answering it a minute late in a busy room', () => {
     const a = new LiveAttention(0);
     // 一直保持每分钟 60 条的热度

@@ -35,9 +35,10 @@ export const TUNING = {
   chatThreshold: { quiet: 0.1, normal: 0.35, busy: 0.6 } as Record<RoomHeat, number>,
   /** 一次最多接几位观众 */
   chatPicks: { quiet: 1, normal: 2, busy: 3 } as Record<RoomHeat, number>,
-  /** 同一个人的连发合并的时间窗 */
-  burstMs: 10_000,
-  /** 刚回过的人，再回他要降分 */
+  /**
+   * 刚回过的人：这么久之内他再说话，算在接她刚才的话。
+   * 有别人在排队时他的分数打折（别老回同一个人）；只有他在说话时不打折——冷清的直播间常常就一个人在聊
+   */
   answeredCooldownMs: 120_000,
   trend: { windowMs: 20_000, minUsers: { quiet: 3, normal: 3, busy: 5 } as Record<RoomHeat, number>, cooldownMs: 120_000 },
   /** 达到这个金额的礼物单独点名感谢（元） */
@@ -297,9 +298,11 @@ export class LiveAttention {
 
     if (event.emoteOnly || clean.riskFlags.length || !clean.text) return;
 
-    // 内容分：有没有话可接
+    // 内容分：有没有话可接。她刚回过他、他又说话：是在接她的话，「嗯」「是的」「哈哈」也是回应，不算没内容
     const tags: string[] = [];
-    let base = features.lowContent ? 0.15 : 0.5;
+    const replying = memory.answeredAt !== undefined && now - memory.answeredAt < TUNING.answeredCooldownMs;
+    let base = features.lowContent ? (replying ? 0.4 : 0.15) : 0.5;
+    if (replying) tags.push('在接你刚才跟他说的话');
     if (features.question) { base += 0.5; tags.push('问题'); }
     if (features.mentionsHer) { base += 0.7; tags.push('点名'); }
     else if (features.addressesHer) { base += 0.15; }
@@ -324,8 +327,10 @@ export class LiveAttention {
   private chatScore(c: ChatCandidate, heat: RoomHeat, now: number): number {
     const ageSec = Math.max(0, now - c.at) / 1000;
     let score = c.base * Math.exp(-ageSec / TUNING.chatTauSec[heat]);
+    // 刚回过的人打折，只在有别人等着的时候：让一让别人；没别人就照常接他的话
     const answeredAt = this.users.get(c.uid)?.answeredAt;
-    if (answeredAt !== undefined && now - answeredAt < TUNING.answeredCooldownMs) score *= 0.4;
+    const othersWaiting = this.chats.some((o) => o.uid !== c.uid);
+    if (othersWaiting && answeredAt !== undefined && now - answeredAt < TUNING.answeredCooldownMs) score *= 0.4;
     return score;
   }
 
@@ -346,10 +351,10 @@ export class LiveAttention {
           if (picks.length >= TUNING.chatPicks[heat]) break;
           if (taken.has(c.uid)) continue;
           taken.add(c.uid);
-          // 同一个人前后脚连发的几条合成一句
-          const burst = this.chats.filter((o) => o.uid === c.uid && Math.abs(o.at - c.at) <= TUNING.burstMs);
-          const text = burst.sort((a, b) => a.at - b.at).map((o) => o.text).join(' ');
-          picks.push({ event: c.event, text, tags: [...new Set(burst.flatMap((o) => o.tags))], score });
+          // 这个人还没回的话全部按顺序合成一句交给她（她说话的十几秒里他可能又发了好几条，一条都不能丢）
+          const mine = this.chats.filter((o) => o.uid === c.uid).sort((a, b) => a.at - b.at);
+          const text = mine.map((o) => o.text).join(' ');
+          picks.push({ event: c.event, text, tags: [...new Set(mine.flatMap((o) => o.tags))], score });
         }
         for (const uid of taken) {
           this.remember(uid, now).answeredAt = now;
