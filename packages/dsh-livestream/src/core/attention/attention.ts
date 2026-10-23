@@ -197,6 +197,11 @@ export class LiveAttention {
     this.lastSpeechEndAt = now;
   }
 
+  /** 她多久没说话了（正在说为 0） */
+  silentMs(now: number): number {
+    return this.speaking ? 0 : now - this.lastSpeechEndAt;
+  }
+
   // ── 输出 ─────────────────────────────────────────────
 
   heat(now: number): RoomHeat {

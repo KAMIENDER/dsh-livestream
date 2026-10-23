@@ -43,7 +43,21 @@ export type TopicBody =
   /** 主人（搭档）开口跟她说话：interrupted 是她被打断时正在说的那句 */
   | { kind: 'owner'; text: string; interrupted?: string; who?: string }
   /** 她在舞台上放的视频放完了（error：没放出来）；playedSec 是放了多久 */
-  | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number };
+  | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number }
+  /**
+   * 边看边聊：她放的视频 from–to 秒这段里说了什么、原视频的弹幕在刷什么（没别的事要回时才有）。
+   * source：字幕从哪来（human UP 主做的、ai B 站官方 AI、asr Whisper 听写；null 没有）
+   */
+  | {
+    kind: 'watching';
+    title: string;
+    fromSec: number;
+    toSec: number;
+    lines: Array<{ from: number; text: string }>;
+    source: 'human' | 'ai' | 'asr' | null;
+    engine?: string;
+    danmaku: string[];
+  };
 
 export type Topic = TopicBody & {
   id: string;

@@ -10,6 +10,7 @@
  * B 站的分区认不出时政（外交部的剪辑在「娱乐粉丝创作」里），这里不判断，标签照给。
  */
 
+import { inflateRawSync } from 'node:zlib';
 import { createBiliSession, signWbi, type BiliSession } from '../core/platforms/bilibili/biliApi';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -78,6 +79,12 @@ export interface Subtitles {
   engine?: string;
 }
 
+/** 视频里的一条弹幕：at 是视频里的秒数 */
+export interface VideoDanmaku {
+  at: number;
+  text: string;
+}
+
 export interface VideoRef {
   bvid?: string;
   aid?: number;
@@ -103,6 +110,10 @@ function clean(value: unknown, max = 400): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);
+}
+
+function unescapeXml(text: string): string {
+  return text.replace(/&(amp|lt|gt|quot|apos|#(\d+));/g, (_, e: string, code?: string) => (code ? String.fromCharCode(Number(code)) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[e] ?? ''));
 }
 
 /** 「3:24」「1:02:03」→ 秒 */
@@ -273,6 +284,31 @@ export class BiliVideos {
       bvid, cid, qn: 64, fnval: 1, platform: 'html5', high_quality: 1,
     }));
     return body?.code === 0 ? body.data?.durl?.[0]?.url ?? null : null;
+  }
+
+  /** 视频的弹幕（以前看过的人发的；B 站给的是抽样，热门视频几百到几千条），按视频里的时间排好 */
+  async danmaku(cid: number): Promise<VideoDanmaku[]> {
+    try {
+      const res = await fetch(`https://api.bilibili.com/x/v1/dm/list.so?oid=${cid}`, {
+        headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/', Cookie: (await this.auth()).cookie },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) return [];
+      const buf = Buffer.from(await res.arrayBuffer());
+      let xml: string;
+      try {
+        xml = inflateRawSync(buf).toString('utf8');
+      } catch {
+        xml = buf.toString('utf8');
+      }
+      return [...xml.matchAll(/<d p="([\d.]+),[^"]*">([^<]*)<\/d>/g)]
+        .map((m) => ({ at: Number(m[1]), text: clean(unescapeXml(m[2]), 40) }))
+        // 只有标点、空格的不要
+        .filter((d) => /[\p{L}\p{N}]/u.test(d.text))
+        .sort((a, b) => a.at - b.at);
+    } catch {
+      return [];
+    }
   }
 
   /** 只有声音的地址（DASH 里码率最低的那条，听写够用、读得快）和读它要带的请求头 */

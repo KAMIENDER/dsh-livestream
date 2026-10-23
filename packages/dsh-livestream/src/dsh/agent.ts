@@ -13,6 +13,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import { randomUUID } from 'node:crypto';
 import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
 import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoInfo, type VideoPart } from '../body/biliVideo';
+import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
 import { asr, cookie, currentMoods, dm, hooks, settings, show, videos } from './runtime';
@@ -295,9 +296,16 @@ export function apply(ctx: AgentContext): void {
       const url = await videos.playUrl(info.bvid, part.cid);
       if (!url) return `B 站没给「${info.title}」的播放地址（可能是付费、番剧、充电专属或者有地区限制），放不了。`;
       show.toolCall('play_video', `「${info.title.slice(0, 16)}」`);
-      const { replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until });
+      // 边看边聊：后台拿这段的字幕（没有就边放边听写）和原视频弹幕
+      const notes = new VideoNotes(from, until, {
+        subtitles: () => videos.subtitles(info.bvid, part.cid),
+        listen: (at) => listen(info, part, at),
+        danmaku: () => videos.danmaku(part.cid),
+      }, (message) => hooks.log('warn', message));
+      const { replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until }, notes);
       const lines = [
         `舞台上开始放「${info.title}」（UP ${info.up.name}），${clock(from)}–${clock(until)}，共 ${clock(until - from)}。舞台换成了看视频的布局。`,
+        '放的时候弹幕照常发给你；没弹幕的时候，隔一会儿会告诉你视频这段在说什么、原视频的弹幕在刷什么。',
         '放完了会告诉你；想停用 stop_video，想换直接 play_video 别的。',
       ];
       if (replaced) lines.push(`（换掉了正在放的「${replaced.title}」）`);
@@ -313,7 +321,7 @@ export function apply(ctx: AgentContext): void {
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute() {
       show.toolCall('stop_video', '');
-      const stopped = show.player.stop();
+      const stopped = show.stopVideo();
       if (!stopped) return '现在没在放视频。';
       return `停了「${stopped.video.title}」（放了 ${clock(stopped.playedSec)}），舞台换回了聊天的布局。`;
     },

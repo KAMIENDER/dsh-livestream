@@ -21,6 +21,8 @@ export interface PlayRequest {
 export interface Playing extends PlayRequest {
   id: string;
   startedAt: number;
+  /** 舞台回执开始放时：那时放到第几秒、是什么时候（算现在放到哪） */
+  anchor?: { sec: number; at: number };
 }
 
 export type PlayEnd = 'ended' | 'error';
@@ -66,6 +68,7 @@ export class Player {
     if (!video || video.id !== id) return;
     if (state === 'playing') {
       const at = Number.isFinite(positionSec) ? positionSec! : video.fromSec;
+      video.anchor = { sec: at, at: Date.now() };
       this.arm(Math.max(0, video.untilSec - at) * 1000 + GRACE_MS, 'ended');
       return;
     }
@@ -83,6 +86,14 @@ export class Player {
     const playedSec = how === 'ended' ? video.untilSec - video.fromSec : this.played(video);
     this.clear();
     this.onEnd(video, how, playedSec);
+  }
+
+  /** 正在放的视频现在放到第几秒（舞台还没回执开始放就按开始放的时间算） */
+  position(now = Date.now()): number | null {
+    const video = this.playing;
+    if (!video) return null;
+    const { sec, at } = video.anchor ?? { sec: video.fromSec, at: video.startedAt };
+    return Math.min(video.untilSec, sec + Math.max(0, now - at) / 1000);
   }
 
   private played(video: Playing): number {

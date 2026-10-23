@@ -25,6 +25,7 @@ import { topicText } from '../core/topicText';
 import { lookupViewer, type ViewerLookup } from '../core/viewerLookup';
 import type { BrainState, StageLiveEvent, StageUser } from '../stage/protocol';
 import { Player, type PlayRequest } from './player';
+import type { VideoNotes } from './watchAlong';
 import { Stage } from './stage';
 
 export interface ShowHooks {
@@ -74,6 +75,12 @@ const TURN_MAX_MS = 3 * 60_000;
 /** 推道别以后最多等多久就收工 */
 const ENDING_GRACE_MS = 90_000;
 const RECENT_LINES = 40;
+/** 边看边聊：放视频时她安静了这么久（离上次「视频这会儿」也这么久），就告诉她视频这段在说什么 */
+const WATCH_GAP_MS = 20_000;
+/** 一次最多告诉她多长一段 */
+const WATCH_WINDOW_SEC = 45;
+/** 视频里不到这么多秒的一段不值得说 */
+const WATCH_MIN_SEC = 8;
 /** 控制台「模拟观众」的用户 id 前缀 */
 export const SIMULATED_PREFIX = 'sim-';
 
@@ -83,6 +90,7 @@ export class LiveShow {
   /** 舞台上放视频（她用 play_video）：放完了告诉她 */
   readonly player = new Player(this.stage, (video, how, playedSec) => {
     this.record({ type: 'video', bvid: video.bvid, title: video.title, how, playedSec: Math.round(playedSec) });
+    this.endWatch();
     if (this.onAir && !this.ending) this.priority.push({ kind: 'video', title: video.title, how, playedSec });
   });
   private attention: LiveAttention;
@@ -98,6 +106,8 @@ export class LiveShow {
   private pushing = false;
   /** 道别已经推给她了：这一轮结束、话念完就收工 */
   private endingPushed = false;
+  /** 边看边聊：正在放的视频里有什么、上次告诉她看到了哪一秒、什么时候告诉的 */
+  private watch: { id: string; notes: VideoNotes; seenSec: number; toldAt: number } | null = null;
   private director: NodeJS.Timeout | null = null;
   private seq = 0;
   /** 排在弹幕前面的事：主人的话、开场、谢幕 */
@@ -222,7 +232,7 @@ export class LiveShow {
     if (this.endingTimer) clearTimeout(this.endingTimer);
     this.endingTimer = null;
     if (!this.onAir) return;
-    this.player.stop();
+    this.stopVideo();
     this.onAir = false;
     this.ending = false;
     this.endingPushed = false;
@@ -310,12 +320,36 @@ export class LiveShow {
     const body = this.priority.shift();
     if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
     const topic = this.attention.next(now);
-    // 在放视频：大家在看，不用她找话说（没人说话的时间从现在重新算）
-    if (topic?.kind === 'idle' && this.player.current) {
-      this.attention.speechEnded(now);
-      return null;
-    }
+    // 弹幕、礼物这些照常先回；没别的事、又在放视频时，才告诉她视频这段在说什么（不用她找话说）
+    if (this.player.current && (!topic || topic.kind === 'idle')) return this.watching(now);
     return topic;
+  }
+
+  /** 边看边聊：她安静一会儿了，视频又往下放了一段，这段有人说话或者原视频有弹幕，就告诉她 */
+  private watching(now: number): Topic | null {
+    const video = this.player.current;
+    const watch = this.watch;
+    const at = this.player.position(now);
+    if (!video || !watch || watch.id !== video.id || at === null) return null;
+    if (this.attention.silentMs(now) < WATCH_GAP_MS || now - watch.toldAt < WATCH_GAP_MS) return null;
+    const from = Math.max(watch.seenSec, at - WATCH_WINDOW_SEC);
+    if (at - from < WATCH_MIN_SEC) return null;
+    const moment = watch.notes.between(from, at);
+    watch.seenSec = at;
+    watch.toldAt = now;
+    if (!moment.lines.length && !moment.danmaku.length) return null;
+    return {
+      kind: 'watching', title: video.title, fromSec: from, toSec: at,
+      lines: moment.lines.map((l) => ({ from: l.from, text: l.text })),
+      source: moment.kind, ...(moment.engine ? { engine: moment.engine } : {}),
+      danmaku: moment.danmaku.map((d) => d.text),
+      id: `w-${now}`, priority: 1, heat: this.attention.heat(now), createdAt: now,
+    };
+  }
+
+  private endWatch(): void {
+    this.watch?.notes.stop();
+    this.watch = null;
   }
 
   /** 念她写的话：合成语音、交给舞台、等念完 */
@@ -386,10 +420,18 @@ export class LiveShow {
     if (this.memoryStream && this.memory.store.getViewer('bilibili', uid)) this.memory.store.setAppraisal('bilibili', uid, { summary, at: Date.now() });
   }
 
-  /** 在舞台上放一个视频（换掉正在放的）；记进这场的记录 */
-  playVideo(request: PlayRequest) {
+  /** 停下正在放的视频（她让停的、下播），不再听写后面的 */
+  stopVideo() {
+    this.endWatch();
+    return this.player.stop();
+  }
+
+  /** 在舞台上放一个视频（换掉正在放的）；记进这场的记录。notes：这段视频里有什么（边看边聊用） */
+  playVideo(request: PlayRequest, notes?: VideoNotes) {
     const replaced = this.player.current;
+    this.endWatch();
     const video = this.player.play(request);
+    if (notes) this.watch = { id: video.id, notes, seenSec: request.fromSec, toldAt: Date.now() };
     this.record({ type: 'play', bvid: request.bvid, title: request.title, from: request.fromSec, until: request.untilSec });
     return { video, replaced };
   }
@@ -467,7 +509,7 @@ export function estimateSpeechMs(text: string): number {
 const KIND_LABEL: Record<Topic['kind'], string> = {
   chat: '在看弹幕', superchat: '在看醒目留言', thanks: '在谢礼物', gifts: '在谢礼物', trend: '在看大家刷屏',
   welcome: '在欢迎新观众', follow: '在谢关注', idle: '在找话说', opening: '在准备开场', ending: '在准备道别', owner: '在听主人说话',
-  video: '视频放完了',
+  video: '视频放完了', watching: '在看视频',
 };
 
 function topicLabel(topic: Topic): string {

@@ -134,9 +134,39 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return topic.how === 'ended'
         ? { what: [`你放的视频「${cleanText(topic.title)}」放完了（放了 ${minutes(topic.playedSec)}），舞台换回了聊天的样子。`], how: '可以说说看完的感想、问问大家觉得怎么样，或者接着聊弹幕。', maxChars: 60 }
         : { what: [`你要放的视频「${cleanText(topic.title)}」没放出来（舞台加载不了 B 站的视频地址）。`], how: '跟大家说一声，可以换一个或者接着聊。', maxChars: 40 };
+    case 'watching': {
+      const span = `${clock(topic.fromSec)}–${clock(topic.toSec)}`;
+      const said = topic.lines.length
+        ? [
+          `${span} 这段视频里说的（${SOURCE_TEXT[topic.source ?? 'none'](topic.engine)}）：`,
+          '<视频里说的>', ...topic.lines.map((l) => `[${clock(l.from)}] ${cleanText(l.text)}`), '</视频里说的>',
+        ]
+        : [`${span} 这段视频里${topic.source ? '没人说话（或者没听出来）' : '说了什么还不知道（没有字幕，也还没听写出来）'}。`];
+      const comments = topic.danmaku.length
+        ? ['原视频这段的弹幕（以前看过这个视频的人发的）：', '<原视频弹幕>', ...topic.danmaku.map((d) => `- ${cleanText(d)}`), '</原视频弹幕>']
+        : [];
+      return {
+        what: [`你在舞台上放的「${cleanText(topic.title)}」正放到 ${clock(topic.toSec)}，直播间的人跟你一起在看。`, ...said, ...comments],
+        how: '像跟大家一起看视频那样接一句：吐槽、接梗、跟着原视频的弹幕起哄都行。',
+        maxChars: 40,
+      };
+    }
     case 'idle':
-      return { what: ['直播间这会儿没人发弹幕。'], how: '自己找点话说：讲一件你作为 AI 的真实小事，或者问观众一个具体、好回答的问题。', maxChars: 70 };
+      return { what: ['直播间这会儿没人发弹幕。'], how: '自己找点话说：讲一件你作为 AI 的真实小事，问观众一个具体、好回答的问题，或者找个 B 站视频放给大家一起看。', maxChars: 70 };
   }
+}
+
+/** 视频里的话是从哪来的 */
+const SOURCE_TEXT: Record<'human' | 'ai' | 'asr' | 'none', (engine?: string) => string> = {
+  human: () => '视频的字幕',
+  ai: () => 'B 站官方 AI 识别的字幕，可能有错字',
+  asr: (engine) => `主人给你装的 Whisper${engine ? `（${engine}）` : ''}听写的，不是 B 站官方字幕，听错、写错的地方不少`,
+  none: () => '没有字幕',
+};
+
+function clock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function minutes(sec: number): string {
