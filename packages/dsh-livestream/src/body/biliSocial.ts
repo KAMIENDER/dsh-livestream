@@ -180,7 +180,8 @@ export class BiliSocial {
     const data = await this.get<{ session_list?: any[] | null }>(
       'https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&group_fold=0&unfollow_fold=0&sort_rule=2&build=0&mobi_app=web',
       'https://message.bilibili.com/');
-    return (data.session_list ?? []).filter((x) => x.talker_id && Number(x.session_type ?? 1) === 1).map((x) => ({
+    // system_msg_type 不是 0 的是 B 站的系统号（登录通知、收益到账……），不是人发的私信
+    return (data.session_list ?? []).filter((x) => x.talker_id && Number(x.session_type ?? 1) === 1 && !Number(x.system_msg_type)).map((x) => ({
       uid: String(x.talker_id),
       unread: Number(x.unread_count) || 0,
       ...(x.last_msg ? { last: { fromMe: String(x.last_msg.sender_uid) === me, text: dmText(x.last_msg.msg_type, x.last_msg.content), at: (Number(x.last_msg.timestamp) || 0) * 1000 } } : {}),
