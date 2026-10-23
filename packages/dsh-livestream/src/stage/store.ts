@@ -133,6 +133,8 @@ export interface StageState {
   needsClick: boolean;
   /** 在放视频：舞台换成 video 布局 */
   media: Media | null;
+  /** 告示板上写的（空串不显示） */
+  board: string;
 }
 
 const MAX_CHATS = 30;
@@ -158,6 +160,8 @@ let helloAt = 0;
 /** 这个页面加载时舞台服务器的版本 */
 let pageBuild: string | undefined;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+/** 上次下播的时刻：再开播时，那之前的弹幕、提醒是上一场的，清掉（舞台页在两场之间不刷新） */
+let offAirAt = 0;
 let termSeq = 0;
 
 function freshStats(): ShowStats {
@@ -169,7 +173,7 @@ function freshStats(): ShowStats {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, fx: [], reaction: null,
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -302,10 +306,12 @@ function onAirChanged(onAir: boolean): void {
   if (onAir === s.onAir && !(onAir && s.phase === 'waiting')) return;
   const catchingUp = Date.now() - helloAt < CATCHUP_MS;
   if (onAir) {
-    update((x) => term({ ...x, onAir: true, stats: freshStats(), tokens: 0 }, 'live', catchingUp ? '舞台连上，正在直播' : '开播'));
+    const fresh = <T extends { at: number }>(list: T[]) => list.filter((item) => item.at > offAirAt);
+    update((x) => term({ ...x, onAir: true, stats: freshStats(), tokens: 0, chats: fresh(x.chats), alerts: fresh(x.alerts) }, 'live', catchingUp ? '舞台连上，正在直播' : '开播'));
     if (catchingUp) setPhase('live');
     else setPhase('opening', { ms: OPENING_MS, next: 'live' });
   } else {
+    offAirAt = Date.now();
     update((x) => term({ ...x, onAir: false }, 'live', '下播'));
     if (catchingUp || s.phase === 'waiting') setPhase('waiting');
     else setPhase('ending', { ms: ENDING_MS, next: 'waiting' });
@@ -448,6 +454,8 @@ function handle(event: StageEvent): void {
       }
       return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
+    case 'board': return update((s) => ({ ...s, board: event.text }));
+    case 'note': return update((s) => term(s, event.tag, event.text));
   }
 }
 

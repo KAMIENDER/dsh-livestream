@@ -45,6 +45,8 @@ export interface ShowOptions {
   names: string[];
   /** 没话题时多久开始自己找话说 */
   idleAfterMs?: number;
+  /** 告示板上写的（开场时告诉她，观众看得到什么） */
+  board?: () => string;
 }
 
 /** 她说过的一句话（控制台显示、下播提炼用） */
@@ -283,6 +285,7 @@ export class LiveShow {
       viewerCard: (u: LiveUser) => this.memory.viewerCard(u, now),
       lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
       today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
+      board: topic.kind === 'opening' ? this.options.board?.() : undefined,
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
@@ -444,6 +447,11 @@ export class LiveShow {
     if (!this.onAir) return;
     this.brain = 'thinking';
     this.stage.broadcast({ type: 'tool', name, detail, doing });
+  }
+
+  /** 终端里记一行身体自己在做的事（后台听写视频之类）：不是她调的工具，不改她的状态 */
+  note(tag: string, text: string): void {
+    if (this.onAir) this.stage.broadcast({ type: 'note', tag, text });
   }
 
   get isOnAir(): boolean {

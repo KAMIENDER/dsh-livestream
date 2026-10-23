@@ -61,7 +61,13 @@ export class Whisper {
   /**
    * fromSec 所在那一段的字幕（从段开头起）。audio 取音频地址（要的时候才取：听过的段不用）
    */
-  async chunk(key: { bvid: string; cid: number; durationSec: number }, fromSec: number, audio: () => Promise<{ url: string; headers: string } | null>): Promise<Transcript | null> {
+  async chunk(
+    key: { bvid: string; cid: number; durationSec: number },
+    fromSec: number,
+    audio: () => Promise<{ url: string; headers: string } | null>,
+    /** 真的要听（没听过）时：开始和听完各说一声（舞台终端里显示） */
+    notify?: (text: string) => void,
+  ): Promise<Transcript | null> {
     const start = Math.floor(Math.max(0, fromSec) / CHUNK_SEC) * CHUNK_SEC;
     const end = key.durationSec ? Math.min(key.durationSec, start + CHUNK_SEC) : start + CHUNK_SEC;
     if (key.durationSec && start >= key.durationSec) return null;
@@ -79,11 +85,13 @@ export class Whisper {
       const source = await audio();
       if (!source) throw new Error('B 站没给音频地址');
       const t0 = Date.now();
+      notify?.(`${clockOf(start)}–${clockOf(end)} 开始听…`);
       const { lang, lines } = await this.request({ url: source.url, headers: source.headers, from: start, to: end });
       const transcript: Transcript = { lang, lines, until: end };
       mkdirSync(join(this.options.dataDir, 'transcripts'), { recursive: true });
       writeFileSync(file, JSON.stringify(transcript));
       this.options.log('info', `语音识别 ${key.bvid} ${start}–${end} 秒：${lines.length} 句，${lang || '没听到说话'}，用了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
+      notify?.(`${clockOf(start)}–${clockOf(end)} 听完 · ${lines.length} 句 · ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
       return transcript;
     })();
     this.inflight.set(id, job);
@@ -206,4 +214,9 @@ export class Whisper {
     this.idle = null;
     this.child?.kill();
   }
+}
+
+function clockOf(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

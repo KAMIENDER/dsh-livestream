@@ -55,7 +55,22 @@ export interface Settings {
   asrPython: string;
   /** whisper 模型：large-v3-turbo（有显卡）、small（只有 CPU）…… */
   asrModel: string;
+  /** 告示板：主人想让观众知道的。空行分页，每页第一行是标题；空串不显示告示板 */
+  boardText: string;
 }
+
+/** 告示板默认写的：观众怎么跟她玩 */
+export const DEFAULT_BOARD = [
+  '想看什么，跟大肥鱼说',
+  '说个大概就行：「想看猫猫」「老番茄新视频」',
+  '她自己去 B 站搜，挑一个放出来一起看',
+  '找错了告诉她，她会换个法子再找',
+  '',
+  '还可以这样玩',
+  '「看看我的主页」：她去你的 B 站主页逛逛',
+  '常来的观众，她会记住你',
+  '她看不到画面，视频里说了什么靠字幕和听写',
+].join('\n');
 
 /** 机密的名字（DSH 凭据）。豆包的和 dsh-game 共用 */
 export const SECRETS = {
@@ -107,6 +122,7 @@ function loadSettings(): Settings {
     liveCover: '',
     asrPython: '',
     asrModel: 'large-v3-turbo',
+    boardText: DEFAULT_BOARD,
     ...saved,
   };
   if (!settings.stageToken) {
@@ -184,8 +200,14 @@ export const show = new LiveShow(
     distill,
     log: (level, message) => hooks.log(level, message),
   },
-  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000 },
+  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000, board: () => settings.boardText },
 );
+
+/** 告示板换了：舞台马上换（之后连上的舞台页也拿到最新的） */
+export function publishBoard(): void {
+  show.stage.broadcast({ type: 'board', text: settings.boardText });
+}
+publishBoard();
 
 async function speech(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null> {
   const voice = currentVoice();

@@ -462,6 +462,38 @@ export function Chat({ options }: { options?: Record<string, unknown> }) {
   );
 }
 
+// ── 告示板 ───────────────────────────────────────────
+
+/**
+ * 主人想让观众知道的（控制台里写）：空行分页，每页第一行是标题、后面一行一条。几页轮着放。
+ * options：title（面板头上的字，默认「告示板」，false 不要）、seconds（每页停几秒，默认 12）
+ */
+export function Board({ options }: { options?: Record<string, unknown> }) {
+  const { board } = useStage();
+  const pages = useMemo(() => board.split(/\n\s*\n/).map((p) => p.split('\n').map((l) => l.trim()).filter(Boolean)).filter((p) => p.length), [board]);
+  const [page, setPage] = useState(0);
+  const seconds = Number(options?.seconds ?? 12);
+  useEffect(() => {
+    setPage(0);
+    if (pages.length < 2) return;
+    const timer = setInterval(() => setPage((p) => (p + 1) % pages.length), seconds * 1000);
+    return () => clearInterval(timer);
+  }, [pages, seconds]);
+  if (!pages.length) return null;
+  const [heading, ...items] = pages[page % pages.length];
+  const title = options?.title === undefined ? '告示板' : options.title;
+  return (
+    <div className="ls-board">
+      {title !== false && <div className="ls-board-head"><span>{String(title)}</span></div>}
+      <div className="ls-board-page" key={`${page}-${board.length}`}>
+        <div className="ls-board-title">{heading}</div>
+        <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      </div>
+      {pages.length > 1 && <div className="ls-board-dots">{pages.map((_, i) => <i key={i} className={i === page % pages.length ? 'ls-on' : ''} />)}</div>}
+    </div>
+  );
+}
+
 // ── 她在回 ───────────────────────────────────────────
 
 /** 一件事用一句话说（「她在回」卡片里） */
@@ -675,7 +707,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
 
 // ── 终端 ─────────────────────────────────────────────
 
-const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: 'token', gift: '礼物', sc: '留言', warn: '注意' };
+const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: 'token', gift: '礼物', sc: '留言', warn: '注意', listen: '听写' };
 
 function clock(at: number): string {
   const d = new Date(at);

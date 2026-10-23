@@ -271,6 +271,43 @@ html, body {
 .ls-quote span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dfe6ff; }
 @keyframes ls-quote-in { from { opacity: 0; transform: translateY(-6px); } }
 
+/* ── 告示板：和弹幕栏一样的面板，一页一个标题加几条，几页轮着换 ── */
+.ls-board {
+  position: relative; height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+  background: var(--ls-panel); border: 3px solid var(--ls-panel-border); border-radius: 32px;
+  backdrop-filter: blur(var(--ls-blur)) saturate(140%); box-shadow: var(--ls-shadow);
+  overflow: hidden;
+}
+.ls-board-head {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 24px 4px;
+  font-family: var(--ls-font-cute); font-size: 24px; letter-spacing: 2px; color: var(--ls-accent-2);
+}
+/* 小图钉 */
+.ls-board-head::before {
+  content: ''; width: 18px; height: 18px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff 0 18%, var(--ls-accent-2) 22%);
+  box-shadow: 0 3px 8px -2px color-mix(in srgb, var(--ls-accent-2) 70%, transparent);
+}
+.ls-board-head::after { content: ''; flex: 1; height: 3px; border-radius: 3px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ls-accent-2) 30%, transparent) 0 8px, transparent 8px 16px); }
+.ls-board-page { flex: 1; min-height: 0; padding: 6px 26px 18px; animation: ls-board-in .6s cubic-bezier(.22, .9, .25, 1); }
+@keyframes ls-board-in { from { opacity: 0; transform: translateY(10px); } }
+.ls-board-title {
+  font-family: var(--ls-font-cute); font-size: 32px; line-height: 1.3; color: var(--ls-accent);
+  margin-bottom: 8px;
+}
+.ls-board-page ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ls-board-page li {
+  position: relative; padding-left: 22px;
+  font-size: 26px; font-weight: 600; line-height: 1.35; color: var(--ls-text);
+}
+.ls-board-page li::before {
+  content: ''; position: absolute; left: 2px; top: .55em; width: 10px; height: 10px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--ls-accent), var(--ls-accent-2));
+}
+.ls-board-dots { position: absolute; right: 22px; bottom: 14px; display: flex; gap: 6px; }
+.ls-board-dots i { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--ls-accent) 25%, transparent); transition: background .3s, width .3s; }
+.ls-board-dots i.ls-on { width: 20px; border-radius: 4px; background: var(--ls-accent); }
+
 /* ── 弹幕：一整块面板，里面是聊天气泡 ── */
 .ls-chat {
   height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
@@ -609,6 +646,8 @@ html, body {
 .ls-tag-token span { color: #ffe9b8; }
 .ls-tag-gift b, .ls-tag-sc b { color: #7fe0b8; }
 .ls-tag-live b { color: #ff8a9a; }
+.ls-tag-listen b { color: #c9b6ff; }
+.ls-tag-listen span { color: #e4dcff; }
 .ls-tag-warn b, .ls-tag-warn span { color: #ff8a9a; }
 .ls-term-prompt { display: flex; align-items: center; gap: 10px; color: #8f9ac4; }
 .ls-term-prompt b { color: #5fd6a4; }

@@ -87,11 +87,12 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
   asr: { available: boolean };
+  defaultBoard: string;
 }
 
 async function api<T = HostState>(path: string, body?: unknown): Promise<T> {
@@ -483,6 +484,8 @@ export function Console() {
               </div>
               <p className="dl-hint">开播时：没有直播间会自动开通；B 站要人脸认证时这里弹出二维码，用 B 站 App 扫一下；推流码自动填进 OBS（专用配置「dsh-livestream」，1080p30、NVENC、CBR，RTMP 网络堵时自动降码率），不用手动配 OBS。推流时上面会显示码率和丢帧，丢帧多就换 SRT 或调低码率。</p>
             </div>
+            <h3>告示板</h3>
+            <BoardField value={settings?.boardText ?? ''} fallback={host?.defaultBoard ?? ''} onSave={(boardText) => choose({ boardText })} />
             <h3>看视频</h3>
             <div className="dl-field">
               <label>语音识别用的 Python {host?.asr.available ? <span className="dl-tag dl-ok-tag">能用</span> : <span className="dl-tag">没配好</span>}</label>
@@ -536,6 +539,22 @@ function BroadcastPill({ bc }: { bc: BroadcastStatus }) {
     <span className="dl-pill" title={bc.step}>
       <Dot tone={tone} />B 站 · {bc.phase === 'streaming' && h ? `${h.kbps} kbps · 丢帧 ${dropped ?? 0}% · ${h.timecode.slice(0, 8)}` : bc.step || PHASE_TEXT[bc.phase]}
     </span>
+  );
+}
+
+/** 告示板：主人想让观众知道的。改完离开输入框就换到舞台上 */
+function BoardField({ value, fallback, onSave }: { value: string; fallback: string; onSave: (text: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <div className="dl-field">
+      <label>直播画面上的告示板（空行分页，每页第一行是标题；清空就不显示）</label>
+      <textarea value={text} rows={10} onChange={(e) => setText(e.target.value)} onBlur={() => text !== value && onSave(text)} />
+      <div className="dl-row">
+        <button disabled={text === fallback} onClick={() => { setText(fallback); onSave(fallback); }}>恢复默认</button>
+        <span className="dl-meta">几页轮着放；开播时她也会知道上面写了什么</span>
+      </div>
+    </div>
   );
 }
 
@@ -761,6 +780,8 @@ export const CONSOLE_CSS = `
 
 /* 按钮、输入框 */
 .dl-room input,.dl-room select{flex:1;min-width:0;padding:10px 12px;border-radius:12px;border:1px solid var(--dl-line);background:var(--dl-sunken);color:var(--dl-text);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s}
+.dl-room textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--dl-line);background:var(--dl-sunken);color:var(--dl-text);font:13px/1.6 inherit;outline:none;resize:vertical}
+.dl-room textarea:focus{border-color:rgba(63,163,255,.6);box-shadow:0 0 0 3px rgba(63,163,255,.14)}
 .dl-room input:focus{border-color:rgba(63,163,255,.6);box-shadow:0 0 0 3px rgba(63,163,255,.14)}
 .dl-room input.dl-name{flex:0 0 120px}
 .dl-room button{padding:9px 14px;border-radius:12px;border:1px solid var(--dl-line);background:var(--dl-surface-2);color:var(--dl-text);font-size:13px;cursor:pointer;white-space:nowrap;transition:background .2s,border-color .2s,transform .15s}

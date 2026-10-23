@@ -18,7 +18,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { asr, broadcast, cookie, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { asr, broadcast, cookie, DEFAULT_BOARD, publishBoard, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -49,6 +49,7 @@ function state() {
     characters: packs.list('characters'),
     templates: packs.list('templates'),
     asr: { available: asr.available },
+    defaultBoard: DEFAULT_BOARD,
   };
 }
 
@@ -112,6 +113,7 @@ export function apply(ctx: HostContext): void {
     if (patch.streamKbps !== undefined) next.streamKbps = Math.max(1000, Math.min(12000, Number(patch.streamKbps) || 4500));
     if (patch.asrPython !== undefined) next.asrPython = String(patch.asrPython).trim().replace(/^"|"$/g, '');
     if (patch.asrModel !== undefined) next.asrModel = String(patch.asrModel).trim() || 'large-v3-turbo';
+    if (patch.boardText !== undefined) next.boardText = String(patch.boardText).replace(/\r/g, '').slice(0, 1000);
     const own = (patch as { ownRoom?: boolean }).ownRoom;
     if (own !== undefined && settings.roomId) {
       const rooms = new Set(settings.ownRooms);
@@ -123,6 +125,7 @@ export function apply(ctx: HostContext): void {
     // 换了 Python 或模型：关掉正在跑的识别进程，下次用新的
     if ((next.asrPython !== undefined && next.asrPython !== settings.asrPython) || (next.asrModel !== undefined && next.asrModel !== settings.asrModel)) asr.close();
     updateSettings(next);
+    if (next.boardText !== undefined) publishBoard();
     if (next.character) show.setNames(currentCharacter()?.names ?? []);
     if (repaint) show.stage.broadcast({ type: 'reload' });
     return json(state());

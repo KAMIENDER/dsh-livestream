@@ -102,7 +102,7 @@ export type EffectSpec = string | { name: string; ms?: number; [option: string]:
  * video：放视频的画面（她在放视频时才有，放在 layouts.video 里）
  * effects：整屏特效层：进场、礼物、上舰时放的彩带、横幅……（放在画布 0,0，宽高和画布一样，排在 scene 前面）
  */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects';
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects' | 'board';
 
 export interface WidgetPlacement {
   type: WidgetType;
@@ -146,6 +146,10 @@ export type StageEvent =
   | { v: 1; type: 'brain'; state: BrainState; detail?: string; at: number }
   /** 她调用了一个工具（终端里记一行「调用 工具名 对象」）；doing：提示符上显示她在干什么 */
   | { v: 1; type: 'tool'; name: string; detail: string; doing?: string; at: number }
+  /** 终端里记一行身体自己在做的事（不是她调用的工具，比如后台听写视频）；不改她的状态 */
+  | { v: 1; type: 'note'; tag: string; text: string; at: number }
+  /** 告示板：主人想让观众知道的（空行分页，每页第一行是标题）；空串不显示 */
+  | { v: 1; type: 'board'; text: string; at: number }
   /** isUpdate：同 id 再来一次（礼物连击累加） */
   | { v: 1; type: 'live'; event: StageLiveEvent; isUpdate: boolean; at: number }
   /** 她正在回应这几位观众（弹幕流里高亮） */

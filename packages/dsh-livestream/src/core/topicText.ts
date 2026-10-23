@@ -17,6 +17,8 @@ export interface TopicContext {
   lastRecap?: string[];
   /** 今天的日期（观众卡片里的日期要和它比） */
   today?: string;
+  /** 开场用：直播画面上告示板写的（观众看得到） */
+  board?: string;
 }
 
 const HEAT_TEXT = { quiet: '直播间人不多，弹幕很慢', normal: '弹幕不快不慢', busy: '弹幕刷得很快' } as const;
@@ -108,6 +110,7 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return {
         what: [
           '直播刚刚开始。',
+          ...(ctx.board?.trim() ? ['直播画面上有块告示板，观众看得到，上面写着：', '<告示板>', ctx.board.trim(), '</告示板>'] : []),
           ...(ctx.lastRecap?.length ? [`上一场直播的回顾（可以提一句）：${ctx.lastRecap.join('；')}`] : []),
         ],
         how: '跟大家打个招呼，介绍一下自己，邀请大家发弹幕聊天。',

@@ -119,7 +119,8 @@ async function findVideo(video: unknown, part: unknown): Promise<{ info: VideoIn
 /** 视频没字幕：听 from 所在的那一段（没配语音识别、听失败返回 null，照「没有字幕」说） */
 async function listen(info: VideoInfo, part: VideoPart, from: number): Promise<Subtitles | null> {
   try {
-    const heard = await asr.chunk({ bvid: info.bvid, cid: part.cid, durationSec: part.durationSec }, from, () => videos.audioUrl(info.bvid, part.cid));
+    const heard = await asr.chunk({ bvid: info.bvid, cid: part.cid, durationSec: part.durationSec }, from, () => videos.audioUrl(info.bvid, part.cid),
+      (text) => show.note('listen', `Whisper「${info.title.slice(0, 12)}」${text}`));
     return heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until, engine: settings.asrModel } : null;
   } catch (err) {
     hooks.log('warn', `语音识别失败（${info.bvid}）：${(err as Error).message}`);

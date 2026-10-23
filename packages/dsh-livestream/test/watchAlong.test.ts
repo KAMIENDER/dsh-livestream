@@ -116,3 +116,22 @@ describe('watching text', () => {
     expect(text).toContain('不超过 40 字');
   });
 });
+
+describe('board', () => {
+  it('tells her at the opening what the board says', () => {
+    const text = topicText({ kind: 'opening', id: 'o', priority: 200, heat: 'quiet', createdAt: 0 }, { board: '想看什么，跟大肥鱼说\n说个大概就行' });
+    expect(text).toContain('<告示板>');
+    expect(text).toContain('说个大概就行');
+    expect(topicText({ kind: 'opening', id: 'o', priority: 200, heat: 'quiet', createdAt: 0 }, { board: '  ' })).not.toContain('告示板');
+  });
+
+  it('hands the latest board to a stage page that connects later', async () => {
+    const { Stage } = await import('../src/body/stage');
+    const stage = new Stage();
+    stage.broadcast({ type: 'board', text: '旧的' });
+    stage.broadcast({ type: 'board', text: '新的' });
+    const got: string[] = [];
+    stage.subscribe((e) => { if (e.type === 'board') got.push(e.text); }, false);
+    expect(got).toEqual(['新的']);
+  });
+});
