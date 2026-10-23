@@ -825,11 +825,11 @@ export function Video({ options }: { options?: Record<string, unknown> }) {
     if (!video || !media) return;
     let done = false;
     let started = false;
-    const finish = (state: 'ended' | 'error') => {
+    const finish = (state: 'ended' | 'error', detail?: string) => {
       if (done) return;
       done = true;
       video.pause();
-      reportMedia(media.id, state);
+      reportMedia(media.id, state, undefined, detail);
     };
     const elapsed = (Date.now() - media.at) / 1000;
     const start = media.from + (elapsed > CATCHUP_SEC ? elapsed : 0);
@@ -839,7 +839,7 @@ export function Video({ options }: { options?: Record<string, unknown> }) {
       // 普通浏览器标签页没交互过不让出声：先静音放着（OBS 的浏览器源可以出声）
       void video.play().catch(() => {
         video.muted = true;
-        void video.play().catch(() => finish('error'));
+        void video.play().catch((err: Error) => finish('error', `play() ${err.name}: ${err.message}`));
       });
     };
     const onPlaying = () => {
@@ -849,7 +849,8 @@ export function Video({ options }: { options?: Record<string, unknown> }) {
     };
     const onTime = () => { if (video.currentTime >= media.until) finish('ended'); };
     const onEnded = () => finish('ended');
-    const onError = () => finish('error');
+    // MediaError：1 中止、2 网络、3 解码、4 格式不支持或地址打不开
+    const onError = () => finish('error', `MediaError ${video.error?.code}: ${video.error?.message ?? ''}`);
     video.addEventListener('loadedmetadata', onMeta);
     video.addEventListener('playing', onPlaying);
     video.addEventListener('timeupdate', onTime);

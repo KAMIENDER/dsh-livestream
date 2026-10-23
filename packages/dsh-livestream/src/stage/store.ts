@@ -155,6 +155,8 @@ const CATCHUP_MS = 2000;
 const viewers = new Set<string>();
 const supporters = new Map<string, { name: string; yuan: number }>();
 let helloAt = 0;
+/** 这个页面加载时舞台服务器的版本 */
+let pageBuild: string | undefined;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
 let termSeq = 0;
 
@@ -240,10 +242,11 @@ export function mediaUrl(src: string): string {
 }
 
 /** 视频开始放、放完、放不出来：告诉身体（出声的页面才发） */
-export function reportMedia(id: string, state: 'playing' | 'ended' | 'error', atSec?: number): void {
+export function reportMedia(id: string, state: 'playing' | 'ended' | 'error', atSec?: number, detail?: string): void {
   if (preview) return;
   const at = atSec !== undefined && Number.isFinite(atSec) ? `&at=${atSec.toFixed(1)}` : '';
-  void fetch(`/media?id=${encodeURIComponent(id)}&state=${state}${at}&token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {});
+  const why = detail ? `&detail=${encodeURIComponent(detail.slice(0, 200))}` : '';
+  void fetch(`/media?id=${encodeURIComponent(id)}&state=${state}${at}${why}&token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {});
 }
 
 export function unlockAudio(): void {
@@ -413,6 +416,12 @@ function onBrain(event: Extract<StageEvent, { type: 'brain' }>): void {
 function handle(event: StageEvent): void {
   switch (event.type) {
     case 'hello':
+      // 插件更新过（DSH 重启后重连上来，版本变了）：重新加载页面拿新代码。OBS 的浏览器源不会自己刷新
+      if (event.build && pageBuild && event.build !== pageBuild) {
+        location.reload();
+        return;
+      }
+      pageBuild ??= event.build;
       helloAt = Date.now();
       update((s) => ({ ...s, connected: true, character: event.character, template: event.template }));
       if (demo && !demoStarted) startDemo(event.character.name);

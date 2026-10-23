@@ -155,7 +155,11 @@ export function apply(ctx: AgentContext): void {
   };
   hooks.complete = (model, system, user) => completeWithDsh(ctx, model, system, user);
   hooks.push = (sessionId, text) => push(ctx, sessionId, text);
-  if (ctx.logger) hooks.log = (level, message) => ctx.logger[level]?.(`dsh-livestream: ${message}`);
+  // 警告也打到 stderr：DSH 网页版的日志只在内存里，服务器上看 web.log 才找得到
+  if (ctx.logger) hooks.log = (level, message) => {
+    ctx.logger[level]?.(`dsh-livestream: ${message}`);
+    if (level === 'warn') console.warn(`[dsh-livestream] ${message}`);
+  };
 
   ctx.effect(() => {
     const timer = setInterval(() => void watch(ctx).catch((err) => hooks.log('warn', `盯会话出错：${(err as Error).message}`)), 300);

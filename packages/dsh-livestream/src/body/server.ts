@@ -57,7 +57,13 @@ export interface StageServerOptions {
 export class StageServer {
   private server: Server | null = null;
 
-  constructor(private readonly options: StageServerOptions) {}
+  /** 舞台页代码的版本：lib/stage.js 的修改时间。插件更新、DSH 重启后变，开着的舞台页（OBS）看到就自己刷新 */
+  private readonly build: string;
+
+  constructor(private readonly options: StageServerOptions) {
+    const script = join(options.packageDir, 'lib', 'stage.js');
+    this.build = existsSync(script) ? String(Math.round(statSync(script).mtimeMs)) : '';
+  }
 
   get url(): string {
     return `http://127.0.0.1:${this.options.port}/?token=${this.options.token}`;
@@ -107,6 +113,7 @@ export class StageServer {
     if (req.method === 'POST' && path === '/media') {
       const state = url.searchParams.get('state');
       if (state === 'playing' || state === 'ended' || state === 'error') {
+        if (state === 'error') this.options.log?.('warn', `舞台放视频出错：${(url.searchParams.get('detail') ?? '').slice(0, 200)}`);
         this.options.media?.report(url.searchParams.get('id') ?? '', state, Number(url.searchParams.get('at') ?? NaN));
       }
       res.writeHead(204);
@@ -142,7 +149,7 @@ export class StageServer {
     const { character, template } = this.options.current();
     const c = this.options.packs.character(character);
     const t = this.options.packs.template(template);
-    if (c && t) send({ v: 1, type: 'hello', character: c, template: t, at: Date.now() });
+    if (c && t) send({ v: 1, type: 'hello', character: c, template: t, build: this.build, at: Date.now() });
     // ?preview=1：控制台里的预览，静音、不回执
     const unsubscribe = this.options.stage.subscribe(send, url.searchParams.get('preview') !== '1');
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000);

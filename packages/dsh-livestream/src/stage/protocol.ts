@@ -136,7 +136,8 @@ export type StageLiveEvent =
 export type BrainState = 'off' | 'listening' | 'thinking' | 'speaking' | 'away';
 
 export type StageEvent =
-  | { v: 1; type: 'hello'; character: CharacterManifest; template: TemplateManifest; at: number }
+  /** build：舞台页代码的版本（插件更新后变）；连上时先发 */
+  | { v: 1; type: 'hello'; character: CharacterManifest; template: TemplateManifest; build?: string; at: number }
   /**
    * 她说一句话。timeline：逐字时间（音频里的毫秒 → 亮到第几个字），字幕按实际播放位置走；
    * 没有时（没语音、旧版身体）按 estimateMs 匀速走
