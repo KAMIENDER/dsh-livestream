@@ -13,12 +13,13 @@
  */
 
 import { checkObs, connectObs } from '../body/obs';
+import { pollQrLogin, startQrLogin, whoIs } from '../body/biliLogin';
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { asr, broadcast, cookie, DEFAULT_BOARD, publishBoard, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { asr, broadcast, cookie, DEFAULT_BOARD, hooks, publishBoard, SECRETS, social, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -147,6 +148,7 @@ export function apply(ctx: HostContext): void {
     if (!sessionId) return fail('缺她直播用的会话');
     show.goLive(sessionId);
     dm.newShow();
+    social.newShow();
     return json(state());
   }, 'onair');
 
@@ -188,6 +190,30 @@ export function apply(ctx: HostContext): void {
       return fail((err as Error).message, 500);
     }
   }, 'obs check');
+
+  // 开播账号：现在登的是谁；扫码登录（拿到的 Cookie 直接存进 DSH 凭据，不经过网页）
+  route('/api/dsh-livestream/account', ['GET'], async () => json({ ok: true, account: await whoIs(await cookie()) }), 'account');
+  route('/api/dsh-livestream/login/start', ['POST'], async () => {
+    try {
+      return json({ ok: true, ...(await startQrLogin()) });
+    } catch (err) {
+      return fail((err as Error).message, 502);
+    }
+  }, 'login start');
+  route('/api/dsh-livestream/login/poll', ['POST'], async (request) => {
+    const { key } = await body<{ key?: string }>(request);
+    if (!key) return fail('缺 key');
+    try {
+      const result = await pollQrLogin(String(key));
+      if (result.state !== 'ok') return json({ ok: true, state: result.state, ...(result.state === 'error' ? { message: result.message } : {}) });
+      const account = await whoIs(result.cookie);
+      if (!account) return json({ ok: true, state: 'error', message: '登录成功了，但用这个 Cookie 查不到账号' });
+      await hooks.setSecret(SECRETS.cookie, result.cookie);
+      return json({ ok: true, state: 'ok', account });
+    } catch (err) {
+      return fail((err as Error).message, 502);
+    }
+  }, 'login poll');
 
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
     const { text, who } = await body<{ text?: string; who?: string }>(request);

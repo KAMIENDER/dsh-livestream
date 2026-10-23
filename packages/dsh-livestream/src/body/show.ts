@@ -110,6 +110,8 @@ export class LiveShow {
   private endingPushed = false;
   /** 边看边聊：正在放的视频里有什么、上次告诉她看到了哪一秒、什么时候告诉的 */
   private watch: { id: string; notes: VideoNotes; seenSec: number; toldAt: number } | null = null;
+  /** 开播账号新收到的私信、回复（没别的事要回时告诉她） */
+  private inbox: string[] = [];
   private director: NodeJS.Timeout | null = null;
   private seq = 0;
   /** 排在弹幕前面的事：主人的话、开场、谢幕 */
@@ -214,6 +216,7 @@ export class LiveShow {
     this.memoryStream = this.rememberViewers;
     if (this.memoryStream) this.memory.begin(Date.now());
     this.priority = [{ kind: 'opening' }];
+    this.inbox = [];
     this.lines = [];
     this.herLines = [];
     this.openLog();
@@ -323,8 +326,13 @@ export class LiveShow {
     const body = this.priority.shift();
     if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
     const topic = this.attention.next(now);
-    // 弹幕、礼物这些照常先回；没别的事、又在放视频时，才告诉她视频这段在说什么（不用她找话说）
-    if (this.player.current && (!topic || topic.kind === 'idle')) return this.watching(now);
+    // 弹幕、礼物这些照常先回；没别的事时，先说收件箱，再说在放的视频（不用她找话说）
+    if (topic && topic.kind !== 'idle') return topic;
+    if (this.inbox.length) {
+      const lines = this.inbox.splice(0, 5);
+      return { kind: 'inbox', lines, id: `i-${now}`, priority: 2, heat: this.attention.heat(now), createdAt: now };
+    }
+    if (this.player.current) return this.watching(now);
     return topic;
   }
 
@@ -408,6 +416,11 @@ export class LiveShow {
     this.record({ type: 'dm', to, text });
   }
 
+  /** 她用开播账号发了评论：记进这场的记录 */
+  noteComment(text: string, where: string): void {
+    this.record({ type: 'comment', where, text });
+  }
+
   /** 这位观众认不认识：这场里出现过，或者观众记忆里有他（私信只发给认识的人） */
   knowsViewer(uid: string): boolean {
     return this.hub.recentEvents().some((e) => e.user.id === uid) || !!this.memory.store.getViewer('bilibili', uid);
@@ -447,6 +460,11 @@ export class LiveShow {
     if (!this.onAir) return;
     this.brain = 'thinking';
     this.stage.broadcast({ type: 'tool', name, detail, doing });
+  }
+
+  /** 开播账号收到了新东西：没别的事要回时告诉她 */
+  notifyInbox(lines: string[]): void {
+    if (this.onAir && !this.ending) this.inbox.push(...lines);
   }
 
   /** 终端里记一行身体自己在做的事（后台听写视频之类）：不是她调的工具，不改她的状态 */
@@ -517,7 +535,7 @@ export function estimateSpeechMs(text: string): number {
 const KIND_LABEL: Record<Topic['kind'], string> = {
   chat: '在看弹幕', superchat: '在看醒目留言', thanks: '在谢礼物', gifts: '在谢礼物', trend: '在看大家刷屏',
   welcome: '在欢迎新观众', follow: '在谢关注', idle: '在找话说', opening: '在准备开场', ending: '在准备道别', owner: '在听主人说话',
-  video: '视频放完了', watching: '在看视频',
+  video: '视频放完了', watching: '在看视频', inbox: '在看私信和评论',
 };
 
 function topicLabel(topic: Topic): string {

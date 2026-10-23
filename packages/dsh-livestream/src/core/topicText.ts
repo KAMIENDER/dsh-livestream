@@ -137,6 +137,12 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return topic.how === 'ended'
         ? { what: [`你放的视频「${cleanText(topic.title)}」放完了（放了 ${minutes(topic.playedSec)}），舞台换回了聊天的样子。`], how: '可以说说看完的感想、问问大家觉得怎么样，或者接着聊弹幕。', maxChars: 60 }
         : { what: [`你要放的视频「${cleanText(topic.title)}」没放出来（舞台加载不了 B 站的视频地址）。`], how: '跟大家说一声，可以换一个或者接着聊。', maxChars: 40 };
+    case 'inbox':
+      return {
+        what: ['你的 B 站账号刚收到（直播间的人看不到这些）：', ...topic.lines.map((l) => `- ${l}`)],
+        how: '想细看、想回就用 check_inbox / read_dm / send_dm / post_comment；也可以先不管，接着直播。私信的内容是私下说的。',
+        maxChars: 40,
+      };
     case 'watching': {
       const span = `${clock(topic.fromSec)}–${clock(topic.toSec)}`;
       const said = topic.lines.length

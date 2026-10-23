@@ -498,7 +498,8 @@ export function Console() {
             </div>
             <h3>密钥</h3>
             <SecretField label="豆包语音 API Key" ref_={SECRET_REFS.tts} configured={secrets.tts} hint="火山引擎新版控制台的 API Key（和 dsh-game 共用）" />
-            <SecretField label="B 站 Cookie" ref_={SECRET_REFS.cookie} configured={secrets.cookie} hint="浏览器里登录 B 站后复制的 Cookie（建议用小号）" />
+            <LoginField />
+            <SecretField label="B 站 Cookie（不想扫码时手填）" ref_={SECRET_REFS.cookie} configured={secrets.cookie} hint="浏览器里登录 B 站后复制的 Cookie；扫码登录会自动填这一项" />
             <h3>舞台</h3>
             <div className="dl-field">
               <label>OBS 舞台地址（来源 → 浏览器 → 粘贴，宽 1920 高 1080）</label>
@@ -539,6 +540,54 @@ function BroadcastPill({ bc }: { bc: BroadcastStatus }) {
     <span className="dl-pill" title={bc.step}>
       <Dot tone={tone} />B 站 · {bc.phase === 'streaming' && h ? `${h.kbps} kbps · 丢帧 ${dropped ?? 0}% · ${h.timecode.slice(0, 8)}` : bc.step || PHASE_TEXT[bc.phase]}
     </span>
+  );
+}
+
+/** 开播账号：现在登的是谁；扫码登录（B 站 App 扫一下，Cookie 由插件自己存进凭据） */
+function LoginField() {
+  const [account, setAccount] = useState<{ uid: number; name: string } | null | undefined>(undefined);
+  const [qr, setQr] = useState<{ img: string; key: string } | null>(null);
+  const [status, setStatus] = useState('');
+  const refresh = () => void api<{ ok: boolean; account: { uid: number; name: string } | null }>('account').then((r) => setAccount(r.account)).catch(() => setAccount(null));
+  useEffect(refresh, []);
+  useEffect(() => {
+    if (!qr) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const r = await api<{ ok: boolean; state: string; message?: string; account?: { uid: number; name: string } }>('login/poll', { key: qr.key });
+        if (r.state === 'ok') { setQr(null); setStatus(''); setAccount(r.account ?? null); return; }
+        if (r.state === 'expired') { setQr(null); setStatus('二维码过期了，再点一次扫码登录'); return; }
+        if (r.state === 'error') { setQr(null); setStatus(r.message ?? '登录失败'); return; }
+        setStatus(r.state === 'scanned' ? '扫好了，在 App 上点确认登录' : '用 B 站 App 扫这个码（开播用的那个账号）');
+      } catch (err) {
+        setStatus((err as Error).message);
+      }
+      setTimeout(tick, 2000);
+    };
+    void tick();
+    return () => { stopped = true; };
+  }, [qr?.key]);
+  const start = async () => {
+    setStatus('');
+    try {
+      const r = await api<{ ok: boolean; url: string; key: string }>('login/start', {});
+      setQr({ img: await QRCode.toDataURL(r.url, { margin: 1, width: 200 }), key: r.key });
+    } catch (err) {
+      setStatus((err as Error).message);
+    }
+  };
+  return (
+    <div className="dl-field">
+      <label>开播账号 {account ? <span className="dl-tag dl-ok-tag">已登录</span> : account === null ? <span className="dl-tag">没登录</span> : null}</label>
+      <div className="dl-row">
+        <span className="dl-meta" style={{ flex: 1 }}>{account ? `${account.name}（UID ${account.uid}）` : account === null ? '开播、私信、评论都要先登录' : '查询中…'}</span>
+        <button onClick={() => void start()}>{account ? '换个账号' : '扫码登录'}</button>
+      </div>
+      {qr && <img src={qr.img} alt="B 站登录二维码" style={{ width: 200, height: 200, borderRadius: 12, marginTop: 8, background: '#fff' }} />}
+      {status && <p className="dl-hint">{status}</p>}
+    </div>
   );
 }
 

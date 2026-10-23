@@ -16,6 +16,8 @@ import { LiveShow } from '../body/show';
 import { Whisper } from '../body/asr';
 import { BiliAccount } from '../body/biliAccount';
 import { BiliVideos } from '../body/biliVideo';
+import { BiliSocial } from '../body/biliSocial';
+import { SocialManager } from '../body/social';
 import { Broadcast } from '../body/broadcast';
 import { DmManager } from '../body/dm';
 import { Packs } from '../body/packs';
@@ -148,11 +150,14 @@ export function updateSettings(patch: Partial<Settings>): Settings {
 /** agent 子插件接上 DSH 的服务后填这里：读机密、调模型 */
 export const hooks: {
   secret: (name: string) => Promise<string>;
+  /** 存一个机密（扫码登录拿到的 Cookie）；没有凭据服务时抛错 */
+  setSecret: (name: string, value: string) => Promise<void>;
   push: (sessionId: string, text: string) => Promise<boolean>;
   complete: ((model: string, system: string, user: string) => Promise<string>) | null;
   log: (level: 'info' | 'warn', message: string) => void;
 } = {
   secret: async (name) => process.env[name] ?? '',
+  setSecret: async () => { throw new Error('这个 DSH 没有凭据服务，存不了'); },
   push: async () => false,
   complete: null,
   log: (level, message) => (level === 'warn' ? console.warn : console.log)(`[dsh-livestream] ${message}`),
@@ -276,6 +281,16 @@ export const broadcast = new Broadcast({
 
 /** 她给观众发私信（开播账号）：B 站「对方没关注只能发一条」等规矩在这里管 */
 export const dm = new DmManager(new BiliAccount(cookie), join(dataDir, 'dm.json'));
+
+/** 她点赞、看评论、发评论、看收件箱（开播账号） */
+export const social = new SocialManager(new BiliSocial(cookie));
+
+/** 直播时每隔一会儿看一眼收件箱：开播以后新来的私信、回复、@，没别的事时告诉她 */
+const INBOX_EVERY_MS = 90_000;
+setInterval(() => {
+  if (!show.isOnAir) return;
+  void social.newSince().then((lines) => { if (lines.length) show.notifyInbox(lines); }).catch(() => {});
+}, INBOX_EVERY_MS).unref?.();
 
 /** 她搜视频、看视频、在舞台上放视频（开播账号的 Cookie：AI 字幕要登录才给） */
 export const videos = new BiliVideos(cookie);

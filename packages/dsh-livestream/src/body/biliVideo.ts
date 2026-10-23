@@ -52,6 +52,8 @@ export interface VideoPart {
 
 export interface VideoInfo {
   bvid: string;
+  /** av 号：评论区、点赞用它 */
+  aid: number;
   title: string;
   up: { mid: string; name: string };
   pubdate: number;
@@ -240,6 +242,7 @@ export class BiliVideos {
     const tags = await this.get<Array<{ tag_name?: string }>>(`https://api.bilibili.com/x/tag/archive/tags?bvid=${d.bvid}`);
     return {
       bvid: d.bvid,
+      aid: Number(d.aid) || 0,
       title: clean(d.title, 100),
       up: { mid: String(d.owner?.mid ?? ''), name: clean(d.owner?.name, 30) },
       pubdate: Number(d.pubdate) || 0,

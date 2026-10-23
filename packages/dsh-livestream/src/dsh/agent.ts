@@ -16,7 +16,8 @@ import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoIn
 import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { asr, cookie, currentMoods, dm, hooks, settings, show, videos } from './runtime';
+import { asr, cookie, currentMoods, dm, hooks, settings, show, social, videos } from './runtime';
+import { COMMENT_GAP_MS, MAX_COMMENT_CHARS, MAX_COMMENTS_PER_SHOW } from '../body/social';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -155,6 +156,11 @@ export function apply(ctx: AgentContext): void {
     const hit = credentials ? await credentials.resolve(name).catch(() => undefined) : undefined;
     return hit?.value ?? process.env[name] ?? '';
   };
+  hooks.setSecret = async (name, value) => {
+    const credentials = ctx.get?.('credentials');
+    if (!credentials?.set) throw new Error('这个 DSH 没有凭据服务，存不了');
+    await credentials.set(name, value);
+  };
   hooks.complete = (model, system, user) => completeWithDsh(ctx, model, system, user);
   hooks.push = (sessionId, text) => push(ctx, sessionId, text);
   // 警告也打到 stderr：DSH 网页版的日志只在内存里，服务器上看 web.log 才找得到
@@ -200,15 +206,23 @@ export function apply(ctx: AgentContext): void {
   // 私信观众（开播账号发）
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'send_dm',
-    description: '用开播账号给一位观众发一条 B 站私信（文字）。只能发给这场直播里出现过、或者以前来过的观众。'
+    description: '用开播账号给一个人发一条 B 站私信（文字）。能发给这场直播里出现过的、以前来过的观众，和私信过你的人（check_inbox 里的）。'
       + 'B 站规定：对方没关注开播账号、也没回过私信时，只能发一条，要等他关注或回复才能再发；结果里会告诉你他关注了没有。',
     parameters: {
-      who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID' },
+      who: { type: 'string', required: true, description: '名字（照消息里写的）或 UID' },
       text: { type: 'string', required: true, description: '私信内容（2000 字节以内）' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute(args) {
       const who = String(args.who ?? '');
+      // 私信过她的人：直接回
+      const talker = social.findTalker(who);
+      if (talker) {
+        show.toolCall('send_dm', `→ ${talker.name}`, `在回${talker.name}的私信`);
+        const result = await dm.send(talker, String(args.text ?? ''));
+        if (result.ok) show.noteDm(talker.name, String(args.text ?? ''));
+        return result.text;
+      }
       const viewer = show.lookupViewer(who);
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (!show.knowsViewer(viewer.uid)) return `UID ${viewer.uid} 没在这场直播里出现过，也不是以前来过的观众：私信只发给直播间里的观众。`;
@@ -219,6 +233,106 @@ export function apply(ctx: AgentContext): void {
       return result.text;
     },
   })), 'send_dm tool');
+
+  // 点赞：视频或者一条评论
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'like',
+    description: '用开播账号点赞：给一个 B 站视频（video），或者给一条评论（comment，read_comments / check_inbox 里方括号的编号）。',
+    parameters: {
+      video: { type: 'string', description: 'BV 号、av 号或视频链接' },
+      comment: { type: 'string', description: '评论编号' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const comment = String(args.comment ?? '').trim();
+      if (comment) {
+        show.toolCall('like', `评论 ${comment}`, '在给评论点赞');
+        return social.likeComment(comment);
+      }
+      const found = await findVideo(args.video, undefined);
+      if (typeof found === 'string') return found;
+      show.toolCall('like', `「${found.info.title.slice(0, 16)}」`, '在点赞');
+      return social.likeVideo(found.info.aid, found.info.title);
+    },
+  })), 'like tool');
+
+  // 看评论区
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'read_comments',
+    description: '看一个 B 站视频的评论区：每条带编号（回复、点赞用）、名字、点赞数、楼里的几条回复。可以按热门或最新，可以翻页。',
+    parameters: {
+      video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
+      sort: { type: 'string', enum: ['hot', 'new'], description: 'hot 热门（默认）、new 最新' },
+      page: { type: 'number', description: '第几页，默认 1' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const found = await findVideo(args.video, undefined);
+      if (typeof found === 'string') return found;
+      const { info } = found;
+      show.toolCall('read_comments', `「${info.title.slice(0, 16)}」`, `在看「${info.title.slice(0, 16)}」的评论区`);
+      return social.readComments({ type: 1, oid: String(info.aid), title: info.title }, args.sort === 'new' ? 'new' : 'hot', Math.max(1, Math.floor(Number(args.page) || 1)));
+    },
+  })), 'read_comments tool');
+
+  // 发评论
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'post_comment',
+    description: '用开播账号发一条 B 站评论：发在视频下面（video），或者回复某一条评论（reply_to，read_comments / check_inbox 里方括号的编号）。'
+      + `评论公开挂在那里，大家都看得到是这个账号发的。每场最多 ${MAX_COMMENTS_PER_SHOW} 条，两条之间隔 ${COMMENT_GAP_MS / 1000} 秒，不能带链接。`,
+    parameters: {
+      text: { type: 'string', required: true, description: `评论内容（${MAX_COMMENT_CHARS} 字以内）` },
+      video: { type: 'string', description: '发在哪个视频下面：BV 号、av 号或视频链接' },
+      reply_to: { type: 'string', description: '回复哪一条评论：评论编号' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const replyTo = String(args.reply_to ?? '').trim() || undefined;
+      let thread = null;
+      if (!replyTo) {
+        const found = await findVideo(args.video, undefined);
+        if (typeof found === 'string') return found;
+        thread = { type: 1, oid: String(found.info.aid), title: found.info.title };
+      }
+      show.toolCall('post_comment', replyTo ? `回复 ${replyTo}` : `「${thread!.title.slice(0, 16)}」`, '在发评论');
+      const result = await social.postComment(thread, String(args.text ?? ''), replyTo);
+      if (result.ok) show.noteComment(String(args.text ?? ''), thread?.title ?? replyTo ?? '');
+      return result.text;
+    },
+  })), 'post_comment tool');
+
+  // 收件箱
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'check_inbox',
+    description: '看开播账号的收件箱：最近的私信会话（谁、未读几条、最后一句），和别人在评论区回复你、@ 你的。',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute() {
+      show.toolCall('check_inbox', '', '在看私信和评论回复');
+      return social.inbox();
+    },
+  })), 'check_inbox tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'read_dm',
+    description: '看你和一个人最近的私信往来（他说了什么、你回了什么）。',
+    parameters: {
+      who: { type: 'string', required: true, description: '名字（check_inbox 里的）或 UID' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
+    async execute(args) {
+      const who = String(args.who ?? '').trim();
+      const talker = social.findTalker(who) ?? (/^\d{1,20}$/.test(who) ? { uid: who, name: `UID ${who}` } : null);
+      if (!talker) {
+        const viewer = show.lookupViewer(who);
+        if (viewer.kind !== 'found') return `不知道「${who}」是谁：先 check_inbox 看看私信列表，用那里的名字或 UID。`;
+        show.toolCall('read_dm', viewer.user.name, `在看和${viewer.user.name}的私信`);
+        return social.conversation(viewer.uid, viewer.user.name);
+      }
+      show.toolCall('read_dm', talker.name, `在看和${talker.name}的私信`);
+      return social.conversation(talker.uid, talker.name);
+    },
+  })), 'read_dm tool');
 
   // 搜 B 站视频
   ctx.effect(() => ctx.tools.register(defineTool({

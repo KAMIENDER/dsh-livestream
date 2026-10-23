@@ -44,6 +44,8 @@ export type TopicBody =
   | { kind: 'owner'; text: string; interrupted?: string; who?: string }
   /** 她在舞台上放的视频放完了（error：没放出来）；playedSec 是放了多久 */
   | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number }
+  /** 开播账号收到了新私信、评论回复、@（只有她看得到；lines 已经写好、内容包在标签里） */
+  | { kind: 'inbox'; lines: string[] }
   /**
    * 边看边聊：她放的视频 from–to 秒这段里说了什么、原视频的弹幕在刷什么（没别的事要回时才有）。
    * source：字幕从哪来（human UP 主做的、ai B 站官方 AI、asr Whisper 听写；null 没有）
