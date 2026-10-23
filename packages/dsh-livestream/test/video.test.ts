@@ -59,7 +59,7 @@ describe('subtitles', () => {
     expect(chunk.startSec).toBe(30);
     expect(chunk.next).toBe(45);
     const text = subtitleText(info, info.parts[0], sub, 0, '');
-    expect(text).toContain('AI 识别的中文字幕');
+    expect(text).toContain('B 站官方 AI 识别的中文字幕');
     expect(text).toContain('字幕到这里完了');
   });
   it('says when there are none', () => {
@@ -69,13 +69,14 @@ describe('subtitles', () => {
     const long = { bvid: 'BV1YFQPB8Ee2', parts: [{ cid: 1, page: 1, title: 'p1', durationSec: 900 }] } as VideoInfo;
     const heard: Subtitles = { kind: 'asr', lang: 'zh', lines: [{ from: 2, to: 5, text: '大家好' }], until: 300 };
     const text = subtitleText(long, long.parts[0], heard, 0, '');
-    expect(text).toContain('听了一遍写下来的中文');
+    expect(text).toContain('Whisper');
+    expect(text).toContain('不是 B 站官方字幕');
     expect(text).toContain('from=300) 接着看');
     expect(subtitleText(long, long.parts[0], { ...heard, until: 900 }, 0, '')).toContain('字幕到这里完了');
   });
   it('says a heard chunk had no talking', () => {
     const text = subtitleText(info, info.parts[0], { kind: 'asr', lang: '', lines: [], until: 120 }, 0, '');
-    expect(text).toContain('没听到有人说话');
+    expect(text).toContain('没听出有人说话');
     expect(text).toContain('字幕到这里完了');
   });
 });

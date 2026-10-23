@@ -74,6 +74,8 @@ export interface Subtitles {
   lines: SubtitleLine[];
   /** asr：只听到这一秒，后面还没听 */
   until?: number;
+  /** asr：听写用的模型（Whisper 的哪一个） */
+  engine?: string;
 }
 
 export interface VideoRef {
@@ -388,11 +390,11 @@ export function subtitleText(v: VideoInfo, part: VideoPart, sub: Subtitles | nul
   const next = chunk.next ?? heardUntil;
   const more = next !== null ? `后面还有：watch_video(video="${v.bvid}"${partArg}, from=${next}) 接着看。` : '字幕到这里完了。';
   if (!chunk.text && sub.kind === 'asr') {
-    return `${clock(fromSec)}–${clock(sub.until ?? fromSec)} 这段视频没字幕，听了一遍也没听到有人说话（可能是音乐、游戏声或者没人说话）。\n${more}`;
+    return `${clock(fromSec)}–${clock(sub.until ?? fromSec)} 这段视频没有字幕，Whisper 听了一遍也没听出有人说话（可能是音乐、游戏声或者没人说话，也可能是它没听出来）。\n${more}`;
   }
   if (!chunk.text) return `${clock(fromSec)} 以后没有字幕了（视频一共 ${clock(part.durationSec)}）。`;
-  const kind = sub.kind === 'ai' ? `B 站 AI 识别的${sub.lang}字幕（听写的，可能有错字）`
-    : sub.kind === 'asr' ? `视频没字幕，这是听了一遍写下来的${langName(sub.lang)}（听写的，可能有错字，人名和专有名词常写错）`
+  const kind = sub.kind === 'ai' ? `B 站官方 AI 识别的${sub.lang}字幕（B 站自己听写的，可能有错字）`
+    : sub.kind === 'asr' ? `这个视频 B 站没有字幕（官方 AI 字幕也没有）。下面是主人给你装的语音识别 Whisper（${sub.engine ?? '开源模型'}，在直播电脑的显卡上跑）听了一遍写下来的${langName(sub.lang)}，不是 B 站官方字幕：听错、写错的地方不少，人名和专有名词尤其容易错`
     : `${sub.lang}字幕`;
   return [
     `${kind}，${clock(chunk.startSec)}–${clock(chunk.endSec)}：`,

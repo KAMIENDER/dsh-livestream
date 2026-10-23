@@ -15,7 +15,7 @@ import { fetchProfile, profileSummary, profileText } from '../body/biliProfile';
 import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoInfo, type VideoPart } from '../body/biliVideo';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { asr, cookie, currentMoods, dm, hooks, show, videos } from './runtime';
+import { asr, cookie, currentMoods, dm, hooks, settings, show, videos } from './runtime';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -119,7 +119,7 @@ async function findVideo(video: unknown, part: unknown): Promise<{ info: VideoIn
 async function listen(info: VideoInfo, part: VideoPart, from: number): Promise<Subtitles | null> {
   try {
     const heard = await asr.chunk({ bvid: info.bvid, cid: part.cid, durationSec: part.durationSec }, from, () => videos.audioUrl(info.bvid, part.cid));
-    return heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until } : null;
+    return heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until, engine: settings.asrModel } : null;
   } catch (err) {
     hooks.log('warn', `语音识别失败（${info.bvid}）：${(err as Error).message}`);
     return null;
