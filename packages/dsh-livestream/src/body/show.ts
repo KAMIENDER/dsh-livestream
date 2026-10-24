@@ -252,7 +252,7 @@ export class LiveShow {
     this.logFile = null;
     if (streamId !== null && this.hooks.distill) {
       const herLines = this.herLines.slice();
-      void distillStream(this.memory.store, streamId, { herLines }, this.hooks.distill, Date.now())
+      void distillStream(this.memory.store, streamId, { herLines, name: this.options.names[0] ?? '' }, this.hooks.distill, Date.now())
         .then((r) => this.hooks.log?.('info', `直播记忆提炼完：${r.viewers} 位观众，回顾 ${r.recap.length} 条`))
         .catch((err) => this.hooks.log?.('warn', `直播记忆提炼失败：${(err as Error).message}`));
     }
