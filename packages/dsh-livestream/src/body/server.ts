@@ -49,7 +49,7 @@ export interface StageServerOptions {
   /** 舞台上放的视频：id → CDN 地址；舞台的回执 */
   media?: {
     source(id: string): string | null;
-    report(id: string, state: 'playing' | 'ended' | 'error', positionSec?: number): void;
+    report(id: string, state: 'playing' | 'ended' | 'error', positionSec?: number, detail?: string): void;
   };
   log?(level: 'info' | 'warn', message: string): void;
 }
@@ -114,7 +114,7 @@ export class StageServer {
       const state = url.searchParams.get('state');
       if (state === 'playing' || state === 'ended' || state === 'error') {
         if (state === 'error') this.options.log?.('warn', `舞台放视频出错：${(url.searchParams.get('detail') ?? '').slice(0, 200)}`);
-        this.options.media?.report(url.searchParams.get('id') ?? '', state, Number(url.searchParams.get('at') ?? NaN));
+        this.options.media?.report(url.searchParams.get('id') ?? '', state, Number(url.searchParams.get('at') ?? NaN), url.searchParams.get('detail') ?? undefined);
       }
       res.writeHead(204);
       res.end();

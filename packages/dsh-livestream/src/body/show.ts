@@ -93,7 +93,7 @@ export class LiveShow {
   readonly player = new Player(this.stage, (video, how, playedSec) => {
     this.record({ type: 'video', bvid: video.bvid, title: video.title, how, playedSec: Math.round(playedSec) });
     this.endWatch();
-    if (this.onAir && !this.ending) this.priority.push({ kind: 'video', title: video.title, how, playedSec });
+    if (this.onAir && !this.ending && !video.answered) this.priority.push({ kind: 'video', title: video.title, how, playedSec });
   });
   private attention: LiveAttention;
   private memory: LiveMemory;

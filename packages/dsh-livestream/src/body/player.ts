@@ -23,6 +23,12 @@ export interface Playing extends PlayRequest {
   startedAt: number;
   /** 舞台回执开始放时：那时放到第几秒、是什么时候（算现在放到哪） */
   anchor?: { sec: number; at: number };
+  /** play_video 在等它开始放 */
+  waiter?: (outcome: 'playing' | 'error') => void;
+  /** 放不出来的原因（舞台报的） */
+  error?: string;
+  /** 放不出来已经在 play_video 的结果里告诉她了：不再另外推一次 */
+  answered?: boolean;
 }
 
 export type PlayEnd = 'ended' | 'error';
@@ -62,17 +68,38 @@ export class Player {
     return { video, playedSec: this.played(video) };
   }
 
-  /** 舞台的回执：开始放了（按实际位置重新算兜底）、放完了、放不出来 */
-  report(id: string, state: 'playing' | PlayEnd, positionSec?: number): void {
+  /** 舞台的回执：开始放了（按实际位置重新算兜底）、放完了、放不出来（detail：舞台报的原因） */
+  report(id: string, state: 'playing' | PlayEnd, positionSec?: number, detail?: string): void {
     const video = this.playing;
     if (!video || video.id !== id) return;
     if (state === 'playing') {
       const at = Number.isFinite(positionSec) ? positionSec! : video.fromSec;
       video.anchor = { sec: at, at: Date.now() };
       this.arm(Math.max(0, video.untilSec - at) * 1000 + GRACE_MS, 'ended');
+      video.waiter?.('playing');
       return;
     }
+    if (state === 'error' && detail) video.error = detail;
     this.finish(state);
+  }
+
+  /**
+   * 等舞台真的开始放（或者放不出来），最多 ms：play_video 用，她说「放上了」时就是真放上了。
+   * pending：还在加载，之后放不出来会另外告诉她
+   */
+  waitStart(id: string, ms: number): Promise<'playing' | 'error' | 'pending'> {
+    const video = this.playing;
+    if (!video || video.id !== id) return Promise.resolve('error');
+    if (video.anchor) return Promise.resolve('playing');
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { video.waiter = undefined; resolve('pending'); }, ms);
+      video.waiter = (outcome) => {
+        clearTimeout(timer);
+        video.waiter = undefined;
+        if (outcome === 'error') video.answered = true;
+        resolve(outcome);
+      };
+    });
   }
 
   /** 舞台服务器转发视频时问：这个 id 现在对应哪个地址 */
@@ -84,6 +111,7 @@ export class Player {
     const video = this.playing;
     if (!video) return;
     const playedSec = how === 'ended' ? video.untilSec - video.fromSec : this.played(video);
+    if (how === 'error') video.waiter?.('error');
     this.clear();
     this.onEnd(video, how, playedSec);
   }

@@ -96,6 +96,8 @@ async function push(ctx: AgentContext, sessionId: string, text: string): Promise
 /** 默认放多久、最多放多久（秒）：一个长视频不会把整场直播占掉 */
 const PLAY_DEFAULT_SEC = 180;
 const PLAY_MAX_SEC = 600;
+/** play_video 最多等舞台多久确认开始放 */
+const PLAY_CONFIRM_MS = 15_000;
 
 /** 「1:30」「90」→ 秒 */
 function seconds(value: unknown): number {
@@ -555,7 +557,7 @@ export function apply(ctx: AgentContext): void {
       const length = Math.min(PLAY_MAX_SEC, Math.max(5, Number(args.seconds) || PLAY_DEFAULT_SEC));
       const until = part.durationSec ? Math.min(part.durationSec, from + length) : from + length;
       const url = await videos.playUrl(info.bvid, part.cid);
-      if (!url) return `B 站没给「${info.title}」的播放地址（可能是付费、番剧、充电专属或者有地区限制），放不了。`;
+      if (!url) return `「${info.title}」在网页上放不了（B 站没给能用的播放地址：可能没有网页版、付费、番剧、充电专属或者有地区限制），换一个吧。`;
       show.toolCall('play_video', `「${info.title.slice(0, 16)}」`);
       // 边看边聊：后台拿这段的字幕（没有就边放边听写）和原视频弹幕
       const notes = new VideoNotes(from, until, {
@@ -563,9 +565,14 @@ export function apply(ctx: AgentContext): void {
         listen: (at) => listen(info, part, at),
         danmaku: () => videos.danmaku(part.cid),
       }, (message) => hooks.log('warn', message));
-      const { replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until }, notes);
+      const { video, replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until }, notes);
+      // 等舞台真的开始放：她说「放上了」时就是放上了
+      const outcome = show.stage.watchers ? await show.player.waitStart(video.id, PLAY_CONFIRM_MS) : 'playing';
+      if (outcome === 'error') return `「${info.title}」没放出来（舞台加载不了这个视频${video.error ? `：${video.error}` : ''}），舞台换回了聊天的布局。可以换一个。`;
       const lines = [
-        `舞台上开始放「${info.title}」（UP ${info.up.name}），${clock(from)}–${clock(until)}，共 ${clock(until - from)}。舞台换成了看视频的布局。`,
+        outcome === 'pending'
+          ? `舞台还在加载「${info.title}」（UP ${info.up.name}，${clock(from)}–${clock(until)}）：开始放了就照常进行，放不出来会告诉你。`
+          : `舞台上已经在放「${info.title}」（UP ${info.up.name}），${clock(from)}–${clock(until)}，共 ${clock(until - from)}。舞台换成了看视频的布局。`,
         '放的时候弹幕照常发给你；没弹幕的时候，隔一会儿会告诉你视频这段在说什么、原视频的弹幕在刷什么。',
         '放完了会告诉你；想停用 stop_video，想换直接 play_video 别的。',
       ];

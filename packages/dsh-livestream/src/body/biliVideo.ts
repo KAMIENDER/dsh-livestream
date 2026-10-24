@@ -283,10 +283,26 @@ export class BiliVideos {
 
   /** 一个完整 MP4 的地址（html5 播放器用的那种，最高 720p） */
   async playUrl(bvid: string, cid: number): Promise<string | null> {
-    const body = await this.get<{ durl?: Array<{ url?: string }> }>(await this.signed('https://api.bilibili.com/x/player/wbi/playurl', {
+    const body = await this.get<{ durl?: Array<{ url?: string; backup_url?: string[] | null }> }>(await this.signed('https://api.bilibili.com/x/player/wbi/playurl', {
       bvid, cid, qn: 64, fnval: 1, platform: 'html5', high_quality: 1,
     }));
-    return body?.code === 0 ? body.data?.durl?.[0]?.url ?? null : null;
+    const d = body?.code === 0 ? body.data?.durl?.[0] : undefined;
+    // 有的视频 B 站给了地址、CDN 上却没有网页版文件（404，2026-10 实测）：先探一下，主地址不通试备用的
+    for (const url of [d?.url, ...(d?.backup_url ?? [])].filter((u): u is string => !!u)) {
+      if (await this.reachable(url)) return url;
+    }
+    return null;
+  }
+
+  /** 这个视频地址真的能取到（取头两个字节） */
+  private async reachable(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/', Range: 'bytes=0-1' }, signal: AbortSignal.timeout(8_000) });
+      void res.body?.cancel();
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   /** 视频的弹幕（以前看过的人发的；B 站给的是抽样，热门视频几百到几千条），按视频里的时间排好 */

@@ -120,6 +120,31 @@ describe('player', () => {
     expect(player.source(video.id)).toBeNull();
   });
 
+  it('waits for the stage before saying a video is playing', async () => {
+    vi.useFakeTimers();
+    const stage = new Stage();
+    stage.subscribe(() => {});
+    const ends: Array<{ how: string; answered?: boolean }> = [];
+    const player = new Player(stage, (v, how) => ends.push({ how, answered: v.answered }));
+    const ok = player.play(request);
+    const started = player.waitStart(ok.id, 15_000);
+    player.report(ok.id, 'playing', 10);
+    expect(await started).toBe('playing');
+
+    const bad = player.play({ ...request, title: '坏的' });
+    const failed = player.waitStart(bad.id, 15_000);
+    player.report(bad.id, 'error', undefined, 'MediaError 4');
+    expect(await failed).toBe('error');
+    expect(bad.error).toBe('MediaError 4');
+    // 已经在 play_video 的结果里说了，身体不再另外推「没放出来」
+    expect(ends.at(-1)).toEqual({ how: 'error', answered: true });
+
+    const slow = player.play({ ...request, title: '慢的' });
+    const pending = player.waitStart(slow.id, 15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await pending).toBe('pending');
+  });
+
   it('a replaced or stopped video is not reported as finished', () => {
     const player = new Player(new Stage(), () => { throw new Error('should not end'); });
     const first = player.play(request);
