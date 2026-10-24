@@ -282,3 +282,14 @@ export async function streamHealth(obs: Obs): Promise<StreamHealth> {
   lastBytes = { bytes: s.outputBytes, at: now };
   return { active: s.outputActive, timecode: s.outputTimecode, skipped: s.outputSkippedFrames, total: s.outputTotalFrames, renderSkipped: stats.renderSkippedFrames, outputSkipped: stats.outputSkippedFrames, kbps };
 }
+
+/** 直播画面现在的样子（OBS 里「直播」场景，观众看到的同一张）：JPEG */
+export async function screenshot(width = 1280, height = 720): Promise<Uint8Array> {
+  const obs = await connectObs(false);
+  try {
+    const shot = await obs.call<{ imageData: string }>('GetSourceScreenshot', { sourceName: SCENE, imageFormat: 'jpg', imageWidth: width, imageHeight: height, imageCompressionQuality: 80 });
+    return new Uint8Array(Buffer.from(shot.imageData.slice(shot.imageData.indexOf(',') + 1), 'base64'));
+  } finally {
+    obs.close();
+  }
+}

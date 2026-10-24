@@ -19,6 +19,7 @@ import { splitByMood } from '../core/moodText';
 import { ttsYuan, turnYuan } from '../core/cost';
 import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
+import { screenshot } from '../body/obs';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
 
 export const name = 'dsh-livestream-agent';
@@ -380,6 +381,61 @@ export function apply(ctx: AgentContext): void {
 
   const text = (value: string) => [{ type: 'text' as const, text: value }];
   const stringOut = { schema: { type: 'string' as const }, render: (_args: unknown, value: string) => text(value) };
+
+  // 看一眼直播画面：OBS 截一张观众看到的画面，作为图片给她（DSH 存进附件，下一步她就能看）
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'look',
+    description: '看一眼直播画面：截一张观众现在看到的直播画面给你。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object' as const,
+        additionalProperties: false,
+        properties: {
+          text: { type: 'string' as const, required: true },
+          image: {
+            type: 'object' as const,
+            additionalProperties: false,
+            properties: {
+              attachmentId: { type: 'string' as const, required: true },
+              mediaType: { type: 'string' as const, required: true },
+              bytes: { type: 'integer' as const, required: true },
+              width: { type: 'integer' as const, required: true },
+              height: { type: 'integer' as const, required: true },
+              name: { type: 'string' as const },
+            },
+          },
+        },
+      },
+      render: (_args: unknown, value: { text: string; image?: Record<string, unknown> }) => [
+        { type: 'text' as const, text: value.text },
+        ...(value.image ? [{ type: 'image' as const, attachment: value.image as never }] : []),
+      ],
+    },
+    async execute(_args, exec: any) {
+      show.toolCall('look', '', '在看直播画面');
+      const attachments = ctx.get?.('attachments');
+      const llm = ctx.get?.('llm');
+      const routed = exec?.agent?.session?.requestHeader?.()?.config;
+      const provider = routed?.provider ?? exec?.agent?.options?.provider;
+      const model = routed?.model ?? exec?.agent?.options?.model;
+      const info = llm && provider && model ? await llm.resolveModelInfo(provider, model, exec?.signal).catch(() => null) : null;
+      if (!attachments || !info?.inputModalities?.includes('image')) return { text: '现在用的模型不能看图，这次看不了画面。' };
+      let data: Uint8Array;
+      try {
+        data = await screenshot();
+      } catch (err) {
+        hooks.log('warn', `look 截图失败：${(err as Error).message}`);
+        return { text: '画面没截到（直播电脑上的 OBS 没连上），过一会儿再看。' };
+      }
+      const ref = await attachments.saveImage({ data, mediaType: 'image/jpeg', name: 'look.jpg' });
+      const at = new Date(Date.now() + 8 * 3600_000).toISOString().slice(11, 19);
+      return {
+        text: `直播画面，${at}：`,
+        image: { attachmentId: String(ref.attachmentId), mediaType: ref.mediaType, bytes: ref.bytes, width: ref.width, height: ref.height, ...(ref.name ? { name: ref.name } : {}) },
+      };
+    },
+  })), 'look tool');
 
   // 这场的数据：播了多久、用了多少 token、大概花了多少钱
   ctx.effect(() => ctx.tools.register(defineTool({
