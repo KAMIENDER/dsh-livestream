@@ -17,6 +17,7 @@ import { Whisper } from '../body/asr';
 import { BiliAccount } from '../body/biliAccount';
 import { BiliVideos } from '../body/biliVideo';
 import { BiliSocial } from '../body/biliSocial';
+import { VideoLibrary } from '../body/videoLibrary';
 import { SocialManager } from '../body/social';
 import { Broadcast } from '../body/broadcast';
 import { DmManager } from '../body/dm';
@@ -335,3 +336,6 @@ export const asr = new Whisper({
   dataDir,
   log: (level, message) => hooks.log(level, message),
 });
+
+/** 视频库：她看过、放过的视频（详情、字幕、原视频弹幕、每次看的记录），存在 <dataDir>/videos */
+export const library = new VideoLibrary(join(dataDir, 'videos'), (message) => hooks.log('warn', message));

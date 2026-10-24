@@ -17,7 +17,7 @@ import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
 import { ttsYuan, turnYuan } from '../core/cost';
-import { asr, cookie, currentMoods, dm, hooks, markAgentReady, settings, show, social, videos } from './runtime';
+import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
 
@@ -153,11 +153,34 @@ async function listen(info: VideoInfo, part: VideoPart, from: number): Promise<S
   try {
     const heard = await asr.chunk({ bvid: info.bvid, cid: part.cid, durationSec: part.durationSec }, from, () => videos.audioUrl(info.bvid, part.cid),
       (text) => show.note('listen', `Whisper「${info.title.slice(0, 12)}」${text}`));
-    return heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until, engine: settings.asrModel } : null;
+    const sub: Subtitles | null = heard ? { kind: 'asr', lang: heard.lang, lines: heard.lines, until: heard.until, engine: settings.asrModel } : null;
+    library.subtitles(info, part, sub);
+    return sub;
   } catch (err) {
     hooks.log('warn', `语音识别失败（${info.bvid}）：${(err as Error).message}`);
     return null;
   }
+}
+
+/** 视频库：B 站字幕拿到就存一份 */
+async function officialSubtitles(info: VideoInfo, part: VideoPart): Promise<Subtitles | null> {
+  const sub = await videos.subtitles(info.bvid, part.cid);
+  library.subtitles(info, part, sub);
+  return sub;
+}
+
+/** 原视频弹幕：拿到就进视频库 */
+async function videoDanmaku(info: VideoInfo, part: VideoPart) {
+  const list = await videos.danmaku(part.cid);
+  library.danmaku(info, part, list);
+  return list;
+}
+
+/** 视频库记一次看 / 放：哪场、点之前直播间在聊什么 */
+function libraryView(how: 'watch' | 'play', fromSec: number, untilSec?: number) {
+  const logName = show.logName;
+  const chat = show.recentChat();
+  return { how, at: Date.now(), fromSec, ...(untilSec !== undefined ? { untilSec } : {}), ...(logName ? { show: logName } : {}), ...(chat.length ? { chat } : {}) };
 }
 
 /** 调一次模型（下播提炼记忆）：不思考，只要文字 */
@@ -566,7 +589,9 @@ export function apply(ctx: AgentContext): void {
       const { info, part } = found;
       const from = seconds(args.from);
       show.toolCall('watch_video', `「${info.title.slice(0, 16)}」`, `在看「${info.title.slice(0, 20)}」`);
-      const sub = (await videos.subtitles(info.bvid, part.cid)) ?? (await listen(info, part, from));
+      library.view(info, part, libraryView('watch', from));
+      if (!library.hasDanmaku(info, part)) void videoDanmaku(info, part).catch(() => {});
+      const sub = (await officialSubtitles(info, part)) ?? (await listen(info, part, from));
       const partArg = part.page > 1 ? `, part=${part.page}` : '';
       const subtitle = subtitleText(info, part, sub, from, partArg);
       const noLogin = !sub && !(await videos.loggedIn()) ? '（开播账号没登录：B 站的 AI 字幕要登录才给）' : '';
@@ -602,11 +627,13 @@ export function apply(ctx: AgentContext): void {
       show.toolCall('play_video', `「${info.title.slice(0, 16)}」`);
       // 边看边聊：后台拿这段的字幕（没有就边放边听写）和原视频弹幕
       const notes = new VideoNotes(from, until, {
-        subtitles: () => videos.subtitles(info.bvid, part.cid),
+        subtitles: () => officialSubtitles(info, part),
         listen: (at) => listen(info, part, at),
-        danmaku: () => videos.danmaku(part.cid),
+        danmaku: () => videoDanmaku(info, part),
       }, (message) => hooks.log('warn', message));
-      const { video, replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until }, notes);
+      const view = library.view(info, part, libraryView('play', from, until));
+      const { video, replaced } = show.playVideo({ bvid: info.bvid, title: info.title, up: info.up.name, url, fromSec: from, untilSec: until }, notes,
+        (end) => library.finish(info, part, view, { playedSec: end.playedSec, end: end.how, said: end.said }));
       // 等舞台真的开始放：她说「放上了」时就是放上了
       const outcome = show.stage.watchers ? await show.player.waitStart(video.id, PLAY_CONFIRM_MS) : 'playing';
       if (outcome === 'error') return `「${info.title}」没放出来（舞台加载不了这个视频${video.error ? `：${video.error}` : ''}），舞台换回了聊天的布局。可以换一个。`;

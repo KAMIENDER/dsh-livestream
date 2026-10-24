@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { LiveAttention } from '../core/attention/attention';
 import { setHerNames } from '../core/attention/features';
 import type { Topic, TopicBody } from '../core/attention/topics';
@@ -27,6 +27,13 @@ import type { BrainState, StageLiveEvent, StageUser } from '../stage/protocol';
 import { Player, type PlayRequest } from './player';
 import type { VideoNotes } from './watchAlong';
 import { Stage } from './stage';
+
+/** 一个视频不放了：怎么结束的、放了多少秒、这期间她说了什么 */
+export interface VideoEnd {
+  how: string;
+  playedSec: number;
+  said: string[];
+}
 
 export interface ShowHooks {
   /** 把一件事作为一条消息推进她的会话（唤醒她）；会话不在线返回 false */
@@ -113,7 +120,7 @@ export class LiveShow {
   /** 舞台上放视频（她用 play_video）：放完了告诉她 */
   readonly player = new Player(this.stage, (video, how, playedSec) => {
     this.record({ type: 'video', bvid: video.bvid, title: video.title, how, playedSec: Math.round(playedSec) });
-    this.endWatch();
+    this.endWatch(how, playedSec);
     if (this.onAir && !this.ending && !video.answered) this.priority.push({ kind: 'video', title: video.title, how, playedSec });
   });
   private attention: LiveAttention;
@@ -131,6 +138,8 @@ export class LiveShow {
   private endingPushed = false;
   /** 边看边聊：正在放的视频里有什么、上次告诉她看到了哪一秒、什么时候告诉的 */
   private watch: { id: string; notes: VideoNotes; seenSec: number; toldAt: number } | null = null;
+  /** 正在放的视频放完 / 停下 / 被换掉时告诉谁（视频库记她放的时候说了什么）；saidFrom：开始放时她说到第几句 */
+  private playing: { id: string; saidFrom: number; done: (end: VideoEnd) => void } | null = null;
   /** 开播账号新收到的私信、回复（没别的事要回时告诉她） */
   private inbox: string[] = [];
   private director: NodeJS.Timeout | null = null;
@@ -310,7 +319,7 @@ export class LiveShow {
     if (this.endingTimer) clearTimeout(this.endingTimer);
     this.endingTimer = null;
     if (!this.onAir) return;
-    this.stopVideo();
+    this.stopVideo('off');
     this.onAir = false;
     this.ending = false;
     this.endingPushed = false;
@@ -433,9 +442,20 @@ export class LiveShow {
     };
   }
 
-  private endWatch(): void {
+  /** 正在放的视频不放了（how：ended 放完、error 放不出来、stopped 她让停的、replaced 换别的了、off 下播） */
+  private endWatch(how: string, playedSec?: number): void {
     this.watch?.notes.stop();
     this.watch = null;
+    const playing = this.playing;
+    this.playing = null;
+    if (!playing) return;
+    const video = this.player.current;
+    const played = playedSec ?? (video && video.id === playing.id ? (this.player.position() ?? video.fromSec) - video.fromSec : 0);
+    try {
+      playing.done({ how, playedSec: Math.round(played), said: this.herLines.slice(playing.saidFrom) });
+    } catch (err) {
+      this.hooks.log?.('warn', `视频放完的记录出错：${(err as Error).message}`);
+    }
   }
 
   /** 念她写的话：合成语音、交给舞台、等念完 */
@@ -500,6 +520,19 @@ export class LiveShow {
     this.record({ type: 'comment', where, text });
   }
 
+  /** 直播间最近的弹幕（旧 → 新）：视频库记「点视频之前在聊什么」 */
+  recentChat(limit = 10, withinMs = 5 * 60_000, now = Date.now()): Array<{ name: string; uid: string; text: string; at: number }> {
+    return this.hub.recentEvents()
+      .filter((e): e is Extract<typeof e, { kind: 'chat' }> => e.kind === 'chat' && now - e.ts <= withinMs)
+      .slice(-limit)
+      .map((e) => ({ name: e.user.name, uid: e.user.id, text: e.text, at: e.ts }));
+  }
+
+  /** 这场直播的记录文件名（没在播为 null） */
+  get logName(): string | null {
+    return this.logFile ? basename(this.logFile) : null;
+  }
+
   /** 她用开播账号发了动态：记进这场的记录 */
   noteDynamic(text: string): void {
     this.record({ type: 'dynamic', text });
@@ -521,17 +554,21 @@ export class LiveShow {
   }
 
   /** 停下正在放的视频（她让停的、下播），不再听写后面的 */
-  stopVideo() {
-    this.endWatch();
+  stopVideo(how = 'stopped') {
+    this.endWatch(how);
     return this.player.stop();
   }
 
-  /** 在舞台上放一个视频（换掉正在放的）；记进这场的记录。notes：这段视频里有什么（边看边聊用） */
-  playVideo(request: PlayRequest, notes?: VideoNotes) {
+  /**
+   * 在舞台上放一个视频（换掉正在放的）；记进这场的记录。notes：这段视频里有什么（边看边聊用）；
+   * done：不放了的时候（放完、停下、换掉、下播）告诉调用的人放了多久、这期间她说了什么
+   */
+  playVideo(request: PlayRequest, notes?: VideoNotes, done?: (end: VideoEnd) => void) {
     const replaced = this.player.current;
-    this.endWatch();
+    this.endWatch('replaced');
     const video = this.player.play(request);
     if (notes) this.watch = { id: video.id, notes, seenSec: request.fromSec, toldAt: Date.now() };
+    if (done) this.playing = { id: video.id, saidFrom: this.herLines.length, done };
     this.record({ type: 'play', bvid: request.bvid, title: request.title, from: request.fromSec, until: request.untilSec });
     return { video, replaced };
   }
