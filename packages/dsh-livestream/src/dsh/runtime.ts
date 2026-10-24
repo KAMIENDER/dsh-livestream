@@ -278,6 +278,7 @@ export const broadcast = new Broadcast({
       show.rememberViewers = true;
     }
   },
+  onStreaming: () => show.markBroadcast(),
   log: (level, message) => hooks.log(level, message),
 });
 

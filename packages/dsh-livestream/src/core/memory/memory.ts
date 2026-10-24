@@ -21,6 +21,13 @@ interface Previous {
   isNew: boolean;
 }
 
+/** 上一场：什么时候开播、什么时候下播，回顾的头一两句 */
+export interface LastRecap {
+  lines: string[];
+  startedAt: number;
+  endedAt: number | null;
+}
+
 export class LiveMemory {
   private streamId: number | null = null;
   private previous = new Map<string, Previous>();
@@ -102,10 +109,15 @@ export class LiveMemory {
     return describeViewer(viewer, prev, now);
   }
 
-  /** 开场白用：上一场的一两句回顾 */
-  lastRecap(): string[] {
+  /** 这一场推流到直播间了（不是彩排） */
+  markBroadcast(): void {
+    if (this.streamId !== null) this.store.markBroadcast(this.streamId);
+  }
+
+  /** 开场白用：上一场什么时候、播了多久，和一两句回顾 */
+  lastRecap(): LastRecap | null {
     const stream = this.store.lastRecappedStream(this.streamId ?? undefined);
-    return stream ? stream.recap.slice(0, 2) : [];
+    return stream?.recap.length ? { lines: stream.recap.slice(0, 2), startedAt: stream.startedAt, endedAt: stream.endedAt } : null;
   }
 
   /** 她之前说过的口味（保持一致）和直播间的梗；最近的在前 */

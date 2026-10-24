@@ -41,6 +41,8 @@ export interface BroadcastOptions {
   cover(): { data: Uint8Array; mime: string } | null;
   /** 开通了直播间：记下房间号（身体连弹幕、标成自己的直播间） */
   onRoom(roomId: number): void;
+  /** 开始推流了（开播推上、或者插件重启后接上）：这一场不是彩排 */
+  onStreaming?(): void;
   log?(level: 'info' | 'warn', message: string): void;
 }
 
@@ -63,7 +65,9 @@ export class Broadcast {
   }
 
   private set(patch: Partial<BroadcastStatus>): void {
+    const was = this.state.phase;
     this.state = { ...this.state, ...patch };
+    if (this.state.phase === 'streaming' && was !== 'streaming') this.options.onStreaming?.();
     if (patch.step) this.options.log?.('info', `推流：${patch.step}`);
   }
 

@@ -8,13 +8,14 @@
 
 import type { LiveUser } from './live';
 import type { Topic } from './attention/topics';
+import type { LastRecap } from './memory/memory';
 import { cleanName, cleanText } from './safety';
 
 export interface TopicContext {
   /** 直播记忆：她记得这位观众什么（没有返回 null） */
   viewerCard?: (user: LiveUser) => string | null;
   /** 开场白用：上一场的回顾 */
-  lastRecap?: string[];
+  lastRecap?: LastRecap | null;
   /** 今天的日期（观众卡片里的日期要和它比） */
   today?: string;
   /** 开场用：直播画面上告示板写的（观众看得到） */
@@ -111,7 +112,7 @@ function body(topic: Topic, ctx: TopicContext): Body {
         what: [
           '直播刚刚开始。',
           ...(ctx.board?.trim() ? ['直播画面上有块告示板，观众看得到，上面写着：', '<告示板>', ctx.board.trim(), '</告示板>'] : []),
-          ...(ctx.lastRecap?.length ? [`上一场直播的回顾（可以提一句）：${ctx.lastRecap.join('；')}`] : []),
+          ...(ctx.lastRecap ? [`上一场直播（${whenLive(ctx.lastRecap)}）的回顾（可以提一句）：${ctx.lastRecap.lines.join('；')}`] : []),
         ],
         how: '跟大家打个招呼，介绍一下自己，邀请大家发弹幕聊天。',
         maxChars: 60,
@@ -194,4 +195,15 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   const heat = ['opening', 'ending', 'owner'].includes(topic.kind) ? '' : `${HEAT_TEXT[topic.heat]}。`;
   const head = `${heat}${ctx.today ? `今天是${ctx.today}。` : ''}`;
   return [...(head ? [head, ''] : []), ...b.what, '', `${b.how}不超过 ${b.maxChars} 字。`].join('\n');
+}
+
+/** 「10月23日 22:32 开播，播了 6 小时」（北京时间） */
+function whenLive(recap: LastRecap): string {
+  const at = new Date(recap.startedAt + 8 * 3600_000);
+  const start = `${at.getUTCMonth() + 1}月${at.getUTCDate()}日 ${String(at.getUTCHours()).padStart(2, '0')}:${String(at.getUTCMinutes()).padStart(2, '0')} 开播`;
+  if (!recap.endedAt) return start;
+  const minutes = Math.round((recap.endedAt - recap.startedAt) / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const length = hours ? `${hours} 小时${minutes % 60 >= 10 ? ` ${minutes % 60} 分钟` : ''}` : `${minutes} 分钟`;
+  return `${start}，播了 ${length}`;
 }

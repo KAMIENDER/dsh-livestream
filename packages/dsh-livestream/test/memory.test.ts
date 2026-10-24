@@ -1,5 +1,11 @@
 // 直播记忆：存储用 Node 自带的 node:sqlite（内存库），提炼用一个把原话原样当要点的假 LLM。
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
+import type { Topic } from '../src/core/attention/topics';
+import { topicText, type TopicContext } from '../src/core/topicText';
 import { LiveMemory } from '../src/core/memory/memory';
 import { FORGET_AFTER_MS, LiveMemoryStore } from '../src/core/memory/store';
 import { distillStream, type DistillLlm } from '../src/core/memory/distill';
@@ -26,6 +32,7 @@ describe('live memory store', () => {
   it('builds a profile across streams and shows it as a card', async () => {
     const m = fresh();
     const s1 = m.begin(T0);
+    m.markBroadcast();
     m.observe(chat(A, '我下周考研，好紧张'), false, T0);
     expect(m.viewerCard(A, T0)).toBe('第一次来直播间');
     m.end(T0 + 3600_000);
@@ -39,7 +46,7 @@ describe('live memory store', () => {
     expect(card).toContain('第 2 次来');
     expect(card).toContain('3 天前');
     expect(card).toContain('下周考研');
-    expect(m.lastRecap()).toEqual(['聊了考试']);
+    expect(m.lastRecap()?.lines).toEqual(['聊了考试']);
     expect(m.roomContext(t2)).toEqual({ tastes: ['喜欢夏日祭（馋画面）'], memes: ['泡面不能断'] });
   });
 
@@ -133,5 +140,39 @@ describe('live memory store', () => {
     const v = m.store.getViewer('bilibili', A.id)!;
     expect(v.giftYuan).toBe(210);
     expect(v.guardLevel).toBe(3);
+  });
+});
+
+describe('last stream recap', () => {
+  it('skips rehearsals that never went out and says when the last show was', async () => {
+    const m = fresh();
+    // 10 月 23 日 22:32（北京时间）开播，推了流，播 6 小时
+    const live = Date.UTC(2026, 9, 23, 14, 32);
+    const s1 = m.begin(live);
+    m.markBroadcast();
+    m.end(live + 6 * 3600_000);
+    await distillStream(m.store, s1, { herLines: [], name: '大肥鱼' }, echoLlm, live + 6 * 3600_000);
+    // 第二天中午彩排：没推流
+    const rehearsal = live + 14 * 3600_000;
+    const s2 = m.begin(rehearsal);
+    m.end(rehearsal + 6 * 60_000);
+    await distillStream(m.store, s2, { herLines: [], name: '大肥鱼' }, async () => JSON.stringify({ recap: ['彩排'], memes: [], tastes: [] }), rehearsal + 6 * 60_000);
+
+    m.begin(rehearsal + 3600_000);
+    const recap = m.lastRecap()!;
+    expect(recap.lines).toEqual(['聊了考试']);
+    const text = topicText({ kind: 'opening', id: 'o', priority: 0, heat: 'quiet', createdAt: 0 } as Topic, { lastRecap: recap } as TopicContext);
+    expect(JSON.stringify(text)).toContain('上一场直播（10月23日 22:32 开播，播了 6 小时）的回顾');
+  });
+
+  it('treats streams from an older database as broadcast', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'dsh-mem-')), 'old.db');
+    const db = new DatabaseSync(file);
+    db.exec(`CREATE TABLE streams (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at INTEGER NOT NULL, ended_at INTEGER, recap TEXT NOT NULL DEFAULT '[]', distilled INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO streams (started_at, ended_at, recap, distilled) VALUES (${T0}, ${T0 + DAY / 4}, '["老的一场"]', 1);`);
+    db.close();
+    const store = new LiveMemoryStore(file);
+    expect(store.lastRecappedStream()?.recap).toEqual(['老的一场']);
+    store.close();
   });
 });

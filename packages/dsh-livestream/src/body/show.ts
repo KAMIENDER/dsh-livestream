@@ -528,6 +528,11 @@ export class LiveShow {
       .map((e) => ({ name: e.user.name, uid: e.user.id, text: e.text, at: e.ts }));
   }
 
+  /** 这一场真的推流到直播间了：记忆里算一场（彩排不算「上一场」） */
+  markBroadcast(): void {
+    if (this.memoryStream) this.memory.markBroadcast();
+  }
+
   /** 这场直播的记录文件名（没在播为 null） */
   get logName(): string | null {
     return this.logFile ? basename(this.logFile) : null;

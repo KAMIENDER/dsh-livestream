@@ -127,7 +127,8 @@ export class LiveMemoryStore {
         started_at INTEGER NOT NULL,
         ended_at   INTEGER,
         recap      TEXT    NOT NULL DEFAULT '[]',
-        distilled  INTEGER NOT NULL DEFAULT 0
+        distilled  INTEGER NOT NULL DEFAULT 0,
+        broadcast  INTEGER NOT NULL DEFAULT 1
       );
       CREATE TABLE IF NOT EXISTS memes (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,6 +146,13 @@ export class LiveMemoryStore {
         UNIQUE (kind, subject)
       );
     `);
+    this.migrate();
+  }
+
+  /** 老库没有 broadcast 列：补上（以前的场次当作推过流的） */
+  private migrate(): void {
+    const cols = (this.db.prepare('PRAGMA table_info(streams)').all() as Array<{ name: string }>).map((c) => c.name);
+    if (!cols.includes('broadcast')) this.db.exec('ALTER TABLE streams ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 1');
   }
 
   close(): void {
@@ -154,7 +162,12 @@ export class LiveMemoryStore {
   // ── 场次 ─────────────────────────────────────────────
 
   beginStream(now: number): number {
-    return Number(this.db.prepare('INSERT INTO streams (started_at) VALUES (?)').run(now).lastInsertRowid);
+    return Number(this.db.prepare('INSERT INTO streams (started_at, broadcast) VALUES (?, 0)').run(now).lastInsertRowid);
+  }
+
+  /** 这一场真的推流到直播间了（没推过流的是彩排：观众照记，但不算「上一场」） */
+  markBroadcast(id: number): void {
+    this.db.prepare('UPDATE streams SET broadcast = 1 WHERE id = ?').run(id);
   }
 
   endStream(id: number, now: number): void {
@@ -177,9 +190,9 @@ export class LiveMemoryStore {
       .map((r) => r.id);
   }
 
-  /** 最近一场有回顾的直播（不含 exceptId） */
+  /** 最近一场推过流、有回顾的直播（不含 exceptId） */
   lastRecappedStream(exceptId?: number): StreamRecord | null {
-    const row = this.db.prepare(`SELECT id FROM streams WHERE distilled = 1 AND id != ? ORDER BY started_at DESC LIMIT 1`)
+    const row = this.db.prepare(`SELECT id FROM streams WHERE distilled = 1 AND broadcast = 1 AND id != ? ORDER BY started_at DESC LIMIT 1`)
       .get(exceptId ?? -1) as { id: number } | undefined;
     return row ? this.getStream(row.id) : null;
   }
