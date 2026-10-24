@@ -78,13 +78,11 @@ describe('other limits', () => {
     expect((await dm.send(A, '你好')).text).toContain('太快');
     expect((await dm.send(A, '字'.repeat(700))).text).toContain('太长');
   });
-  it('caps messages per viewer per show and needs a login', async () => {
+  it('keeps sending to a follower as often as she likes, and needs a login', async () => {
     const { account, dm } = setup();
     account.follows.set('42', true);
-    for (let i = 0; i < 3; i++) expect((await dm.send(A, `第${i}条`)).ok).toBe(true);
-    expect((await dm.send(A, '第4条')).text).toContain('刷屏');
-    dm.newShow();
+    for (let i = 0; i < 6; i++) expect((await dm.send(A, `第${i}条`)).ok).toBe(true);
     account.loggedIn = false;
-    expect((await dm.send(A, '新的一场')).text).toContain('没登录');
+    expect((await dm.send(A, '再来一条')).text).toContain('没登录');
   });
 });

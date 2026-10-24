@@ -17,7 +17,8 @@ import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
 import { asr, cookie, currentMoods, dm, hooks, settings, show, social, videos } from './runtime';
-import { COMMENT_GAP_MS, MAX_COMMENT_CHARS, MAX_COMMENTS_PER_SHOW } from '../body/social';
+import { BiliRoom } from '../body/biliRoom';
+import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
 
 export const name = 'dsh-livestream-agent';
 export const inject = ['tools'];
@@ -102,6 +103,17 @@ function seconds(value: unknown): number {
   const text = String(value ?? '').trim();
   if (!text) return 0;
   return Math.max(0, text.split(':').reduce((sum, n) => sum * 60 + (Number(n) || 0), 0));
+}
+
+/** 她说的一个人：私信过她的人、直播间里的观众（名字或 UID），或者任何 UID；认不出时返回告诉她怎么改的话 */
+function person(who: string): { uid: string; name: string } | string {
+  const w = who.trim();
+  const talker = social.findTalker(w);
+  if (talker) return talker;
+  const viewer = show.lookupViewer(w);
+  if (viewer.kind === 'found') return { uid: viewer.uid, name: viewer.user.name };
+  if (/^\d{1,20}$/.test(w)) return { uid: w, name: `UID ${w}` };
+  return lookupProblem(w, viewer);
 }
 
 /** 她给的视频（BV 号、av 号、链接）和第几 P → 视频详情；认不出、找不到时返回告诉她怎么改的话 */
@@ -206,7 +218,7 @@ export function apply(ctx: AgentContext): void {
   // 私信观众（开播账号发）
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'send_dm',
-    description: '用开播账号给一个人发一条 B 站私信（文字）。能发给这场直播里出现过的、以前来过的观众，和私信过你的人（check_inbox 里的）。'
+    description: '用开播账号给一个人发一条 B 站私信（文字）：直播间里的观众、私信过你的人，或者任何 B 站用户（填 UID）。'
       + 'B 站规定：对方没关注开播账号、也没回过私信时，只能发一条，要等他关注或回复才能再发；结果里会告诉你他关注了没有。',
     parameters: {
       who: { type: 'string', required: true, description: '名字（照消息里写的）或 UID' },
@@ -214,22 +226,12 @@ export function apply(ctx: AgentContext): void {
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute(args) {
-      const who = String(args.who ?? '');
-      // 私信过她的人：直接回
-      const talker = social.findTalker(who);
-      if (talker) {
-        show.toolCall('send_dm', `→ ${talker.name}`, `在回${talker.name}的私信`);
-        const result = await dm.send(talker, String(args.text ?? ''));
-        if (result.ok) show.noteDm(talker.name, String(args.text ?? ''));
-        return result.text;
-      }
-      const viewer = show.lookupViewer(who);
-      if (viewer.kind !== 'found') return lookupProblem(who, viewer);
-      if (!show.knowsViewer(viewer.uid)) return `UID ${viewer.uid} 没在这场直播里出现过，也不是以前来过的观众：私信只发给直播间里的观众。`;
-      if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，就不私信他了。`;
-      show.toolCall('send_dm', `→ ${viewer.user.name}`, `在给${viewer.user.name}发私信`);
-      const result = await dm.send({ uid: viewer.uid, name: viewer.user.name }, String(args.text ?? ''));
-      if (result.ok) show.noteDm(viewer.user.name, String(args.text ?? ''));
+      const who = person(String(args.who ?? ''));
+      if (typeof who === 'string') return who;
+      if (show.optedOut(who.uid)) return `${who.name} 说过不想被记住，就不私信他了。`;
+      show.toolCall('send_dm', `→ ${who.name}`, `在给${who.name}发私信`);
+      const result = await dm.send(who, String(args.text ?? ''));
+      if (result.ok) show.noteDm(who.name, String(args.text ?? ''));
       return result.text;
     },
   })), 'send_dm tool');
@@ -279,7 +281,7 @@ export function apply(ctx: AgentContext): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'post_comment',
     description: '用开播账号发一条 B 站评论：发在视频下面（video），或者回复某一条评论（reply_to，read_comments / check_inbox 里方括号的编号）。'
-      + `评论公开挂在那里，大家都看得到是这个账号发的。每场最多 ${MAX_COMMENTS_PER_SHOW} 条，两条之间隔 ${COMMENT_GAP_MS / 1000} 秒，不能带链接。`,
+      + `评论公开挂在那里，大家都看得到是这个账号发的。两条之间隔 ${COMMENT_GAP_MS / 1000} 秒（发太快 B 站会风控）。`,
     parameters: {
       text: { type: 'string', required: true, description: `评论内容（${MAX_COMMENT_CHARS} 字以内）` },
       video: { type: 'string', description: '发在哪个视频下面：BV 号、av 号或视频链接' },
@@ -333,6 +335,150 @@ export function apply(ctx: AgentContext): void {
       return social.conversation(talker.uid, talker.name);
     },
   })), 'read_dm tool');
+
+  const text = (value: string) => [{ type: 'text' as const, text: value }];
+  const stringOut = { schema: { type: 'string' as const }, render: (_args: unknown, value: string) => text(value) };
+
+  // 关注、取关
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'follow',
+    description: '用开播账号关注一个人（比如回关新粉丝），或者取关。',
+    parameters: {
+      who: { type: 'string', required: true, description: '名字（直播间里、私信里的）或 UID' },
+      unfollow: { type: 'boolean', description: 'true 是取关，默认关注' },
+    },
+    output: stringOut,
+    async execute(args) {
+      const who = person(String(args.who ?? ''));
+      if (typeof who === 'string') return who;
+      const follow = args.unfollow !== true;
+      show.toolCall('follow', `${follow ? '' : '取关 '}${who.name}`, follow ? `在关注${who.name}` : `在取关${who.name}`);
+      return social.follow(who.uid, who.name, follow);
+    },
+  })), 'follow tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'my_fans',
+    description: '看开播账号最新的粉丝：谁、什么时候关注的、你回关了没有。',
+    parameters: { page: { type: 'number', description: '第几页，默认 1' } },
+    output: stringOut,
+    async execute(args) {
+      show.toolCall('my_fans', '', '在看新粉丝');
+      return social.fans(Math.max(1, Math.floor(Number(args.page) || 1)));
+    },
+  })), 'my_fans tool');
+
+  // 删评论（自己发的，或者自己视频下面别人的）
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'delete_comment',
+    description: '删掉一条评论：你自己发的（post_comment 给的编号），或者开播账号自己视频下面别人的（read_comments / check_inbox 里的编号）。',
+    parameters: { comment: { type: 'string', required: true, description: '评论编号' } },
+    output: stringOut,
+    async execute(args) {
+      const rpid = String(args.comment ?? '').trim();
+      show.toolCall('delete_comment', rpid, '在删评论');
+      return social.deleteComment(rpid);
+    },
+  })), 'delete_comment tool');
+
+  // 发动态
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'post_dynamic',
+    description: '用开播账号发一条 B 站文字动态（标注为 AI 生成），关注这个账号的人首页都看得到。',
+    parameters: { text: { type: 'string', required: true, description: '动态内容' } },
+    output: stringOut,
+    async execute(args) {
+      show.toolCall('post_dynamic', String(args.text ?? '').slice(0, 16), '在发动态');
+      const result = await social.postDynamic(String(args.text ?? ''));
+      if (result.ok) show.noteDynamic(String(args.text ?? ''));
+      return result.text;
+    },
+  })), 'post_dynamic tool');
+
+  // 收藏、投币
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'favorite',
+    description: `把一个 B 站视频收进你自己的收藏夹「${FAVORITE_FOLDER}」（开播账号上，主人原有的收藏夹不动）。`,
+    parameters: { video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' } },
+    output: stringOut,
+    async execute(args) {
+      const found = await findVideo(args.video, undefined);
+      if (typeof found === 'string') return found;
+      show.toolCall('favorite', `「${found.info.title.slice(0, 16)}」`, '在收藏');
+      return social.favorite(found.info.aid, found.info.title);
+    },
+  })), 'favorite tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'coin',
+    description: '用开播账号给一个 B 站视频投币（1 个或 2 个，一个视频最多投 2 个），可以顺便点赞。硬币是账号自己的。',
+    parameters: {
+      video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
+      count: { type: 'number', description: '投几个：1 或 2，默认 1' },
+      like: { type: 'boolean', description: '顺便点赞，默认 true' },
+    },
+    output: stringOut,
+    async execute(args) {
+      const found = await findVideo(args.video, undefined);
+      if (typeof found === 'string') return found;
+      const count = Number(args.count) === 2 ? 2 : 1;
+      show.toolCall('coin', `「${found.info.title.slice(0, 16)}」×${count}`, '在投币');
+      return social.coin(found.info.aid, found.info.title, count, args.like !== false);
+    },
+  })), 'coin tool');
+
+  // 直播间：禁言、解禁、改标题
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'mute',
+    description: '在你的直播间禁言一个人（这段时间他发不了弹幕）。',
+    parameters: {
+      who: { type: 'string', required: true, description: '名字（弹幕里的）或 UID' },
+      hours: { type: 'number', description: '禁言多少小时，默认 1' },
+    },
+    output: stringOut,
+    async execute(args) {
+      const roomId = settings.roomId;
+      if (!roomId) return '还不知道你的直播间是哪个（没开过播）。';
+      const who = person(String(args.who ?? ''));
+      if (typeof who === 'string') return who;
+      const hours = Math.max(1, Math.min(720, Math.floor(Number(args.hours) || 1)));
+      show.toolCall('mute', `${who.name} ${hours}h`, `在禁言${who.name}`);
+      return social.mute(roomId, who.uid, who.name, hours);
+    },
+  })), 'mute tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'unmute',
+    description: '解开直播间里一个人的禁言（名字或 UID）；名字对不上时会列出现在被禁言的人。',
+    parameters: { who: { type: 'string', required: true, description: '名字或 UID' } },
+    output: stringOut,
+    async execute(args) {
+      const roomId = settings.roomId;
+      if (!roomId) return '还不知道你的直播间是哪个（没开过播）。';
+      show.toolCall('unmute', String(args.who ?? ''), '在解禁言');
+      return social.unmute(roomId, String(args.who ?? ''));
+    },
+  })), 'unmute tool');
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'set_live_title',
+    description: '改你直播间的标题（40 字以内），推荐页和搜索里显示的就是它。',
+    parameters: { title: { type: 'string', required: true, description: '新标题' } },
+    output: stringOut,
+    async execute(args) {
+      const roomId = settings.roomId;
+      const title = String(args.title ?? '').trim().slice(0, 40);
+      if (!roomId) return '还不知道你的直播间是哪个（没开过播）。';
+      if (!title) return '标题是空的。';
+      show.toolCall('set_live_title', title.slice(0, 16), '在改直播间标题');
+      try {
+        await new BiliRoom(await cookie()).update(roomId, { title });
+        return `直播间标题改成了「${title}」。`;
+      } catch (err) {
+        return `改标题没成功：${(err as Error).message}`;
+      }
+    },
+  })), 'set_live_title tool');
 
   // 搜 B 站视频
   ctx.effect(() => ctx.tools.register(defineTool({

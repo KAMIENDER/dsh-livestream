@@ -1,19 +1,18 @@
 /**
- * 她用开播账号点赞、看评论、发评论、看收件箱：B 站的规矩和这边的上限在这里管，结果写成她能照着做的话。
- *
- *   - 用的是主人的账号，发出去的评论公开挂在视频下面：每场最多 MAX_COMMENTS_PER_SHOW 条、两条至少隔 COMMENT_GAP_MS、
- *     不超过 MAX_COMMENT_CHARS 字、不带链接；点赞每场最多 MAX_LIKES_PER_SHOW 个
- *   - 回复某一楼要知道它在哪个评论区、哪一楼：只认这场里她看过的（read_comments、check_inbox 给的 rpid）
+ * 她用开播账号点赞、评论、关注、收藏、投币、发动态、看收件箱、管直播间：结果写成她能照着做的话。
+ * 主人把账号的权限都交给她了，这里不设额外的上限，只照 B 站的规矩来：
+ *   - 两条评论之间隔 COMMENT_GAP_MS（发太快 B 站会风控、要验证码），一条不超过 MAX_COMMENT_CHARS 字（B 站的上限）
+ *   - 回复、删除某一条评论要知道它在哪个评论区、哪一楼：只认她看到过的（read_comments、check_inbox 给的编号）
  *   - 收件箱提醒：开播时的私信、回复记成「看过了」，之后新来的才提醒她（newSince）
  * 评论、私信内容都是别人写的：包在标签里给她看。
  */
 
 import { SocialError, type Comment, type DmMessage, type DmSession, type Mention } from './biliSocial';
 
-export const MAX_COMMENTS_PER_SHOW = 10;
-export const COMMENT_GAP_MS = 60_000;
-export const MAX_COMMENT_CHARS = 300;
-export const MAX_LIKES_PER_SHOW = 50;
+export const COMMENT_GAP_MS = 15_000;
+export const MAX_COMMENT_CHARS = 1000;
+/** 她自己的收藏夹（不往主人原有的收藏夹里放） */
+export const FAVORITE_FOLDER = '大肥鱼收藏';
 
 export interface SocialApi {
   likeVideo(aid: number): Promise<boolean>;
@@ -24,6 +23,18 @@ export interface SocialApi {
   dmMessages(uid: string, size?: number): Promise<DmMessage[]>;
   mentions(): Promise<Mention[]>;
   names(uids: string[]): Promise<Map<string, string>>;
+  relation(uid: string): Promise<{ iFollow: boolean; followsMe: boolean }>;
+  follow(uid: string, follow: boolean): Promise<void>;
+  fans(page: number): Promise<{ total: number; list: Array<{ uid: string; name: string; at: number; mutual: boolean }> }>;
+  deleteComment(type: number, oid: string, rpid: string): Promise<void>;
+  markRead(uid: string): Promise<void>;
+  postDynamic(text: string): Promise<string>;
+  favorite(aid: number, folderTitle: string): Promise<'added' | 'already'>;
+  coin(aid: number, multiply: 1 | 2, like: boolean): Promise<void>;
+  coins(): Promise<number>;
+  mute(roomId: number, uid: string, hours: number): Promise<void>;
+  muted(roomId: number): Promise<Array<{ id: string; uid: string; name: string; at: string; until: string }>>;
+  unmute(roomId: number, id: string): Promise<void>;
 }
 
 /** 评论区：视频（type 1）用 aid 当 oid */
@@ -32,8 +43,6 @@ export interface Thread {
   oid: string;
   title: string;
 }
-
-const LINK = /https?:\/\/|www\.|b23\.tv|\.(com|cn|net|top|xyz)\b/i;
 
 function ago(ms: number): string {
   const min = Math.round(ms / 60_000);
@@ -51,6 +60,10 @@ function errorText(err: unknown, what: string): string {
     12051: '这句评论和之前发过的重复了',
     12002: '这个评论区关了', 12009: '这个评论区关了',
     12025: '字数太多了',
+    12022: '这条评论已经删掉了', 12035: '没有权限删这条评论（只能删自己的、或者自己视频下的）',
+    22001: '不能关注自己', 22002: '对方设置了不让人关注', 22003: '对方把这个账号拉黑了', 22009: '关注的人数到上限了', 22013: '对方账号已经注销',
+    34002: '不能给自己的视频投币', 34003: '投币数量不对', 34004: '投得太快，过一会儿再投', 34005: '这个视频已经投满了（一个视频最多投 2 个）', [-104]: '硬币不够了',
+    11010: '收藏夹满了',
     [-509]: '发得太快，被 B 站限制了，过几分钟再试', 12019: '发得太快，被 B 站限制了，过几分钟再试',
     65006: '已经赞过了',
   };
@@ -58,8 +71,6 @@ function errorText(err: unknown, what: string): string {
 }
 
 export class SocialManager {
-  private likes = 0;
-  private commentsPosted = 0;
   private lastCommentAt = 0;
   /** 她这场看过的评论：rpid → 在哪个评论区、哪一楼（回复、点赞评论用） */
   private known = new Map<string, Thread & { root: string; name: string }>();
@@ -69,10 +80,8 @@ export class SocialManager {
 
   constructor(private readonly api: SocialApi, private readonly now: () => number = Date.now) {}
 
-  /** 新的一场：计数清零，收件箱重新记「看过了」 */
+  /** 新的一场：收件箱重新记「看过了」 */
   newShow(): void {
-    this.likes = 0;
-    this.commentsPosted = 0;
     this.seen = null;
   }
 
@@ -88,11 +97,9 @@ export class SocialManager {
   }
 
   async likeVideo(aid: number, title: string): Promise<string> {
-    if (this.likes >= MAX_LIKES_PER_SHOW) return `这场已经点了 ${MAX_LIKES_PER_SHOW} 个赞，到上限了。`;
     try {
       const fresh = await this.api.likeVideo(aid);
       if (!fresh) return `「${title}」之前已经赞过了。`;
-      this.likes += 1;
       return `给「${title}」点了赞（用的是开播账号）。`;
     } catch (err) {
       return errorText(err, '点赞');
@@ -102,10 +109,8 @@ export class SocialManager {
   async likeComment(rpid: string): Promise<string> {
     const c = this.known.get(rpid);
     if (!c) return `不知道 ${rpid} 是哪条评论：先用 read_comments 或 check_inbox 看到它，再用那里给的编号。`;
-    if (this.likes >= MAX_LIKES_PER_SHOW) return `这场已经点了 ${MAX_LIKES_PER_SHOW} 个赞，到上限了。`;
     try {
       await this.api.likeComment(c.type, c.oid, rpid);
-      this.likes += 1;
       return `给 ${c.name} 在「${c.title}」下的评论点了赞。`;
     } catch (err) {
       return errorText(err, '点赞');
@@ -139,8 +144,6 @@ export class SocialManager {
     const text = raw.trim();
     if (!text) return { ok: false, text: '评论是空的，没发。' };
     if ([...text].length > MAX_COMMENT_CHARS) return { ok: false, text: `评论太长了（${[...text].length} 字），最多 ${MAX_COMMENT_CHARS} 字。` };
-    if (LINK.test(text)) return { ok: false, text: '评论里有链接，没发：开播账号的评论不带链接。' };
-    if (this.commentsPosted >= MAX_COMMENTS_PER_SHOW) return { ok: false, text: `这场已经发了 ${MAX_COMMENTS_PER_SHOW} 条评论，到上限了。` };
     const wait = this.lastCommentAt + COMMENT_GAP_MS - this.now();
     if (wait > 0) return { ok: false, text: `离上一条评论才过了 ${Math.round((COMMENT_GAP_MS - wait) / 1000)} 秒，评论两条之间要隔 ${COMMENT_GAP_MS / 1000} 秒（发太快 B 站会风控），${Math.ceil(wait / 1000)} 秒后再发。` };
     let target: Thread & { root?: string; parent?: string; name?: string };
@@ -156,10 +159,9 @@ export class SocialManager {
     this.lastCommentAt = this.now();
     try {
       const rpid = await this.api.comment(target.type, target.oid, text, target.root, target.parent);
-      this.commentsPosted += 1;
       if (rpid) this.known.set(rpid, { type: target.type, oid: target.oid, title: target.title, root: target.root ?? rpid, name: '你' });
       const where = target.name ? `回复了 ${target.name}（在「${target.title}」下）` : `在「${target.title}」下发了评论`;
-      return { ok: true, text: `用开播账号${where}，大家都看得到。这场还能发 ${MAX_COMMENTS_PER_SHOW - this.commentsPosted} 条。` };
+      return { ok: true, text: `用开播账号${where}，大家都看得到。${rpid ? `这条评论的编号是 ${rpid}（想删掉用 delete_comment）。` : ''}` };
     } catch (err) {
       return { ok: false, text: errorText(err, '发评论') };
     }
@@ -205,7 +207,109 @@ export class SocialManager {
     }
     if (!messages.length) return `和 ${name} 还没有私信往来。`;
     this.talkers.set(uid, name);
-    return [`和 ${name}（UID ${uid}）最近的私信（只有你看得到）：`, '<私信>', ...messages.map((m) => `${m.fromMe ? '你' : name}（${ago(this.now() - m.at)}）：${m.text}`), '</私信>'].join('\n');
+    // 她看过了：标成已读（主人那边就不会一直显示未读）
+    await this.api.markRead(uid).catch(() => {});
+    return [`和 ${name}（UID ${uid}）最近的私信（只有你看得到，已标成已读）：`, '<私信>', ...messages.map((m) => `${m.fromMe ? '你' : name}（${ago(this.now() - m.at)}）：${m.text}`), '</私信>'].join('\n');
+  }
+
+  // ── 关注 ──
+
+  async follow(uid: string, name: string, follow: boolean): Promise<string> {
+    try {
+      const before = await this.api.relation(uid).catch(() => null);
+      if (before && before.iFollow === follow) return follow ? `已经关注着 ${name} 了。` : `本来就没关注 ${name}。`;
+      await this.api.follow(uid, follow);
+      if (!follow) return `取关了 ${name}。`;
+      return `关注了 ${name}${before?.followsMe ? '，你们现在是互相关注' : ''}。`;
+    } catch (err) {
+      return errorText(err, follow ? '关注' : '取关');
+    }
+  }
+
+  async fans(page: number): Promise<string> {
+    try {
+      const { total, list } = await this.api.fans(page);
+      if (!list.length) return page > 1 ? '这一页没有了。' : '还没有粉丝。';
+      return [
+        `开播账号一共 ${total} 个粉丝，最新关注的（第 ${page} 页）：`,
+        ...list.map((f) => `- ${f.name}（UID ${f.uid}），${ago(this.now() - f.at)}关注${f.mutual ? '，已互相关注' : '，你还没关注他'}`),
+        '回关用 follow；翻页填 page。',
+      ].join('\n');
+    } catch (err) {
+      return errorText(err, '看粉丝');
+    }
+  }
+
+  // ── 评论区管理 ──
+
+  async deleteComment(rpid: string): Promise<string> {
+    const c = this.known.get(rpid);
+    if (!c) return `不知道 ${rpid} 是哪条评论：先用 read_comments 或 check_inbox 看到它，或者用你发评论时给的编号。`;
+    try {
+      await this.api.deleteComment(c.type, c.oid, rpid);
+      this.known.delete(rpid);
+      return `删掉了「${c.title}」下${c.name === '你' ? '你发的' : ` ${c.name} 的`}那条评论。`;
+    } catch (err) {
+      return errorText(err, '删评论');
+    }
+  }
+
+  // ── 动态 ──
+
+  async postDynamic(raw: string): Promise<{ ok: boolean; text: string }> {
+    const text = raw.trim();
+    if (!text) return { ok: false, text: '动态是空的，没发。' };
+    try {
+      const id = await this.api.postDynamic(text);
+      return { ok: true, text: `用开播账号发了一条动态（标注为 AI 生成），关注的人首页都看得到。${id ? `动态 id ${id}。` : ''}` };
+    } catch (err) {
+      return { ok: false, text: errorText(err, '发动态') };
+    }
+  }
+
+  // ── 收藏、投币 ──
+
+  async favorite(aid: number, title: string): Promise<string> {
+    try {
+      const r = await this.api.favorite(aid, FAVORITE_FOLDER);
+      return r === 'already' ? `「${title}」已经在「${FAVORITE_FOLDER}」里了。` : `把「${title}」收进了收藏夹「${FAVORITE_FOLDER}」。`;
+    } catch (err) {
+      return errorText(err, '收藏');
+    }
+  }
+
+  async coin(aid: number, title: string, count: 1 | 2, like: boolean): Promise<string> {
+    try {
+      await this.api.coin(aid, count, like);
+      const left = await this.api.coins().catch(() => null);
+      return `给「${title}」投了 ${count} 个硬币${like ? '，顺便点了赞' : ''}。${left !== null ? `账号还剩 ${Math.floor(left)} 个硬币。` : ''}`;
+    } catch (err) {
+      return errorText(err, '投币');
+    }
+  }
+
+  // ── 直播间禁言 ──
+
+  async mute(roomId: number, uid: string, name: string, hours: number): Promise<string> {
+    try {
+      await this.api.mute(roomId, uid, hours);
+      return `在直播间禁言了 ${name} ${hours} 小时（这段时间他发不了弹幕）。想提前解开用 unmute。`;
+    } catch (err) {
+      return errorText(err, '禁言');
+    }
+  }
+
+  async unmute(roomId: number, who: string): Promise<string> {
+    try {
+      const list = await this.api.muted(roomId);
+      const w = who.trim();
+      const row = list.find((r) => r.uid === w || r.name === w) ?? list.find((r) => r.name.includes(w));
+      if (!row) return list.length ? `禁言名单里没有「${who}」。现在被禁言的：${list.map((r) => `${r.name}（UID ${r.uid}）`).join('、')}。` : '禁言名单是空的。';
+      await this.api.unmute(roomId, row.id);
+      return `解开了 ${row.name} 的禁言。`;
+    } catch (err) {
+      return errorText(err, '解禁言');
+    }
   }
 
   /** 这场开播以后新来的私信、回复、@（第一次调用只记下现有的，返回空） */

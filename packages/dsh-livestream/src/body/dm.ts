@@ -6,7 +6,7 @@
  *     B 站还是返回 21047（以前别的时候发过）也照样记下。
  *   - 对方隐私设置不收（25003）：记下，以后不再试。
  *   - 发太快（21020 / 21046）：两条之间至少隔 SEND_GAP_MS；被限了就告诉她过一会儿再说。
- *   - 一条最多 2000 字节（留点余量 MAX_BYTES）；每场、每人都有上限，免得刷屏。
+ *   - 一条最多 2000 字节（留点余量 MAX_BYTES）。条数不设上限：主人把账号交给她了。
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -14,8 +14,6 @@ import { DmError, type DmAccount } from './biliAccount';
 
 const MAX_BYTES = 1900;
 const SEND_GAP_MS = 15_000;
-export const MAX_DM_PER_SHOW = 20;
-export const MAX_DM_PER_VIEWER = 3;
 
 interface DmState {
   /** 发了一条、在等对方关注或回复 */
@@ -46,8 +44,6 @@ function ago(ms: number): string {
 export class DmManager {
   private state: DmState = { waiting: {}, closed: {} };
   private lastSentAt = 0;
-  private showCount = 0;
-  private perViewer = new Map<string, number>();
 
   constructor(
     private readonly account: DmAccount,
@@ -69,11 +65,8 @@ export class DmManager {
     if (this.file) writeFileSync(this.file, JSON.stringify(this.state, null, 1));
   }
 
-  /** 新的一场直播：每场的计数清零（「等他关注」的记录留着） */
-  newShow(): void {
-    this.showCount = 0;
-    this.perViewer.clear();
-  }
+  /** 新的一场直播（「等他关注」的记录留着） */
+  newShow(): void {}
 
   async send(viewer: DmViewer, raw: string): Promise<DmResult> {
     const text = raw.trim();
@@ -84,8 +77,6 @@ export class DmManager {
 
     const closed = this.state.closed[viewer.uid];
     if (closed) return { ok: false, text: `${name} 的隐私设置不收陌生人私信（${ago(this.now() - closed.at)}试过），发不了：可以在直播里请他打开「允许接收私信」。` };
-    if (this.showCount >= MAX_DM_PER_SHOW) return { ok: false, text: `这场已经发了 ${MAX_DM_PER_SHOW} 条私信，到上限了，剩下的在直播里说吧。` };
-    if ((this.perViewer.get(viewer.uid) ?? 0) >= MAX_DM_PER_VIEWER) return { ok: false, text: `这场已经给 ${name} 发了 ${MAX_DM_PER_VIEWER} 条私信了，再发就像刷屏，剩下的在直播里跟他说吧。` };
 
     if (!(await this.account.me())) return { ok: false, text: '开播账号没登录（Cookie 失效了），私信发不出去：告诉主人重新登录 B 站。' };
 
@@ -127,8 +118,6 @@ export class DmManager {
       return { ok: false, text: `没发出去：B 站返回 ${code || '错误'} ${(err as Error).message}`.trim() };
     }
 
-    this.showCount += 1;
-    this.perViewer.set(viewer.uid, (this.perViewer.get(viewer.uid) ?? 0) + 1);
     if (follows === null) follows = await this.account.followsMe(viewer.uid).catch(() => null);
     if (follows) return { ok: true, text: `已经私信给 ${name} 了。他关注了你，之后还可以继续私信他。` };
     this.state.waiting[viewer.uid] = { name, sentAt: this.now() };

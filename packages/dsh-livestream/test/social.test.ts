@@ -1,11 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SocialError, plain } from '../src/body/biliSocial';
-import { COMMENT_GAP_MS, MAX_COMMENTS_PER_SHOW, SocialManager, type SocialApi } from '../src/body/social';
+import { COMMENT_GAP_MS, FAVORITE_FOLDER, SocialManager, type SocialApi } from '../src/body/social';
 
-function fakeApi(over: Partial<SocialApi> = {}): SocialApi & { posted: Array<unknown[]> } {
+function fakeApi(over: Partial<SocialApi> = {}): SocialApi & { posted: Array<unknown[]>; calls: string[] } {
   const posted: Array<unknown[]> = [];
+  const calls: string[] = [];
+  const following = new Set<string>();
   return {
     posted,
+    calls,
+    relation: async (uid) => ({ iFollow: following.has(uid), followsMe: true }),
+    follow: async (uid, follow) => { calls.push(`${follow ? 'follow' : 'unfollow'} ${uid}`); if (follow) following.add(uid); else following.delete(uid); },
+    fans: async () => ({ total: 2, list: [{ uid: '7', name: '新粉丝', at: Date.now(), mutual: false }, { uid: '8', name: '老粉丝', at: Date.now(), mutual: true }] }),
+    deleteComment: async (type, oid, rpid) => { calls.push(`delete ${type} ${oid} ${rpid}`); },
+    markRead: async (uid) => { calls.push(`read ${uid}`); },
+    postDynamic: async (text) => { calls.push(`dynamic ${text}`); return '123'; },
+    favorite: async (aid, folder) => { calls.push(`favorite ${aid} ${folder}`); return 'added'; },
+    coin: async (aid, n, like) => { calls.push(`coin ${aid} ${n} ${like}`); },
+    coins: async () => 2100,
+    mute: async (room, uid, hours) => { calls.push(`mute ${room} ${uid} ${hours}`); },
+    muted: async () => [{ id: '55', uid: '9', name: '捣乱的', at: '', until: '' }],
+    unmute: async (room, id) => { calls.push(`unmute ${room} ${id}`); },
     likeVideo: async () => true,
     likeComment: async () => {},
     comments: async () => ({
@@ -39,21 +54,26 @@ describe('comments', () => {
     expect(api.posted[0]).toEqual([1, '100', '我也觉得', '11', '12']);
   });
 
-  it('keeps the account safe: links, gaps, unknown ids and the per-show cap', async () => {
+  it('only follows Bilibili rules: spacing between comments and knowing where to reply', async () => {
     let now = 1_000_000;
     const social = new SocialManager(fakeApi(), () => now);
-    expect((await social.postComment(thread, '看这个 https://b23.tv/x')).text).toContain('链接');
     expect((await social.postComment(null, '你好', '999')).text).toContain('不知道 999');
-    expect((await social.postComment(thread, '第一条')).ok).toBe(true);
+    expect((await social.postComment(thread, '看这个 https://b23.tv/x')).ok).toBe(true);
     expect((await social.postComment(thread, '第二条')).text).toContain(`要隔 ${COMMENT_GAP_MS / 1000} 秒`);
-    for (let i = 1; i < MAX_COMMENTS_PER_SHOW; i++) {
+    for (let i = 0; i < 15; i++) {
       now += COMMENT_GAP_MS;
-      expect((await social.postComment(thread, `第${i + 1}条`)).ok).toBe(true);
+      expect((await social.postComment(thread, `第${i + 3}条`)).ok).toBe(true);
     }
-    now += COMMENT_GAP_MS;
-    expect((await social.postComment(thread, '再来一条')).text).toContain('到上限了');
-    social.newShow();
-    expect((await social.postComment(thread, '新的一场')).ok).toBe(true);
+  });
+
+  it('deletes her own comment by the id it handed back', async () => {
+    const api = fakeApi();
+    const social = new SocialManager(api);
+    const posted = await social.postComment(thread, '发错了');
+    expect(posted.text).toContain('编号是 r1');
+    expect(await social.deleteComment('r1')).toContain('删掉了「猫猫视频」下你发的那条评论');
+    expect(api.calls).toContain('delete 1 100 r1');
+    expect(await social.deleteComment('r1')).toContain('不知道 r1');
   });
 
   it('says what went wrong in words she can act on', async () => {
@@ -95,5 +115,43 @@ describe('inbox', () => {
     expect(text).toContain('<私信>主播好</私信>');
     expect(text).toContain('[55] 路人');
     expect(text).toContain('回复了你「本鱼来了」');
+  });
+});
+
+describe('account', () => {
+  it('follows back, unfollows, and lists new fans', async () => {
+    const api = fakeApi();
+    const social = new SocialManager(api);
+    expect(await social.follow('7', '新粉丝', true)).toContain('互相关注');
+    expect(await social.follow('7', '新粉丝', false)).toContain('取关了');
+    expect(api.calls).toEqual(['follow 7', 'unfollow 7']);
+    const fans = await social.fans(1);
+    expect(fans).toContain('新粉丝（UID 7）');
+    expect(fans).toContain('你还没关注他');
+    expect(fans).toContain('已互相关注');
+  });
+
+  it('posts dynamics, favorites into her own folder, coins, and marks DMs read', async () => {
+    const api = fakeApi({ dmMessages: async () => [{ fromMe: false, text: '在吗', at: Date.now() }] });
+    const social = new SocialManager(api);
+    expect((await social.postDynamic('今晚播了六小时')).ok).toBe(true);
+    expect(await social.favorite(42, '猫猫')).toContain(FAVORITE_FOLDER);
+    expect(await social.coin(42, '猫猫', 2, true)).toContain('还剩 2100 个硬币');
+    expect(await social.conversation('7', '新粉丝')).toContain('已标成已读');
+    expect(api.calls).toEqual(['dynamic 今晚播了六小时', `favorite 42 ${FAVORITE_FOLDER}`, 'coin 42 2 true', 'read 7']);
+  });
+
+  it('mutes in the room and unmutes by name', async () => {
+    const api = fakeApi();
+    const social = new SocialManager(api);
+    expect(await social.mute(26835777, '9', '捣乱的', 2)).toContain('禁言了 捣乱的 2 小时');
+    expect(await social.unmute(26835777, '捣乱的')).toContain('解开了 捣乱的');
+    expect(await social.unmute(26835777, '没这人')).toContain('现在被禁言的：捣乱的（UID 9）');
+    expect(api.calls).toEqual(['mute 26835777 9 2', 'unmute 26835777 55']);
+  });
+
+  it('tells her plainly when Bilibili says no', async () => {
+    const social = new SocialManager(fakeApi({ coin: async () => { throw new SocialError(34005, '超过投币上限'); } }));
+    expect(await social.coin(42, '猫猫', 1, false)).toContain('投满了');
   });
 });

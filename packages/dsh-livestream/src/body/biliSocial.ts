@@ -211,6 +211,133 @@ export class BiliSocial {
     return [...(replies.items ?? []).map(map('reply')), ...(ats.items ?? []).map(map('at'))].sort((a, b) => b.at - a.at);
   }
 
+  // ── 关注 ──
+
+  /** 我关注他了没有、他关注我了没有 */
+  async relation(uid: string): Promise<{ iFollow: boolean; followsMe: boolean }> {
+    const data = await this.get<{ relation?: { attribute?: number }; be_relation?: { attribute?: number } }>(`https://api.bilibili.com/x/web-interface/relation?mid=${uid}`);
+    const on = (a?: number) => a === 2 || a === 6;
+    return { iFollow: on(data.relation?.attribute), followsMe: on(data.be_relation?.attribute) };
+  }
+
+  /** follow：true 关注，false 取关 */
+  async follow(uid: string, follow: boolean): Promise<void> {
+    await this.post('https://api.bilibili.com/x/relation/modify', { fid: uid, act: follow ? 1 : 2, re_src: 11 });
+  }
+
+  /** 最新的粉丝（mutual：互相关注） */
+  async fans(page: number): Promise<{ total: number; list: Array<{ uid: string; name: string; at: number; mutual: boolean }> }> {
+    const me = await this.me();
+    const data = await this.get<{ total?: number; list?: any[] }>(`https://api.bilibili.com/x/relation/fans?vmid=${me}&ps=20&pn=${page}`);
+    return {
+      total: Number(data.total) || 0,
+      list: (data.list ?? []).map((f) => ({ uid: String(f.mid), name: plain(f.uname, 30), at: (Number(f.mtime) || 0) * 1000, mutual: Number(f.attribute) === 6 })),
+    };
+  }
+
+  // ── 评论区管理 ──
+
+  async deleteComment(type: number, oid: string, rpid: string): Promise<void> {
+    await this.post('https://api.bilibili.com/x/v2/reply/del', { type, oid, rpid });
+  }
+
+  // ── 私信已读 ──
+
+  /** 把和他的会话标成已读（读到最新一条） */
+  async markRead(uid: string): Promise<void> {
+    const data = await this.get<{ max_seqno?: number }>(
+      `https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs?talker_id=${uid}&session_type=1&size=1`, 'https://message.bilibili.com/');
+    if (!data.max_seqno) return;
+    const s = await this.auth();
+    const csrf = cookieValue(s.cookie, 'bili_jct') ?? '';
+    const res = await fetch('https://api.vc.bilibili.com/session_svr/v1/session_svr/update_ack', {
+      method: 'POST',
+      headers: { 'User-Agent': UA, Referer: 'https://message.bilibili.com/', Origin: 'https://message.bilibili.com', Cookie: s.cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ talker_id: uid, session_type: '1', ack_seqno: String(data.max_seqno), csrf, csrf_token: csrf, build: '0', mobi_app: 'web' }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const body = (await res.json()) as { code: number; message?: string };
+    if (body.code !== 0) throw new SocialError(body.code, body.message ?? '');
+  }
+
+  // ── 动态 ──
+
+  /** 发一条文字动态，返回动态 id（option.aigc：标成 AI 生成的内容） */
+  async postDynamic(text: string): Promise<string> {
+    const s = await this.auth();
+    const csrf = cookieValue(s.cookie, 'bili_jct');
+    if (!s.loggedIn || !csrf) throw new SocialError(-101, '没登录');
+    const dynReq = {
+      content: { contents: [{ raw_text: text, type: 1, biz_id: '' }] },
+      pics: [], scene: 2,
+      meta: { app_meta: { from: 'create.dynamic.web', mobi_app: 'web' } },
+      option: { aigc: 2, private_pub: 0 },
+    };
+    const headers = { 'User-Agent': UA, Referer: 'https://t.bilibili.com/', Origin: 'https://t.bilibili.com', Cookie: s.cookie, 'Content-Type': 'application/json' };
+    const check = (await (await fetch(`https://api.bilibili.com/x/dynamic/feed/create/submit_check?csrf=${encodeURIComponent(csrf)}`, {
+      method: 'POST', headers, body: JSON.stringify({ content: dynReq.content, pics: dynReq.pics, scene: dynReq.scene, create_option: dynReq.option }), signal: AbortSignal.timeout(TIMEOUT_MS),
+    })).json()) as { code: number; message?: string };
+    if (check.code !== 0) throw new SocialError(check.code, check.message ?? '');
+    const res = (await (await fetch(`https://api.bilibili.com/x/dynamic/feed/create/dyn?platform=web&csrf=${encodeURIComponent(csrf)}`, {
+      method: 'POST', headers, body: JSON.stringify({ dyn_req: dynReq }), signal: AbortSignal.timeout(TIMEOUT_MS),
+    })).json()) as { code: number; message?: string; data?: { dyn_id_str?: string; dyn_id?: number } };
+    if (res.code !== 0) throw new SocialError(res.code, res.message ?? '');
+    return res.data?.dyn_id_str ?? String(res.data?.dyn_id ?? '');
+  }
+
+  // ── 收藏、投币 ──
+
+  /** 收藏到她自己的收藏夹（没有就建一个，不动主人原有的收藏夹） */
+  async favorite(aid: number, folderTitle: string): Promise<'added' | 'already'> {
+    const me = await this.me();
+    const folders = await this.get<{ list?: Array<{ id: number; title: string }> | null }>(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${me}&rid=${aid}&type=2`);
+    let folder = (folders.list ?? []).find((f) => f.title === folderTitle) as { id: number; fav_state?: number } | undefined;
+    if (!folder) folder = (await this.post('https://api.bilibili.com/x/v3/fav/folder/add', { title: folderTitle, intro: '大肥鱼直播时收藏的视频', privacy: 0 })) as { id: number };
+    if ((folder as { fav_state?: number }).fav_state === 1) return 'already';
+    await this.post('https://api.bilibili.com/x/v3/fav/resource/deal', { rid: aid, type: 2, add_media_ids: folder.id, del_media_ids: '' });
+    return 'added';
+  }
+
+  /** 投币（multiply 1 或 2），like：顺便点赞 */
+  async coin(aid: number, multiply: 1 | 2, like: boolean): Promise<void> {
+    await this.post('https://api.bilibili.com/x/web-interface/coin/add', { aid, multiply, select_like: like ? 1 : 0 });
+  }
+
+  async coins(): Promise<number> {
+    const data = await this.get<{ money?: number }>('https://api.bilibili.com/x/web-interface/nav');
+    return Number(data.money) || 0;
+  }
+
+  // ── 直播间禁言（接口实测 2026-10：加在 web-ucenter、查在 app-ucenter、解在 banned_service）──
+
+  private async livePost(url: string, form: Record<string, string | number>): Promise<any> {
+    const s = await this.auth();
+    const csrf = cookieValue(s.cookie, 'bili_jct');
+    if (!s.loggedIn || !csrf) throw new SocialError(-101, '没登录');
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'User-Agent': UA, Referer: 'https://live.bilibili.com/', Origin: 'https://live.bilibili.com', Cookie: s.cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(Object.entries({ ...form, csrf, csrf_token: csrf }).map(([k, v]) => [k, String(v)])),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const body = (await res.json()) as { code: number; message?: string; msg?: string; data?: any };
+    if (body.code !== 0) throw new SocialError(body.code, body.message ?? body.msg ?? '');
+    return body.data;
+  }
+
+  async mute(roomId: number, uid: string, hours: number): Promise<void> {
+    await this.livePost('https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/AddSilentUser', { room_id: roomId, tuid: uid, mobile_app: 'web', hour: hours, msg: '' });
+  }
+
+  async muted(roomId: number): Promise<Array<{ id: string; uid: string; name: string; at: string; until: string }>> {
+    const data = await this.livePost('https://api.live.bilibili.com/xlive/app-ucenter/v1/banned/GetSilentUserList', { room_id: roomId, ps: 50, pn: 1 });
+    return (data?.data ?? []).map((r: any) => ({ id: String(r.id), uid: String(r.tuid), name: plain(r.tname, 30), at: String(r.ctime ?? ''), until: String(r.block_end_time ?? '') }));
+  }
+
+  async unmute(roomId: number, id: string): Promise<void> {
+    await this.livePost('https://api.live.bilibili.com/banned_service/v1/Silent/del_room_block_user', { roomid: roomId, id });
+  }
+
   /** uid → 名字（私信会话只给 uid） */
   async names(uids: string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>();

@@ -421,6 +421,11 @@ export class LiveShow {
     this.record({ type: 'comment', where, text });
   }
 
+  /** 她用开播账号发了动态：记进这场的记录 */
+  noteDynamic(text: string): void {
+    this.record({ type: 'dynamic', text });
+  }
+
   /** 这位观众认不认识：这场里出现过，或者观众记忆里有他（私信只发给认识的人） */
   knowsViewer(uid: string): boolean {
     return this.hub.recentEvents().some((e) => e.user.id === uid) || !!this.memory.store.getViewer('bilibili', uid);
