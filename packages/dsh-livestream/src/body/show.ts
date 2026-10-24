@@ -36,6 +36,19 @@ export interface ShowHooks {
   /** 下播后提炼观众记忆用的模型 */
   distill?: DistillLlm;
   log?(level: 'info' | 'warn', message: string): void;
+  /** 存下正在播的这一场（插件重启后接着播用）；null：这场结束了 */
+  persist?(snapshot: LiveSnapshot | null): void;
+}
+
+/** 正在播的一场：插件重启后接着播要的东西 */
+export interface LiveSnapshot {
+  sessionId: string;
+  roomId: number | null;
+  /** 观众记忆里这一场的 id（不记的房间为 null） */
+  streamId: number | null;
+  logFile: string | null;
+  /** 最后一次存的时间（算断了多久） */
+  at: number;
 }
 
 export interface ShowOptions {
@@ -79,6 +92,8 @@ const ENDING_GRACE_MS = 90_000;
 const RECENT_LINES = 40;
 /** 合成一段语音最多等多久（超时再试一次，还不行就只出字幕） */
 const SYNTH_TIMEOUT_MS = 15_000;
+/** 在播时多久存一次这一场（插件重启后按它算断了多久） */
+const PERSIST_EVERY_MS = 20_000;
 /** 边看边聊：放视频时她安静了这么久（离上次「视频这会儿」也这么久），就告诉她视频这段在说什么 */
 const WATCH_GAP_MS = 20_000;
 /** 一次最多告诉她多长一段 */
@@ -225,6 +240,46 @@ export class LiveShow {
     this.setBrain('listening');
     this.syncRoom();
     if (!this.director) this.director = setInterval(() => void this.direct(), TICK_MS);
+    this.persistLive();
+  }
+
+  /** 插件重启后接着播（同一个会话、同一场记忆和记录）：先告诉她断了多久 */
+  resumeLive(snapshot: LiveSnapshot, now = Date.now()): void {
+    if (this.onAir) return;
+    this.brainSession = snapshot.sessionId;
+    this.onAir = true;
+    this.ending = false;
+    this.endingPushed = false;
+    this.turnRunning = false;
+    this.attention = this.freshAttention();
+    this.memoryStream = snapshot.streamId !== null;
+    if (snapshot.streamId !== null) this.memory.resume(snapshot.streamId);
+    this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)) }];
+    this.inbox = [];
+    this.logFile = snapshot.logFile;
+    this.record({ type: 'resume', gapMs: now - snapshot.at });
+    this.setBrain('listening');
+    this.syncRoom();
+    if (!this.director) this.director = setInterval(() => void this.direct(), TICK_MS);
+    this.persistLive();
+  }
+
+  /** 一场没收尾就停了、又太久没接上（不是正常的重启）：把它记成结束，观众记忆照常提炼 */
+  closeStale(snapshot: LiveSnapshot): void {
+    if (snapshot.streamId === null || !this.hooks.distill) return;
+    this.memory.resume(snapshot.streamId);
+    const streamId = this.memory.end(snapshot.at);
+    if (streamId === null) return;
+    void distillStream(this.memory.store, streamId, { herLines: [], name: this.options.names[0] ?? '' }, this.hooks.distill, Date.now())
+      .then((r) => this.hooks.log?.('info', `上一场直播的记忆提炼完：${r.viewers} 位观众`))
+      .catch((err) => this.hooks.log?.('warn', `上一场直播的记忆提炼失败：${(err as Error).message}`));
+  }
+
+  private persistedAt = 0;
+  private persistLive(now = Date.now()): void {
+    if (!this.onAir || !this.brainSession) return;
+    this.persistedAt = now;
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now });
   }
 
   /** 下播：先让她道别，说完（或等太久）就收工 */
@@ -250,6 +305,7 @@ export class LiveShow {
     this.syncRoom();
     const streamId = this.memoryStream ? this.memory.end(Date.now()) : null;
     this.memoryStream = false;
+    this.hooks.persist?.(null);
     this.record({ type: 'end' });
     this.logFile = null;
     if (streamId !== null && this.hooks.distill) {
@@ -270,6 +326,7 @@ export class LiveShow {
   // ── 导演：她空下来就推下一件事 ─────────────────────
 
   private async direct(): Promise<void> {
+    if (this.onAir && Date.now() - this.persistedAt > PERSIST_EVERY_MS) this.persistLive();
     if (!this.onAir || !this.brainSession || this.pushing || this.speaking > 0) return;
     const now = Date.now();
     if (this.turnRunning) {
@@ -528,8 +585,15 @@ export class LiveShow {
     }
   }
 
+  /** 插件停了（多半是 DSH 重启、更新）：在播的这一场不收尾，存好，起来以后接着播 */
   dispose(): void {
-    this.finish();
+    if (this.onAir && !this.ending) {
+      this.persistLive();
+      this.record({ type: 'suspend' });
+      this.player.stop();
+    } else {
+      this.finish();
+    }
     if (this.director) clearInterval(this.director);
     this.director = null;
     this.disconnect();
@@ -545,7 +609,7 @@ export function estimateSpeechMs(text: string): number {
 const KIND_LABEL: Record<Topic['kind'], string> = {
   chat: '在看弹幕', superchat: '在看醒目留言', thanks: '在谢礼物', gifts: '在谢礼物', trend: '在看大家刷屏',
   welcome: '在欢迎新观众', follow: '在谢关注', idle: '在找话说', opening: '在准备开场', ending: '在准备道别', owner: '在听主人说话',
-  video: '视频放完了', watching: '在看视频', inbox: '在看私信和评论',
+  video: '视频放完了', watching: '在看视频', inbox: '在看私信和评论', resumed: '在接着播',
 };
 
 function topicLabel(topic: Topic): string {

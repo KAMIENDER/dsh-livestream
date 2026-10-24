@@ -137,6 +137,12 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return topic.how === 'ended'
         ? { what: [`你放的视频「${cleanText(topic.title)}」放完了（放了 ${minutes(topic.playedSec)}），舞台换回了聊天的样子。`], how: '可以说说看完的感想、问问大家觉得怎么样，或者接着聊弹幕。', maxChars: 60 }
         : { what: [`你要放的视频「${cleanText(topic.title)}」没放出来（舞台加载不了 B 站的视频地址）。`], how: '跟大家说一声，可以换一个或者接着聊。', maxChars: 40 };
+    case 'resumed':
+      return {
+        what: [`直播插件刚才重启了一下（主人在更新功能），断了大约 ${topic.gapSec} 秒；直播间、推流和这场的对话都还在。`],
+        how: '接着播就好，可以跟大家说一声刚才卡了一下。',
+        maxChars: 40,
+      };
     case 'inbox':
       return {
         what: ['你的 B 站账号刚收到（直播间的人看不到这些）：', ...topic.lines.map((l) => `- ${l}`)],

@@ -19,7 +19,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { asr, broadcast, cookie, DEFAULT_BOARD, hooks, publishBoard, SECRETS, social, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, publishBoard, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -74,12 +74,57 @@ function simulated(input: { kind?: string; name?: string; text?: string; gift?: 
 /** 下播后等她道别说完再停推 */
 let waitingOffair: NodeJS.Timeout | null = null;
 
+/** 断多久以内算重启（接着播）；更久就当上一场已经结束了 */
+const RESUME_WITHIN_MS = 10 * 60_000;
+
+/**
+ * 插件起来时，上次停下的那一场还没收尾：恢复她的会话（DSH 的 sessionController 从磁盘接回来，
+ * 她的 agent 起来以后推消息、念话的那套也就接上了）、重连直播间、接上还在推的 OBS，告诉她断了多久。
+ */
+async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<void> {
+  const saved = takeLive();
+  if (!saved) return;
+  if (Date.now() - saved.at > RESUME_WITHIN_MS) {
+    show.closeStale(saved);
+    return;
+  }
+  // DSH 的服务和她的 agent 要一会儿才起来：最多等一分钟
+  const deadline = Date.now() + 60_000;
+  let resumed = false;
+  while (!stopped() && Date.now() < deadline) {
+    const controller = ctx.get?.('sessionController');
+    if (controller?.agents?.resolveAgent) {
+      const result = await controller.agents.resolveAgent(saved.sessionId).catch((err: Error) => ({ error: err }));
+      if (!('error' in result)) { resumed = true; break; }
+      console.warn(`[dsh-livestream] 恢复她的会话失败：${String(result.error?.message ?? result.error)}`);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (!resumed || stopped()) {
+    show.closeStale(saved);
+    return;
+  }
+  // 等 agent 子插件把推消息的钩子装上
+  while (!stopped() && Date.now() < deadline && !agentReady()) await new Promise((r) => setTimeout(r, 500));
+  if (saved.roomId) show.connect(saved.roomId, await cookie(), settings.ownRooms.includes(saved.roomId));
+  show.resumeLive(saved);
+  if (saved.broadcasting && saved.roomId) await broadcast.adopt(saved.roomId);
+  console.warn(`[dsh-livestream] 接着播：会话 ${saved.sessionId}，断了 ${Math.round((Date.now() - saved.at) / 1000)} 秒，推流${broadcast.streaming ? '接上了' : '没接上'}`);
+}
+
 export function apply(ctx: HostContext): void {
   ctx.effect(() => {
     server.start().catch((err) => console.warn(`[dsh-livestream] 舞台服务器起不来（端口 ${settings.stagePort}）：${(err as Error).message}`));
     return () => server.stop();
   }, 'dsh-livestream stage server');
   ctx.effect(() => () => show.dispose(), 'dsh-livestream show');
+  // 断点续播：上次停下时还在播（DSH 重启、更新插件），接着播
+  ctx.effect(() => {
+    let stopped = false;
+    void resumeLive(ctx, () => stopped).catch((err) => console.warn(`[dsh-livestream] 接着播失败：${(err as Error).message}`));
+    return () => { stopped = true; };
+  }, 'dsh-livestream resume');
   ctx.effect(() => () => asr.close(), 'dsh-livestream asr');
 
   const route = (path: string, methods: string[], fetch: (request: Request) => Response | Promise<Response>, label: string) =>

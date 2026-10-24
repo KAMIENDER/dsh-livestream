@@ -44,6 +44,8 @@ export type TopicBody =
   | { kind: 'owner'; text: string; interrupted?: string; who?: string }
   /** 她在舞台上放的视频放完了（error：没放出来）；playedSec 是放了多久 */
   | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number }
+  /** 直播插件重启了（主人在更新），断了 gapSec 秒，这场接着播 */
+  | { kind: 'resumed'; gapSec: number }
   /** 开播账号收到了新私信、评论回复、@（只有她看得到；lines 已经写好、内容包在标签里） */
   | { kind: 'inbox'; lines: string[] }
   /**

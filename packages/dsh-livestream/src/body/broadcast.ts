@@ -141,6 +141,27 @@ export class Broadcast {
     }
   }
 
+  /**
+   * 插件重启前就在推流（OBS 是单独的进程，一直推着）：接上它，不重新开播。
+   * OBS 没在推了返回 false
+   */
+  async adopt(roomId: number): Promise<boolean> {
+    if (this.state.phase === 'streaming') return true;
+    try {
+      const obs = await connectObs(false);
+      const health = await streamHealth(obs);
+      if (!health.active) { obs.close(); return false; }
+      this.obs = obs;
+      this.cancelled = false;
+      this.set({ phase: 'streaming', step: '推流中（插件重启后接上）', roomId, faceQr: null, error: null, health, startedAt: Date.now() });
+      if (this.healthTimer) clearInterval(this.healthTimer);
+      this.healthTimer = setInterval(() => void this.poll(), 2000);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** 停推、下播 */
   async stop(): Promise<void> {
     this.cancelled = true;

@@ -16,7 +16,7 @@ import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoIn
 import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
-import { asr, cookie, currentMoods, dm, hooks, settings, show, social, videos } from './runtime';
+import { asr, cookie, currentMoods, dm, hooks, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
 
@@ -177,6 +177,7 @@ export function apply(ctx: AgentContext): void {
   };
   hooks.complete = (model, system, user) => completeWithDsh(ctx, model, system, user);
   hooks.push = (sessionId, text) => push(ctx, sessionId, text);
+  markAgentReady();
   // 警告也打到 stderr：DSH 网页版的日志只在内存里，服务器上看 web.log 才找得到
   if (ctx.logger) hooks.log = (level, message) => {
     ctx.logger[level]?.(`dsh-livestream: ${message}`);

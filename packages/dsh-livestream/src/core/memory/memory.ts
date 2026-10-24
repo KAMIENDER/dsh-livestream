@@ -41,6 +41,11 @@ export class LiveMemory {
     return this.streamId;
   }
 
+  /** 接着记一场没结束的（插件重启后断点续播） */
+  resume(id: number): void {
+    this.streamId = id;
+  }
+
   /** 结束这一场，返回场次 id（之后交给提炼） */
   end(now: number): number | null {
     const id = this.streamId;

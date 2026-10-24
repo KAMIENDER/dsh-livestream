@@ -8,11 +8,11 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LiveShow } from '../body/show';
+import { LiveShow, type LiveSnapshot } from '../body/show';
 import { Whisper } from '../body/asr';
 import { BiliAccount } from '../body/biliAccount';
 import { BiliVideos } from '../body/biliVideo';
@@ -204,6 +204,7 @@ export const show = new LiveShow(
     },
     distill,
     log: (level, message) => hooks.log(level, message),
+    persist: (snapshot) => saveLive(snapshot),
   },
   { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000, board: () => settings.boardText },
 );
@@ -281,6 +282,37 @@ export const broadcast = new Broadcast({
 
 /** 她给观众发私信（开播账号）：B 站「对方没关注只能发一条」等规矩在这里管 */
 export const dm = new DmManager(new BiliAccount(cookie), join(dataDir, 'dm.json'));
+
+// ── 断点续播：在播的这一场存在磁盘上，插件（DSH）重启后接着播 ──
+
+const LIVE_FILE = join(dataDir, 'live.json');
+
+function saveLive(snapshot: LiveSnapshot | null): void {
+  try {
+    if (!snapshot) rmSync(LIVE_FILE, { force: true });
+    else writeFileSync(LIVE_FILE, JSON.stringify({ ...snapshot, broadcasting: broadcast.streaming }));
+  } catch (err) {
+    hooks.log('warn', `存不了直播状态：${(err as Error).message}`);
+  }
+}
+
+/** 上次停下时还在播的那一场（没有返回 null）；读了就删，接上以后会重新存 */
+/** agent 子插件（她的会话）起来、装好推消息的钩子了没有 */
+let agentAttached = false;
+export const agentReady = (): boolean => agentAttached;
+export function markAgentReady(): void {
+  agentAttached = true;
+}
+
+export function takeLive(): (LiveSnapshot & { broadcasting: boolean }) | null {
+  try {
+    const saved = JSON.parse(readFileSync(LIVE_FILE, 'utf8')) as LiveSnapshot & { broadcasting: boolean };
+    rmSync(LIVE_FILE, { force: true });
+    return saved?.sessionId ? saved : null;
+  } catch {
+    return null;
+  }
+}
 
 /** 她点赞、看评论、发评论、看收件箱（开播账号） */
 export const social = new SocialManager(new BiliSocial(cookie));
