@@ -394,11 +394,11 @@ export function apply(ctx: AgentContext): void {
       const minutes = Math.round(s.liveMs / 60_000);
       const lines = [
         `这场播了 ${minutes >= 60 ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟` : `${minutes} 分钟`}。`,
-        `你用了 ${usage.tokens.toLocaleString('en-US')} token（缓存命中 ${usage.cacheRead.toLocaleString('en-US')}，没命中的输入 ${usage.input.toLocaleString('en-US')}，输出 ${usage.output.toLocaleString('en-US')}）${usage.model ? `，模型 ${usage.model}` : ''}。`,
+        `你用了 ${usage.tokens.toLocaleString('en-US')} token（缓存命中 ${usage.cacheRead.toLocaleString('en-US')}，没命中的输入 ${usage.input.toLocaleString('en-US')}，输出 ${usage.output.toLocaleString('en-US')}）。`,
         usage.priced
-          ? `模型大概花了 ${money(usage.yuan)}（DeepSeek 官方价，缓存命中很便宜；工作日白天高峰价，其余时间半价）。`
+          ? `模型大概花了 ${money(usage.yuan)}（缓存命中很便宜；工作日白天高峰价，其余时间半价）。`
           : '这个模型的价钱这里不知道，只能报 token。',
-        `念了大约 ${s.spokenChars} 个字，配音大概 ${money(tts)}（豆包声音复刻，3 元一万字）。`,
+        `念了大约 ${s.spokenChars} 个字，配音大概 ${money(tts)}（3 元一万字）。`,
       ];
       return lines.join('\n');
     },

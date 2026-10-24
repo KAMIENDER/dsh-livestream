@@ -110,7 +110,7 @@ describe('watching text', () => {
       danmaku: ['老菊牛逼'], id: 'w', priority: 1, heat: 'quiet', createdAt: 0,
     }, {});
     expect(text).toContain('正放到 1:35');
-    expect(text).toContain('Whisper（large-v3-turbo）听写的');
+    expect(text).toContain('主人给你装的 Whisper 听写的');
     expect(text).toContain('<原视频弹幕>');
     expect(text).toContain('- 老菊牛逼');
     expect(text).toContain('不超过 40 字');

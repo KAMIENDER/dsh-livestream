@@ -449,7 +449,7 @@ export function subtitleText(v: VideoInfo, part: VideoPart, sub: Subtitles | nul
   }
   if (!chunk.text) return `${clock(fromSec)} 以后没有字幕了（视频一共 ${clock(part.durationSec)}）。`;
   const kind = sub.kind === 'ai' ? `B 站官方 AI 识别的${sub.lang}字幕（B 站自己听写的，可能有错字）`
-    : sub.kind === 'asr' ? `这个视频 B 站没有字幕（官方 AI 字幕也没有）。下面是主人给你装的语音识别 Whisper（${sub.engine ?? '开源模型'}，在直播电脑的显卡上跑）听了一遍写下来的${langName(sub.lang)}，不是 B 站官方字幕：听错、写错的地方不少，人名和专有名词尤其容易错`
+    : sub.kind === 'asr' ? `这个视频 B 站没有字幕（官方 AI 字幕也没有）。下面是主人给你装的语音识别 Whisper 听了一遍写下来的${langName(sub.lang)}，不是 B 站官方字幕：听错、写错的地方不少，人名和专有名词尤其容易错`
     : `${sub.lang}字幕`;
   return [
     `${kind}，${clock(chunk.startSec)}–${clock(chunk.endSec)}：`,

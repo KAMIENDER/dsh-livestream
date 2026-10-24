@@ -176,7 +176,7 @@ function body(topic: Topic, ctx: TopicContext): Body {
 const SOURCE_TEXT: Record<'human' | 'ai' | 'asr' | 'none', (engine?: string) => string> = {
   human: () => '视频的字幕',
   ai: () => 'B 站官方 AI 识别的字幕，可能有错字',
-  asr: (engine) => `主人给你装的 Whisper${engine ? `（${engine}）` : ''}听写的，不是 B 站官方字幕，听错、写错的地方不少`,
+  asr: () => '主人给你装的 Whisper 听写的，不是 B 站官方字幕，听错、写错的地方不少',
   none: () => '没有字幕',
 };
 
