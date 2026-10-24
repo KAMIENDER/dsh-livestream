@@ -105,6 +105,11 @@ async function push(ctx: AgentContext, sessionId: string, text: string): Promise
   return true;
 }
 
+/** 钱数写给她看：不到一分钱就说不到一分钱 */
+function money(yuan: number): string {
+  return yuan < 0.01 ? '不到 1 分钱' : `${yuan.toFixed(2)} 元`;
+}
+
 /** 默认放多久、最多放多久（秒）：一个长视频不会把整场直播占掉 */
 const PLAY_DEFAULT_SEC = 180;
 const PLAY_MAX_SEC = 600;
@@ -369,9 +374,9 @@ export function apply(ctx: AgentContext): void {
         `这场播了 ${minutes >= 60 ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟` : `${minutes} 分钟`}。`,
         `你用了 ${usage.tokens.toLocaleString('en-US')} token（缓存命中 ${usage.cacheRead.toLocaleString('en-US')}，没命中的输入 ${usage.input.toLocaleString('en-US')}，输出 ${usage.output.toLocaleString('en-US')}）${usage.model ? `，模型 ${usage.model}` : ''}。`,
         usage.priced
-          ? `模型大概花了 ${usage.yuan.toFixed(2)} 元（DeepSeek 官方价，缓存命中很便宜；工作日白天高峰价，其余时间半价）。`
+          ? `模型大概花了 ${money(usage.yuan)}（DeepSeek 官方价，缓存命中很便宜；工作日白天高峰价，其余时间半价）。`
           : '这个模型的价钱这里不知道，只能报 token。',
-        `念了大约 ${s.spokenChars} 个字，配音大概 ${tts.toFixed(2)} 元（豆包声音复刻，3 元一万字）。`,
+        `念了大约 ${s.spokenChars} 个字，配音大概 ${money(tts)}（豆包声音复刻，3 元一万字）。`,
       ];
       return lines.join('\n');
     },

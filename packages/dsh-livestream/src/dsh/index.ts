@@ -110,7 +110,8 @@ async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<voi
   if (saved.roomId) show.connect(saved.roomId, await cookie(), settings.ownRooms.includes(saved.roomId));
   show.resumeLive(saved);
   if (saved.broadcasting && saved.roomId) await broadcast.adopt(saved.roomId);
-  console.warn(`[dsh-livestream] 接着播：会话 ${saved.sessionId}，断了 ${Math.round((Date.now() - saved.at) / 1000)} 秒，推流${broadcast.streaming ? '接上了' : '没接上'}`);
+  const pushing = saved.broadcasting ? `，推流${broadcast.streaming ? '接上了' : '没接上（OBS 已经不在推了）'}` : '（彩排，没在推流）';
+  console.warn(`[dsh-livestream] 接着播：会话 ${saved.sessionId}，断了 ${Math.round((Date.now() - saved.at) / 1000)} 秒${pushing}`);
 }
 
 export function apply(ctx: HostContext): void {
