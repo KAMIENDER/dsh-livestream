@@ -20,6 +20,7 @@ import { ttsYuan, turnYuan } from '../core/cost';
 import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
 import { screenshot } from '../body/obs';
+import { whoIs } from '../body/biliLogin';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
 
 export const name = 'dsh-livestream-agent';
@@ -232,14 +233,22 @@ export function apply(ctx: AgentContext): void {
   // 看观众的 B 站主页（公开信息）
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'view_profile',
-    description: '看一位观众的 B 站个人主页：等级、签名、粉丝和关注数、最近投稿、置顶视频、代表作、空间公告、有没有直播间。'
-      + '只看得到主页上公开的东西。要几秒钟。',
+    description: '看一个 B 站个人主页：等级、签名、粉丝和关注数、最近投稿、置顶视频、代表作、空间公告、有没有直播间。'
+      + '可以看观众的，也可以看你自己开播账号的。只看得到主页上公开的东西。要几秒钟。',
     parameters: {
-      who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID' },
+      who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID；看你自己开播账号的主页填「自己」' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute(args) {
       const who = String(args.who ?? '');
+      if (who.trim() === '自己') {
+        const me = await whoIs(await cookie());
+        if (!me) return '开播账号现在没登录，看不了自己的主页。';
+        show.toolCall('view_profile', me.name, '在看自己的主页');
+        const profile = await fetchProfile(String(me.uid), await cookie());
+        return profile ? `你自己的开播账号（${me.name}，UID ${me.uid}）：
+${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能是网络问题）。';
+      }
       const viewer = show.lookupViewer(who);
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
