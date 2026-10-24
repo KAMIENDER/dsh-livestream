@@ -110,9 +110,8 @@ function money(yuan: number): string {
   return yuan < 0.01 ? '不到 1 分钱' : `${yuan.toFixed(2)} 元`;
 }
 
-/** 默认放多久、最多放多久（秒）：一个长视频不会把整场直播占掉 */
-const PLAY_DEFAULT_SEC = 180;
-const PLAY_MAX_SEC = 600;
+/** B 站没给时长时，不指定就放这么久（秒） */
+const PLAY_UNKNOWN_SEC = 600;
 /** play_video 最多等舞台多久确认开始放 */
 const PLAY_CONFIRM_MS = 15_000;
 
@@ -604,14 +603,14 @@ export function apply(ctx: AgentContext): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'play_video',
     description: '在直播间的舞台上放一个 B 站视频给大家看：舞台换成看视频的布局，放完换回来，放完了会告诉你。'
-      + `默认从头放 ${PLAY_DEFAULT_SEC / 60} 分钟，可以指定从哪里开始、放多久（最长 ${PLAY_MAX_SEC / 60} 分钟）。`
+      + '默认从头放到结尾，可以指定从哪里开始、放多久。'
       + '放的时候你照常说话、回弹幕，你说话时视频声音会自动调小。正在放的会被换掉。'
       + '舞台只在这个工具被调用时开始放：你说「我放一下」只是念给大家听，视频要靠这次调用才出现在舞台上。',
     parameters: {
       video: { type: 'string', required: true, description: 'BV 号、av 号或视频链接' },
       part: { type: 'number', description: '多 P 视频的第几 P，默认 1' },
       from: { type: 'string', description: '从哪里开始放：秒数或「分:秒」，默认 0' },
-      seconds: { type: 'number', description: `放多少秒，默认 ${PLAY_DEFAULT_SEC}，最多 ${PLAY_MAX_SEC}` },
+      seconds: { type: 'number', description: '放多少秒，不填就放到结尾' },
     },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text' as const, text: value }] },
     async execute(args) {
@@ -620,8 +619,9 @@ export function apply(ctx: AgentContext): void {
       const { info, part } = found;
       const from = Math.floor(seconds(args.from));
       if (part.durationSec && from >= part.durationSec) return `「${info.title}」一共只有 ${clock(part.durationSec)}，从 ${clock(from)} 开始就没有了。`;
-      const length = Math.min(PLAY_MAX_SEC, Math.max(5, Number(args.seconds) || PLAY_DEFAULT_SEC));
-      const until = part.durationSec ? Math.min(part.durationSec, from + length) : from + length;
+      const asked = Number(args.seconds) > 0 ? Math.max(5, Number(args.seconds)) : null;
+      const end = part.durationSec || from + (asked ?? PLAY_UNKNOWN_SEC);
+      const until = asked ? Math.min(end, from + asked) : end;
       const url = await videos.playUrl(info.bvid, part.cid);
       if (!url) return `「${info.title}」在网页上放不了（B 站没给能用的播放地址：可能没有网页版、付费、番剧、充电专属或者有地区限制），换一个吧。`;
       show.toolCall('play_video', `「${info.title.slice(0, 16)}」`);
