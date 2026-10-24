@@ -16,6 +16,7 @@ import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoIn
 import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
+import { ttsYuan, turnYuan } from '../core/cost';
 import { asr, cookie, currentMoods, dm, hooks, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, MAX_COMMENT_CHARS } from '../body/social';
@@ -39,25 +40,36 @@ const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
 /** 盯着直播的会话：新的正文就念，一轮开始、结束告诉身体 */
 let watched: { sessionId: string; seq: number } | null = null;
 let watching = false;
-/** 这场直播（她的会话）累计用掉的 token：舞台上换算成她吃了多少饭 */
-let usage = { sessionId: '', tokens: 0 };
+/** 这场直播（她的会话）累计用掉的 token 和钱：舞台上换算成她吃了多少饭，show_stats 告诉她 */
+const freshUsage = (sessionId: string) => ({ sessionId, tokens: 0, input: 0, cacheRead: 0, output: 0, yuan: 0, priced: true, model: '' });
+let usage = freshUsage('');
 
-function countUsage(sessionId: string, event: any): void {
-  const turn = Number(event?.data?.usage?.totalTokens);
+function countUsage(sessionId: string, event: any, broadcast = true): void {
+  const u = event?.data?.usage;
+  const turn = Number(u?.totalTokens);
   if (!Number.isFinite(turn) || turn <= 0) return;
-  if (usage.sessionId !== sessionId) usage = { sessionId, tokens: 0 };
+  if (usage.sessionId !== sessionId) usage = freshUsage(sessionId);
   usage.tokens += turn;
+  usage.input += Number(u.inputTokens) || 0;
+  usage.cacheRead += Number(u.cacheReadTokens) || 0;
+  usage.output += Number(u.outputTokens) || 0;
   const model = event?.data?.message?.source?.model;
-  show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn, ...(typeof model === 'string' ? { model } : {}) });
+  if (typeof model === 'string') usage.model = model;
+  const yuan = turnYuan(model, u, Number(event?.time) || Date.now());
+  if (yuan === null) usage.priced = false; else usage.yuan += yuan;
+  if (broadcast) show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn, ...(typeof model === 'string' ? { model } : {}) });
 }
 async function watch(ctx: AgentContext): Promise<void> {
   const sessionId = show.currentSession;
   if (!sessionId || watching) return;
   const session = ctx.get?.('sessions')?.get?.(sessionId);
   if (!session) return;
-  // 刚开始盯这个会话：只管从现在起的新事件
+  // 刚开始盯这个会话：只管从现在起的新事件；用量从头补算（插件重启后接着播时，饭量不清零）
   if (!watched || watched.sessionId !== sessionId) {
     watched = { sessionId, seq: Number(session.seq) };
+    usage = freshUsage(sessionId);
+    for (const event of (session.snapshotEvents(0) as any[]) ?? []) if (event?.type === 'assistant/message') countUsage(sessionId, event, false);
+    if (usage.tokens) show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn: 0, ...(usage.model ? { model: usage.model } : {}) });
     return;
   }
   const events = session.snapshotEvents(watched.seq) as any[];
@@ -341,6 +353,29 @@ export function apply(ctx: AgentContext): void {
 
   const text = (value: string) => [{ type: 'text' as const, text: value }];
   const stringOut = { schema: { type: 'string' as const }, render: (_args: unknown, value: string) => text(value) };
+
+  // 这场的数据：播了多久、用了多少 token、大概花了多少钱
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'show_stats',
+    description: '看这场直播的数据：播了多久、你用了多少 token、大概花了多少钱（模型和配音）、念了多少字。',
+    parameters: {},
+    output: stringOut,
+    async execute() {
+      show.toolCall('show_stats', '', '在看这场的账');
+      const s = show.stats();
+      const tts = ttsYuan(s.spokenChars);
+      const minutes = Math.round(s.liveMs / 60_000);
+      const lines = [
+        `这场播了 ${minutes >= 60 ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟` : `${minutes} 分钟`}。`,
+        `你用了 ${usage.tokens.toLocaleString('en-US')} token（缓存命中 ${usage.cacheRead.toLocaleString('en-US')}，没命中的输入 ${usage.input.toLocaleString('en-US')}，输出 ${usage.output.toLocaleString('en-US')}）${usage.model ? `，模型 ${usage.model}` : ''}。`,
+        usage.priced
+          ? `模型大概花了 ${usage.yuan.toFixed(2)} 元（DeepSeek 官方价，缓存命中很便宜；工作日白天高峰价，其余时间半价）。`
+          : '这个模型的价钱这里不知道，只能报 token。',
+        `念了大约 ${s.spokenChars} 个字，配音大概 ${tts.toFixed(2)} 元（豆包声音复刻，3 元一万字）。`,
+      ];
+      return lines.join('\n');
+    },
+  })), 'show_stats tool');
 
   // 关注、取关
   ctx.effect(() => ctx.tools.register(defineTool({

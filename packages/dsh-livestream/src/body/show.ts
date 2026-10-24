@@ -49,6 +49,10 @@ export interface LiveSnapshot {
   logFile: string | null;
   /** 最后一次存的时间（算断了多久） */
   at: number;
+  /** 这场什么时候开播的 */
+  startedAt?: number;
+  /** 到停下时她念了多少字 */
+  spokenChars?: number;
 }
 
 export interface ShowOptions {
@@ -229,6 +233,8 @@ export class LiveShow {
     this.endingPushed = false;
     this.turnRunning = false;
     this.attention = this.freshAttention();
+    this.liveSince = Date.now();
+    this.spoken = 0;
     // 别人的直播间（旁观、试播）不留任何记忆：不建档，也不写这场的回顾
     this.memoryStream = this.rememberViewers;
     if (this.memoryStream) this.memory.begin(Date.now());
@@ -254,6 +260,8 @@ export class LiveShow {
     this.attention = this.freshAttention();
     this.memoryStream = snapshot.streamId !== null;
     if (snapshot.streamId !== null) this.memory.resume(snapshot.streamId);
+    this.liveSince = snapshot.startedAt ?? snapshot.at;
+    this.spoken = snapshot.spokenChars ?? 0;
     this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)) }];
     this.inbox = [];
     this.logFile = snapshot.logFile;
@@ -279,7 +287,15 @@ export class LiveShow {
   private persistLive(now = Date.now()): void {
     if (!this.onAir || !this.brainSession) return;
     this.persistedAt = now;
-    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now });
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken });
+  }
+
+  private liveSince = 0;
+  private spoken = 0;
+
+  /** 这场播了多久、她念了多少字 */
+  stats(now = Date.now()): { liveMs: number; spokenChars: number } {
+    return { liveMs: this.onAir ? now - this.liveSince : 0, spokenChars: this.spoken };
   }
 
   /** 下播：先让她道别，说完（或等太久）就收工 */
@@ -455,6 +471,7 @@ export class LiveShow {
         this.attention.speechEnded(Date.now());
         this.lines = [...this.lines, { text, mood, at: start }].slice(-RECENT_LINES);
         this.herLines.push(text);
+        this.spoken += [...text].length;
         this.record({ type: 'say', text, mood, start, end: Date.now() });
         this.setBrain(!this.onAir ? 'off' : this.turnRunning ? 'thinking' : 'listening');
       }
