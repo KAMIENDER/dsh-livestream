@@ -28,8 +28,18 @@ interface VoiceRoute {
   additions?: Record<string, unknown>;
 }
 
-export function routeOf(voice: string): VoiceRoute {
-  if (voice.startsWith('S_')) return { resource: 'seed-icl-2.0', newConsole: true, additions: { explicit_language: 'zh-cn' } };
+/**
+ * 复刻音色要说清楚念哪种语言（不说的话中文会念成别的腔调，见 hiyoriai 的实测）。
+ * 每段单独合成，所以按这一段的字来定：假名占一半以上就是日语，别的按中文（中文里夹几个日语词也按中文，那几个词照样念得出来）
+ */
+export function languageOf(text: string): 'ja' | 'zh-cn' {
+  const kana = (text.match(/[\u3040-\u30ff]/g) ?? []).length;
+  const letters = (text.match(/[\u3040-\u30ff\u4e00-\u9fffA-Za-z]/g) ?? []).length;
+  return kana >= 2 && kana * 2 >= letters ? 'ja' : 'zh-cn';
+}
+
+export function routeOf(voice: string, text = ''): VoiceRoute {
+  if (voice.startsWith('S_')) return { resource: 'seed-icl-2.0', newConsole: true, additions: { explicit_language: languageOf(text) } };
   if (usesNewConsole(voice)) return { resource: 'seed-tts-2.0', newConsole: true };
   return { resource: 'seed-tts-1.0', newConsole: false };
 }
@@ -54,7 +64,7 @@ export interface Speech {
 
 /** rate：语速（-50 到 100，0 是正常） */
 export async function synthesize(auth: TtsAuth, voice: string, text: string, signal: AbortSignal, rate = 0): Promise<Speech> {
-  const route = routeOf(voice);
+  const route = routeOf(voice, text);
   const keyHeaders: Record<string, string> = route.newConsole
     ? { 'X-Api-Key': auth.apiKey ?? '' }
     : { 'X-Api-App-Id': auth.appId ?? '', 'X-Api-Access-Key': auth.accessKey ?? '' };

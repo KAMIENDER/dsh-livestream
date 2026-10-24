@@ -21,3 +21,14 @@ describe('subtitle timeline', () => {
     expect(t).toEqual([{ chars: 1, atMs: 100 }, { chars: 2, atMs: 300 }]);
   });
 });
+
+describe('clone voice language', () => {
+  it('reads a Japanese segment as Japanese and keeps Chinese with a few Japanese words as Chinese', async () => {
+    const { languageOf } = await import('../src/body/tts');
+    expect(languageOf('日本語は分かりますよ、ただ言わないだけです。')).toBe('ja');
+    expect(languageOf('こんばんは！')).toBe('ja');
+    expect(languageOf('Qビット，又见面啦，こんばんは！三天前你还跟我用日语聊过呢。')).toBe('zh-cn');
+    expect(languageOf('今天吃了三碗饭。')).toBe('zh-cn');
+    expect(languageOf('JSON 我闭着眼都能写')).toBe('zh-cn');
+  });
+});
