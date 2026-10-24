@@ -148,6 +148,8 @@ function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: st
   const [prev, setPrev] = useState<number | null>(null);
   const shown = useRef<string | null>(null);
   const frontRef = useRef(0);
+  /** 正在后台准备下一段的那个 <video>（还没换到前台）：撤「上一段」时别把它暂停了 */
+  const loading = useRef<number | null>(null);
   const url = (n: string) => blobs.get(src(n)) ?? src(n);
 
   useEffect(() => { void preload(names.map(src)); }, [names.join('|')]);
@@ -179,6 +181,7 @@ function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: st
     let fallback: ReturnType<typeof setTimeout> | undefined;
     const go = () => {
     if (cancelled) return;
+    loading.current = nextIndex;
     back.src = url(name);
     back.loop = loop;
     // 跳到中间那一帧要解码一小会儿（片段每 8 帧一个关键帧，见 tools/clip-graph.ts），这段时间旧片段还在往前走：按两帧以后查
@@ -190,6 +193,7 @@ function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: st
     const reveal = () => {
       if (cancelled || revealed) return;
       revealed = true;
+      loading.current = null;
       shown.current = name;
       setPrev(frontRef.current);
       frontRef.current = nextIndex;
@@ -218,12 +222,26 @@ function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: st
     // 兜底换上来的那段可能还在解码（跳帧时尤其慢）：真有画面了才撤上一段，不然角色会整个消失
     const drop = () => {
       if (shownVideo && (shownVideo.seeking || shownVideo.readyState < 2)) { raf = requestAnimationFrame(drop); return; }
-      // 等新的一段淡入完（0.18 秒）再撤掉上一段，不然中间会透一下；直接切的不用等
-      timer = setTimeout(() => { refs[prev].current?.pause(); setPrev(null); }, graph ? 60 : 250);
+      // 等新的一段淡入完（0.18 秒）再撤掉上一段，不然中间会透一下；直接切的不用等。
+      // 这期间又来了一次切换、正拿这个 <video> 准备下一段（或者它已经换回前台）时不能暂停：
+      // OBS 里实测会把她定在一帧上，直到下次切换
+      timer = setTimeout(() => {
+        if (prev !== frontRef.current && loading.current !== prev) refs[prev].current?.pause();
+        setPrev(null);
+      }, graph ? 60 : 250);
     };
     drop();
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, [prev]);
+
+  // 自愈：前台那段被暂停了又没播完（不管什么原因），接着播。片段卡住时不用整页刷新
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const v = refs[frontRef.current].current;
+      if (v && v.paused && !v.ended && v.currentSrc && loading.current === null) void v.play().catch(() => {});
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className={`ls-clips${graph ? ' ls-cut' : ''}`} ref={box}>

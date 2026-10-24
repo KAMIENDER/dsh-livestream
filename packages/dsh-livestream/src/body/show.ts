@@ -77,6 +77,8 @@ const TURN_MAX_MS = 3 * 60_000;
 /** 推道别以后最多等多久就收工 */
 const ENDING_GRACE_MS = 90_000;
 const RECENT_LINES = 40;
+/** 合成一段语音最多等多久（超时再试一次，还不行就只出字幕） */
+const SYNTH_TIMEOUT_MS = 15_000;
 /** 边看边聊：放视频时她安静了这么久（离上次「视频这会儿」也这么久），就告诉她视频这段在说什么 */
 const WATCH_GAP_MS = 20_000;
 /** 一次最多告诉她多长一段 */
@@ -374,10 +376,13 @@ export class LiveShow {
       const start = Date.now();
       try {
         let speech: { audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null = null;
-        try {
-          speech = await this.hooks.synthesize(text, signal);
-        } catch (err) {
-          this.hooks.log?.('warn', `语音合成失败：${(err as Error).message}`);
+        // 合成一段平时不到 2 秒：一次最多等 SYNTH_TIMEOUT_MS，卡住了马上再试一次（实测豆包偶尔一个请求一直不回，等满两分钟直播就冷场了）
+        for (let attempt = 1; attempt <= 2 && !speech && !signal.aborted; attempt++) {
+          try {
+            speech = await this.hooks.synthesize(text, AbortSignal.any([signal, AbortSignal.timeout(SYNTH_TIMEOUT_MS)]));
+          } catch (err) {
+            this.hooks.log?.('warn', `语音合成失败（第 ${attempt} 次）：${(err as Error).message}`);
+          }
         }
         const id = randomUUID();
         const estimateMs = estimateSpeechMs(text);
