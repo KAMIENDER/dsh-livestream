@@ -167,6 +167,7 @@ export function apply(ctx: HostContext): void {
     }
     if (patch.voice !== undefined) next.voice = String(patch.voice).trim();
     if (patch.idleAfterSec !== undefined) next.idleAfterSec = Math.max(10, Math.min(600, Number(patch.idleAfterSec) || 45));
+    if (patch.gameChatGapSec !== undefined) next.gameChatGapSec = Math.max(5, Math.min(120, Number(patch.gameChatGapSec) || 15));
     if (patch.distillModel !== undefined) next.distillModel = String(patch.distillModel).trim() || settings.distillModel;
     if (patch.broadcast !== undefined) next.broadcast = !!patch.broadcast;
     if (patch.areaId !== undefined) next.areaId = patch.areaId ? Number(patch.areaId) : null;

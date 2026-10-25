@@ -87,7 +87,7 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -486,6 +486,14 @@ export function Console() {
             </div>
             <h3>告示板</h3>
             <BoardField value={settings?.boardText ?? ''} fallback={host?.defaultBoard ?? ''} onSave={(boardText) => choose({ boardText })} />
+            <h3>玩游戏</h3>
+            <div className="dl-field">
+              <div className="dl-row">
+                <input defaultValue={settings?.gameChatGapSec ?? 15} inputMode="numeric" title="弹幕间隔（秒）" onBlur={(e) => choose({ gameChatGapSec: Number(e.target.value.replace(/\D/g, '')) || 15 })} />
+                <span className="dl-meta">秒：玩游戏时弹幕至少隔这么久推给她一次</span>
+              </div>
+              <p className="dl-hint">越大她回得越少、玩得越多（一次最多带三位观众的弹幕）；改了马上生效，不用重启。</p>
+            </div>
             <h3>看视频</h3>
             <div className="dl-field">
               <label>语音识别用的 Python {host?.asr.available ? <span className="dl-tag dl-ok-tag">能用</span> : <span className="dl-tag">没配好</span>}</label>

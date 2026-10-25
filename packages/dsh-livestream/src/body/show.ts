@@ -78,6 +78,8 @@ export interface ShowOptions {
   idleAfterMs?: number;
   /** 告示板上写的（开场时告诉她，观众看得到什么） */
   board?: () => string;
+  /** 她在玩游戏时，两次把直播间的事推给她至少隔多少毫秒（控制台设置，改了马上生效） */
+  gameChatGapMs?: () => number;
 }
 
 /** 她说过的一句话（控制台显示、下播提炼用） */
@@ -396,7 +398,7 @@ export class LiveShow {
 
   /** 她在玩游戏、一轮没完：有弹幕、礼物、主人说话就推给她（隔开一点），推了就叫醒在等的 game_continue */
   private async directGame(now: number): Promise<void> {
-    if (now - this.gamePushedAt < GAME_PUSH_GAP_MS) return;
+    if (now - this.gamePushedAt < (this.options.gameChatGapMs?.() ?? GAME_PUSH_GAP_MS)) return;
     // 嘴跟不上：她写好的话还排着好几句没念，先不推新的，弹幕攒着等她说完一起给（不然观众听到的回应越来越晚）
     if (this.queued >= GAME_MOUTH_BACKLOG) return;
     const topic = this.takeLive(now);

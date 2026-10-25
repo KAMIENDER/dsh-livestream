@@ -42,6 +42,8 @@ export interface Settings {
   distillModel: string;
   /** 没话题多少秒后自己找话说 */
   idleAfterSec: number;
+  /** 她在玩游戏时，弹幕至少隔多少秒推给她一次（越大回得越少、玩得越多） */
+  gameChatGapSec: number;
   /** 主人说是自己的直播间（记住常来的观众）；别的房间只旁观、不建档 */
   ownRooms: number[];
   /** 开播时真的推流到 B 站（默认关：只在本地彩排） */
@@ -118,6 +120,7 @@ function loadSettings(): Settings {
     stageToken: '',
     distillModel: 'deepseek-official/deepseek-flash',
     idleAfterSec: 45,
+    gameChatGapSec: 15,
     ownRooms: [],
     broadcast: false,
     areaId: null,
@@ -210,7 +213,7 @@ export const show = new LiveShow(
     persist: (snapshot) => saveLive(snapshot),
     onGame: (source) => placeGame(source),
   },
-  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000, board: () => settings.boardText },
+  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000, board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000 },
 );
 
 /**
