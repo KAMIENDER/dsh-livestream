@@ -122,6 +122,8 @@ const WATCH_MIN_SEC = 8;
 const GAME_PUSH_GAP_MS = 12_000;
 /** 她在玩游戏、这一轮停下了、话也说完了，等这么久直播间还没事，就叫她接着玩 */
 const GAME_WAKE_MS = 6_000;
+/** 她在玩游戏时，欢迎新观众至少隔这么久（攒成一句一起欢迎） */
+const GAME_WELCOME_GAP_MS = 90_000;
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
 const GAME_MOUTH_BACKLOG = 2;
 /** 控制台「模拟观众」的用户 id 前缀 */
@@ -668,6 +670,7 @@ export class LiveShow {
     if (JSON.stringify(source) === JSON.stringify(this.game)) return;
     this.game = source;
     this.gamePushedAt = 0;
+    this.attention.welcomeGapMs = source ? GAME_WELCOME_GAP_MS : 0;
     this.stage.broadcast({ type: 'game', source });
     this.record({ type: 'game', source });
     this.persistLive();

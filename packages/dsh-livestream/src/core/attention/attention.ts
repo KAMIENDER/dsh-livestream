@@ -127,6 +127,8 @@ export class LiveAttention {
   private lastSpeechEndAt: number;
   private speaking = false;
   private lastSaid: Partial<Record<TopicBody['kind'], number>> = {};
+  /** 欢迎至少隔这么久（她在玩游戏时设成 90 秒：人多的晚上进场一直来，每次都欢迎她就一直没空玩） */
+  welcomeGapMs = 0;
   /** 最近一次有观众动静的时间 */
   private lastAudienceAt = -Infinity;
   private online: number | undefined;
@@ -449,7 +451,7 @@ export class LiveAttention {
     // 热闹时只欢迎舰长和老粉
     const eligible = this.enters.filter((e) => heat !== 'busy' || (e.user.guardLevel ?? 0) > 0 || (e.user.medal?.ofThisRoom && e.user.medal.level >= 20));
     if (!eligible.length) return null;
-    if (now - (this.lastSaid.welcome ?? -Infinity) < TUNING.welcomeIntervalMs[heat]) return null;
+    if (now - (this.lastSaid.welcome ?? -Infinity) < Math.max(TUNING.welcomeIntervalMs[heat], this.welcomeGapMs)) return null;
     if (now - Math.min(...eligible.map((e) => e.at)) < TUNING.welcomeGatherMs) return null;
     return {
       // 冷清时欢迎排在环节拍前面（环节拍最高 55）
