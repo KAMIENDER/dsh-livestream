@@ -78,8 +78,8 @@ export function momentSummary(text: string): string {
   return [progress, body, bag && `背包：${bag.length > 120 ? `${bag.slice(0, 120)}…` : bag}`].filter(Boolean).join('；');
 }
 
-function publishGameNow(): void {
-  show.setGameNow([gameMoment, gameWords && `你在游戏线上刚说：「${gameWords}」`].filter(Boolean).join('；'));
+function publishGameNow(moment = false): void {
+  show.setGameNow([gameMoment, gameWords && `你在游戏线上刚说：「${gameWords}」`].filter(Boolean).join('；'), moment);
 }
 
 function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game'): void {
@@ -103,7 +103,7 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
       const summary = momentSummary(wordsOf(event));
       if (summary) {
         gameMoment = summary;
-        publishGameNow();
+        publishGameNow(true);
       }
     } else if (event?.type === 'assistant/message') {
       countUsage(total, event);
