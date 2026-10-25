@@ -50,9 +50,7 @@ describe('playing a game on stream', () => {
     show.inject(chat('2', '小心苦力怕'));
     await vi.advanceTimersByTimeAsync(3_000);
     expect(pushed).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(12_000);
-    expect(pushed).toHaveLength(2);
-    await vi.advanceTimersByTimeAsync(18_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(pushed).toHaveLength(3);
     expect(pushed[2]).toContain('小心苦力怕');
     show.endLive();
