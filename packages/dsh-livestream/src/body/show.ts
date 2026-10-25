@@ -383,7 +383,11 @@ export class LiveShow {
     this.endingPushed = false;
     this.priority = [];
     // 游戏线收手：这一轮结束，不再叫她
-    if (this.gameSession) void this.hooks.push(this.gameSession, GAME_LINE_END, this.gameTurnRunning).catch(() => false);
+    if (this.gameSession) {
+      void this.hooks.push(this.gameSession, GAME_LINE_END, this.gameTurnRunning).catch(() => false).then(() => {
+        for (const wake of [...this.attentionWaiters]) wake();
+      });
+    }
     this.resetGameLine();
     if (this.director) clearInterval(this.director);
     this.director = null;
