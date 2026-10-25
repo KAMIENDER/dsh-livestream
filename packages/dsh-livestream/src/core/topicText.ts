@@ -211,7 +211,9 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
-  return [...(head ? [head, ''] : []), ...b.what, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
+  // 带游戏工具调用的那条消息，文字先念再做：回弹幕不用单独占一步
+  const alongside = playing ? '这句话可以和下一个游戏动作写在同一条消息里：先念完，接着就做。' : '';
+  return [...(head ? [head, ''] : []), ...b.what, '', `${playing}${b.how}不超过 ${maxChars} 字。${alongside}`].join('\n');
 }
 
 /** 「10月23日 22:32 开播，播了 6 小时」（北京时间） */

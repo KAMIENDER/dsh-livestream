@@ -118,12 +118,14 @@ const WATCH_GAP_MS = 20_000;
 const WATCH_WINDOW_SEC = 45;
 /** 视频里不到这么多秒的一段不值得说 */
 const WATCH_MIN_SEC = 8;
-/** 她在玩游戏时，两次把直播间的事推给她至少隔多久（热闹时弹幕攒成一批，别让游戏走不动） */
-const GAME_PUSH_GAP_MS = 12_000;
+/** 她在玩游戏时，两次把直播间的事推给她至少隔多久（弹幕攒成一批一起回，别让游戏走不动：12 秒时她 83% 的时间在说话） */
+const GAME_PUSH_GAP_MS = 30_000;
 /** 她在玩游戏、这一轮停下了、话也说完了，等这么久直播间还没事，就叫她接着玩 */
 const GAME_WAKE_MS = 6_000;
 /** 她在玩游戏时，欢迎新观众至少隔这么久（攒成一句一起欢迎） */
 const GAME_WELCOME_GAP_MS = 90_000;
+/** 她在玩游戏时，一次推给她的弹幕至少可以有几位观众的（攒了一阵的弹幕一句话一起回） */
+const GAME_CHAT_PICKS = 3;
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
 const GAME_MOUTH_BACKLOG = 2;
 /** 控制台「模拟观众」的用户 id 前缀 */
@@ -671,6 +673,7 @@ export class LiveShow {
     this.game = source;
     this.gamePushedAt = 0;
     this.attention.welcomeGapMs = source ? GAME_WELCOME_GAP_MS : 0;
+    this.attention.minChatPicks = source ? GAME_CHAT_PICKS : 0;
     this.stage.broadcast({ type: 'game', source });
     this.record({ type: 'game', source });
     this.persistLive();

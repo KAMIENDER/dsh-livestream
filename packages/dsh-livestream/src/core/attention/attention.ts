@@ -129,6 +129,8 @@ export class LiveAttention {
   private lastSaid: Partial<Record<TopicBody['kind'], number>> = {};
   /** 欢迎至少隔这么久（她在玩游戏时设成 90 秒：人多的晚上进场一直来，每次都欢迎她就一直没空玩） */
   welcomeGapMs = 0;
+  /** 一次弹幕话题至少挑几位观众（她在玩游戏时设成 3：推得少，每次多带几条） */
+  minChatPicks = 0;
   /** 最近一次有观众动静的时间 */
   private lastAudienceAt = -Infinity;
   private online: number | undefined;
@@ -361,7 +363,7 @@ export class LiveAttention {
         const picks: ChatPick[] = [];
         const taken = new Set<string>();
         for (const { c, score } of scored) {
-          if (picks.length >= TUNING.chatPicks[heat]) break;
+          if (picks.length >= Math.max(TUNING.chatPicks[heat], this.minChatPicks)) break;
           if (taken.has(c.uid)) continue;
           taken.add(c.uid);
           // 这个人还没回的话全部按顺序合成一句交给她（她说话的十几秒里他可能又发了好几条，一条都不能丢）
