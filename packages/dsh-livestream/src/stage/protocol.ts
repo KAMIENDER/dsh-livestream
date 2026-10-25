@@ -78,9 +78,10 @@ export interface TemplateManifest {
   /**
    * 同一个主题里的别的布局：舞台进入这种状态时挂件平滑挪到这里写的位置，结束了挪回来。
    * video：放视频的时候（video 挂件只在这里出现）。没写的挂件留在原处；hidden 的淡出。
+   * game：她在直播里玩游戏的时候（game 挂件只在这里出现）；没写就借 video 布局，视频的位置给游戏画面。
    * 画布上还会加 ls-mode-<布局名> 这个 class，模板的 style.css 可以跟着换样式
    */
-  layouts?: { video?: LayoutPlacement[] };
+  layouts?: { video?: LayoutPlacement[]; game?: LayoutPlacement[] };
 }
 
 /** 布局里的一个挂件：按 type 对上平时布局里的同一个挂件（同类型有几个时按出现顺序） */
@@ -100,9 +101,17 @@ export type EffectSpec = string | { name: string; ms?: number; [option: string]:
  * terminal：终端，滚动显示身体和大脑在干什么（推了什么给她、她想了多久、用了多少 token）
  * scene：整屏的过场：开播前的等待画面、开场动画、下播谢幕（放在画布 0,0，宽高和画布一样）
  * video：放视频的画面（她在放视频时才有，放在 layouts.video 里）
+ * game：她在玩的游戏的画面位（她在直播里玩游戏时才有）：网页画面直接放这里；游戏窗口由 OBS 抓来叠在这一块上
  * effects：整屏特效层：进场、礼物、上舰时放的彩带、横幅……（放在画布 0,0，宽高和画布一样，排在 scene 前面）
  */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects' | 'board';
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects' | 'board' | 'game';
+
+/**
+ * 游戏画面从哪来（dsh-game 给的，见 docs/game-live-contract.md）：
+ * url 是一个网页，直接放在游戏位上；window 是 OBS 窗口捕获认窗口用的字符串（标题:窗口类:程序），
+ * overlay 是叠在窗口上、一样大的透明网页（Minecraft 的血量、饱食度、快捷栏）
+ */
+export type GameSource = { url: string } | { window: string; overlay?: string };
 
 export interface WidgetPlacement {
   type: WidgetType;
@@ -163,5 +172,7 @@ export type StageEvent =
    */
   | { v: 1; type: 'media'; action: 'play'; id: string; title: string; up: string; src: string; from: number; until: number; at: number }
   | { v: 1; type: 'media'; action: 'stop'; id: string; at: number }
+  /** 她在直播里玩游戏：游戏画面上舞台（null：这局结束了） */
+  | { v: 1; type: 'game'; source: GameSource | null; at: number }
   /** 模板或角色换了：舞台重新加载 */
   | { v: 1; type: 'reload'; at: number };

@@ -9,7 +9,7 @@ import { arrange, type Mode, type Slot } from './layout';
 import type { WidgetType } from './protocol';
 import { assetUrl, connect, preview, unlockAudio } from './store';
 import { Effects } from './effects';
-import { AiLabel, Alerts, Board, Character, Chat, Reply, Rice, Scene, Status, Subtitle, Terminal, useStage, Video } from './widgets';
+import { AiLabel, Alerts, Board, Character, Chat, Game, Reply, Rice, Scene, Status, Subtitle, Terminal, useStage, Video } from './widgets';
 
 const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string, unknown> }>> = {
   character: Character,
@@ -25,6 +25,7 @@ const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string,
   effects: Effects,
   video: Video,
   board: Board,
+  game: Game,
 };
 
 function useViewport(): { width: number; height: number } {
@@ -50,9 +51,16 @@ function Placed({ p }: { p: Slot }) {
   );
 }
 
+/** 整块画布去掉一个矩形（evenodd：外框和洞各画一圈） */
+function holePath(s: Slot, cw: number, ch: number): string {
+  const x1 = s.x, y1 = s.y, x2 = s.x + (s.w ?? cw), y2 = s.y + (s.h ?? ch);
+  return `polygon(evenodd, 0 0, ${cw}px 0, ${cw}px ${ch}px, 0 ${ch}px, 0 0, ${x1}px ${y1}px, ${x1}px ${y2}px, ${x2}px ${y2}px, ${x2}px ${y1}px, ${x1}px ${y1}px)`;
+}
+
 function App() {
-  const { template, needsClick, media } = useStage();
-  const mode: Mode = media ? 'video' : 'chat';
+  const { template, needsClick, media, game } = useStage();
+  // 玩游戏的时候放视频：视频照放（游戏画面让给视频）
+  const mode: Mode = media ? 'video' : game ? 'game' : 'chat';
   const slots = useMemo(() => (template ? arrange(template, mode) : []), [template, mode]);
   const { width, height } = useViewport();
   // 模板自己的样式：每次换模板、每次打开页面都重新取（服务器让浏览器缓存一小时，改了模板刷新一下就要看到）。
@@ -73,6 +81,9 @@ function App() {
   }, [template?.id]);
   if (!template) return <div className="ls-loading">舞台连接中…</div>;
   const [cw, ch] = template.canvas;
+  // 游戏窗口由 OBS 垫在舞台下面：背景和前景在游戏位挖个洞，透出窗口
+  const gameSlot = mode === 'game' && game && 'window' in game ? slots.find((s) => s.type === 'game') : undefined;
+  const hole: React.CSSProperties | undefined = gameSlot ? { clipPath: holePath(gameSlot, cw, ch) } : undefined;
   const scale = Math.min(width / cw, height / ch);
   return (
     <div className="ls-viewport">
@@ -81,9 +92,9 @@ function App() {
         style={{ width: cw, height: ch, transform: `scale(${scale})`, left: (width - cw * scale) / 2, top: (height - ch * scale) / 2, ...template.theme } as React.CSSProperties}
       >
         {/* 背景和前景各几层空的 div：模板拿它们（和各自的 ::before / ::after）画光、气泡、云……，挂件在中间 */}
-        <div className="ls-backdrop"><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /><i className="ls-layer ls-layer-3" /></div>
+        <div className="ls-backdrop" style={hole}><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /><i className="ls-layer ls-layer-3" /></div>
         {slots.map((p) => <Placed key={p.key} p={p} />)}
-        <div className="ls-overlay"><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /></div>
+        <div className="ls-overlay" style={hole}><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /></div>
       </div>
       {needsClick && !preview && (
         <button className="ls-unlock" onClick={unlockAudio}>点一下这里开启声音（OBS 的浏览器源不需要）</button>

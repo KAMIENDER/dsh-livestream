@@ -26,7 +26,9 @@ import { StageServer } from '../body/server';
 import { canSpeak, subtitleTimeline, synthesize, type TtsAuth } from '../body/tts';
 import { DEFAULT_VOICE } from '../body/voices';
 import type { DistillLlm } from '../core/memory/distill';
-import type { CharacterManifest } from '../stage/protocol';
+import type { CharacterManifest, GameSource } from '../stage/protocol';
+import { gameRect } from '../stage/layout';
+import { connectObs, showGameSources } from '../body/obs';
 
 export interface Settings {
   roomId: number | null;
@@ -206,9 +208,31 @@ export const show = new LiveShow(
     distill,
     log: (level, message) => hooks.log(level, message),
     persist: (snapshot) => saveLive(snapshot),
+    onGame: (source) => placeGame(source),
   },
   { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: settings.idleAfterSec * 1000, board: () => settings.boardText },
 );
+
+/**
+ * 游戏画面上 OBS：窗口画面（Minecraft 摄像机客户端）由 OBS 抓，摆在舞台的游戏位上、垫在舞台下面；
+ * 网页画面舞台自己放，OBS 里不用加东西。连不上 OBS（没开、只在本机预览）就算了
+ */
+export function placeGame(source: GameSource | null): void {
+  const template = packs.template(settings.template);
+  const windowSource = source && 'window' in source ? source : null;
+  void (async () => {
+    let obs: Awaited<ReturnType<typeof connectObs>> | null = null;
+    try {
+      obs = await connectObs(false);
+      await showGameSources(obs, windowSource, template ? gameRect(template) : { x: 0, y: 0, w: 1920, h: 1080 });
+      hooks.log('info', windowSource ? `游戏画面上舞台：${windowSource.window}` : '游戏画面撤下');
+    } catch (err) {
+      hooks.log('warn', `游戏画面没能放进 OBS：${(err as Error).message}`);
+    } finally {
+      obs?.close();
+    }
+  })();
+}
 
 /** 告示板换了：舞台马上换（之后连上的舞台页也拿到最新的） */
 export function publishBoard(): void {

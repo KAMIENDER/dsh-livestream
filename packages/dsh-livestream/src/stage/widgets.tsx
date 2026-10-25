@@ -480,6 +480,23 @@ export function Chat({ options }: { options?: Record<string, unknown> }) {
   );
 }
 
+// ── 游戏画面 ─────────────────────────────────────────
+
+/**
+ * 她在直播里玩的游戏的画面位。网页画面直接放在这里；游戏窗口（Minecraft 的摄像机客户端）由 OBS 抓来叠在这一块上，
+ * 这里只留一个底（窗口还没出来时观众看到的就是这个）
+ */
+export function Game() {
+  const { game } = useStage();
+  return (
+    <div className={`ls-game${game && 'window' in game ? ' ls-game-window' : ''}`}>
+      {game && 'url' in game
+        ? <iframe className="ls-game-frame" src={game.url} title="游戏画面" allow="autoplay" />
+        : <div className="ls-game-wait">{game ? '' : '游戏画面马上就来…'}</div>}
+    </div>
+  );
+}
+
 // ── 告示板 ───────────────────────────────────────────
 
 /**

@@ -23,7 +23,7 @@ import { cleanName, cleanText } from '../core/safety';
 import { speakable } from '../core/speakable';
 import { topicText } from '../core/topicText';
 import { lookupViewer, type ViewerLookup } from '../core/viewerLookup';
-import type { BrainState, StageLiveEvent, StageUser } from '../stage/protocol';
+import type { BrainState, GameSource, StageLiveEvent, StageUser } from '../stage/protocol';
 import { Player, type PlayRequest } from './player';
 import type { VideoNotes } from './watchAlong';
 import { Stage } from './stage';
@@ -45,6 +45,8 @@ export interface ShowHooks {
   log?(level: 'info' | 'warn', message: string): void;
   /** 存下正在播的这一场（插件重启后接着播用）；null：这场结束了 */
   persist?(snapshot: LiveSnapshot | null): void;
+  /** 游戏画面上舞台、撤下（OBS 抓游戏窗口、叠 HUD） */
+  onGame?(source: GameSource | null): void;
 }
 
 /** 正在播的一场：插件重启后接着播要的东西 */
@@ -111,6 +113,10 @@ const WATCH_GAP_MS = 20_000;
 const WATCH_WINDOW_SEC = 45;
 /** 视频里不到这么多秒的一段不值得说 */
 const WATCH_MIN_SEC = 8;
+/** 她在玩游戏时，两次把直播间的事推给她至少隔多久（热闹时弹幕攒成一批，别让游戏走不动） */
+const GAME_PUSH_GAP_MS = 12_000;
+/** 她在玩游戏、这一轮停下了、话也说完了，等这么久直播间还没事，就叫她接着玩 */
+const GAME_WAKE_MS = 6_000;
 /** 控制台「模拟观众」的用户 id 前缀 */
 export const SIMULATED_PREFIX = 'sim-';
 
@@ -142,6 +148,12 @@ export class LiveShow {
   private playing: { id: string; saidFrom: number; done: (end: VideoEnd) => void } | null = null;
   /** 开播账号新收到的私信、回复（没别的事要回时告诉她） */
   private inbox: string[] = [];
+  /** 她在直播里玩的游戏（dsh-game 给的画面来源）；null：没在玩 */
+  private game: GameSource | null = null;
+  private gamePushedAt = 0;
+  private turnEndedAt = 0;
+  /** game_continue 在等：直播间有事推给她时叫醒它（liveBody.attention） */
+  private attentionWaiters = new Set<() => void>();
   private director: NodeJS.Timeout | null = null;
   private seq = 0;
   /** 排在弹幕前面的事：主人的话、开场、谢幕 */
@@ -352,8 +364,11 @@ export class LiveShow {
 
   private async direct(): Promise<void> {
     if (this.onAir && Date.now() - this.persistedAt > PERSIST_EVERY_MS) this.persistLive();
-    if (!this.onAir || !this.brainSession || this.pushing || this.speaking > 0) return;
+    if (!this.onAir || !this.brainSession || this.pushing) return;
     const now = Date.now();
+    // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，DSH 在她下一步时插进去
+    if (this.turnRunning && this.game) return this.directGame(now);
+    if (this.speaking > 0) return;
     if (this.turnRunning) {
       if (now - this.turnSince < TURN_MAX_MS) return;
       this.hooks.log?.('warn', `她这一轮超过 ${TURN_MAX_MS / 1000} 秒还没结束，接着往下推`);
@@ -361,8 +376,39 @@ export class LiveShow {
     }
     // 道别说完了：收工
     if (this.endingPushed) return this.finish();
-    const topic = this.take(now);
+    const topic = this.game ? this.takeInGame(now) : this.take(now);
     if (!topic) return;
+    await this.deliver(topic, now);
+  }
+
+  /** 她在玩游戏、一轮没完：有弹幕、礼物、主人说话就推给她（隔开一点），推了就叫醒在等的 game_continue */
+  private async directGame(now: number): Promise<void> {
+    if (now - this.gamePushedAt < GAME_PUSH_GAP_MS) return;
+    const topic = this.takeLive(now);
+    if (!topic) return;
+    if (!(await this.deliver(topic, now))) return;
+    this.gamePushedAt = Date.now();
+    for (const wake of [...this.attentionWaiters]) wake();
+  }
+
+  /** 直播间里真的有事：主人的话、开场、谢幕，和注意力层挑的弹幕、礼物（不含「没人说话，自己找话说」） */
+  private takeLive(now: number): Topic | null {
+    const body = this.priority.shift();
+    if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
+    const topic = this.attention.next(now);
+    return topic && topic.kind !== 'idle' ? topic : null;
+  }
+
+  /** 在玩游戏、这一轮停下了：直播间有事先回；没事、又安静了一会儿，叫她接着玩（不另找话题、不推视频和收件箱） */
+  private takeInGame(now: number): Topic | null {
+    const topic = this.takeLive(now);
+    if (topic) return topic;
+    if (now - this.turnEndedAt < GAME_WAKE_MS || this.attention.silentMs(now) < GAME_WAKE_MS) return null;
+    return { kind: 'game', id: `g-${now}`, priority: 1, heat: this.attention.heat(now), createdAt: now };
+  }
+
+  /** 把一件事推进她的会话；推成了返回 true */
+  private async deliver(topic: Topic, now: number): Promise<boolean> {
     this.seq += 1;
     const focus = focusOf(topic);
     if (focus.length) this.stage.broadcast({ type: 'focus', userIds: focus });
@@ -377,16 +423,17 @@ export class LiveShow {
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
     try {
-      const ok = await this.hooks.push(this.brainSession, text);
+      const ok = await this.hooks.push(this.brainSession!, text);
       if (!ok) {
         // 她的会话不在线（DSH 重启过、会话被关了）：要紧的事放回去，等控制台重新开播
         if (topic.kind === 'opening' || topic.kind === 'ending' || topic.kind === 'owner') this.priority.unshift(topic);
         this.setBrain('away', '她的会话不在线');
-        return;
+        return false;
       }
       this.turnRunning = true;
       this.turnSince = Date.now();
       if (topic.kind === 'ending') this.endingPushed = true;
+      return true;
     } finally {
       this.pushing = false;
     }
@@ -403,6 +450,7 @@ export class LiveShow {
   turnEnded(sessionId: string): void {
     if (sessionId !== this.brainSession) return;
     this.turnRunning = false;
+    this.turnEndedAt = Date.now();
     if (this.onAir && this.speaking === 0) this.setBrain('listening');
   }
 
@@ -598,6 +646,38 @@ export class LiveShow {
     if (this.onAir) this.stage.broadcast({ type: 'note', tag, text });
   }
 
+  /**
+   * 她在直播里玩的游戏的画面上舞台、撤下（dsh-game 经 liveBody.showGame 给；null：这局结束了）。
+   * 在玩的时候导演换一套做法：直播间的事照推，不另找话题（见 docs/game-live-contract.md）
+   */
+  showGame(source: GameSource | null): void {
+    if (JSON.stringify(source) === JSON.stringify(this.game)) return;
+    this.game = source;
+    this.gamePushedAt = 0;
+    this.stage.broadcast({ type: 'game', source });
+    this.record({ type: 'game', source });
+    this.hooks.onGame?.(source);
+  }
+
+  get gameSource(): GameSource | null {
+    return this.game;
+  }
+
+  /** 直播间有事推给她时 resolve（liveBody.attention：game_continue 和游戏自己的等待一起 race）；signal 取消就不管了 */
+  waitAttention(signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      if (signal.aborted) return;
+      const wake = () => {
+        this.attentionWaiters.delete(wake);
+        signal.removeEventListener('abort', drop);
+        resolve();
+      };
+      const drop = () => this.attentionWaiters.delete(wake);
+      this.attentionWaiters.add(wake);
+      signal.addEventListener('abort', drop, { once: true });
+    });
+  }
+
   get isOnAir(): boolean {
     return this.onAir;
   }
@@ -668,7 +748,7 @@ export function estimateSpeechMs(text: string): number {
 const KIND_LABEL: Record<Topic['kind'], string> = {
   chat: '在看弹幕', superchat: '在看醒目留言', thanks: '在谢礼物', gifts: '在谢礼物', trend: '在看大家刷屏',
   welcome: '在欢迎新观众', follow: '在谢关注', idle: '在找话说', opening: '在准备开场', ending: '在准备道别', owner: '在听主人说话',
-  video: '视频放完了', watching: '在看视频', inbox: '在看私信和评论', resumed: '在接着播',
+  video: '视频放完了', watching: '在看视频', inbox: '在看私信和评论', resumed: '在接着播', game: '在玩游戏',
 };
 
 function topicLabel(topic: Topic): string {

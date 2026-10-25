@@ -227,6 +227,63 @@ export async function prepareObs(obs: Obs, stageUrl: string, kbps = STREAM_ENCOD
   await obs.call('SetInputAudioMonitorType', { inputName: STAGE_SOURCE, monitorType: 'OBS_MONITORING_TYPE_NONE' });
 }
 
+const GAME_WINDOW = '游戏窗口';
+const GAME_HUD = '游戏 HUD';
+const GAME_AUDIO = '游戏声音';
+/** 游戏声音压低一点：她说话、视频声音在前面 */
+const GAME_AUDIO_DB = -14;
+
+/**
+ * 她在直播里玩的游戏（窗口画面）上舞台：窗口捕获摆在舞台的游戏位上（rect，画布坐标），
+ * HUD 网页（透明背景、和窗口一样大）叠在它上面、一样摆；游戏声音用应用程序音频捕获抓同一个窗口。
+ * 窗口和 HUD 垫在舞台下面：舞台在游戏位把背景挖空，礼物提醒、特效、字幕照样浮在游戏画面上。null：三个源都拿掉
+ */
+export async function showGameSources(obs: Obs, game: { window: string; overlay?: string } | null, rect: { x: number; y: number; w: number; h: number }): Promise<void> {
+  const { inputs } = await obs.call<{ inputs: Array<{ inputName: string }> }>('GetInputList');
+  const has = (name: string) => inputs.some((i) => i.inputName === name);
+  if (!game) {
+    for (const name of [GAME_HUD, GAME_WINDOW, GAME_AUDIO]) if (has(name)) await obs.call('RemoveInput', { inputName: name });
+    return;
+  }
+  const put = async (name: string, kind: string, settings: Record<string, unknown>) => {
+    if (has(name)) await obs.call('SetInputSettings', { inputName: name, inputSettings: settings });
+    else await obs.call('CreateInput', { sceneName: SCENE, inputName: name, inputKind: kind, inputSettings: settings });
+    const { sceneItemId } = await obs.call<{ sceneItemId: number }>('GetSceneItemId', { sceneName: SCENE, sourceName: name });
+    return sceneItemId;
+  };
+  // method 2 = Windows Graphics Capture：窗口被挡住也抓得到；只抓客户区、不要鼠标
+  const windowItem = await put(GAME_WINDOW, 'window_capture', { window: game.window, method: 2, client_area: true, cursor: false, compatibility: false });
+  const place = {
+    positionX: rect.x, positionY: rect.y, alignment: 5,
+    boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: rect.w, boundsHeight: rect.h, boundsAlignment: 0,
+  };
+  await obs.call('SetSceneItemTransform', { sceneName: SCENE, sceneItemId: windowItem, sceneItemTransform: place });
+  await obs.call('SetSceneItemIndex', { sceneName: SCENE, sceneItemId: windowItem, sceneItemIndex: 0 });
+  if (game.overlay) {
+    // HUD 网页要和窗口一样大才叠得准：等窗口抓到画面，拿它的原始大小
+    let size = { w: 1280, h: 720 };
+    for (let i = 0; i < 10; i++) {
+      const t = await obs.call<{ sceneItemTransform: { sourceWidth: number; sourceHeight: number } }>('GetSceneItemTransform', { sceneName: SCENE, sceneItemId: windowItem });
+      if (t.sceneItemTransform.sourceWidth > 0) {
+        size = { w: t.sceneItemTransform.sourceWidth, h: t.sceneItemTransform.sourceHeight };
+        break;
+      }
+      await sleep(500);
+    }
+    const hudItem = await put(GAME_HUD, 'browser_source', {
+      url: game.overlay, width: size.w, height: size.h, fps_custom: false, reroute_audio: false, shutdown: false,
+      css: 'body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }',
+    });
+    await obs.call('SetSceneItemTransform', { sceneName: SCENE, sceneItemId: hudItem, sceneItemTransform: place });
+    await obs.call('SetSceneItemIndex', { sceneName: SCENE, sceneItemId: hudItem, sceneItemIndex: 1 });
+  } else if (has(GAME_HUD)) {
+    await obs.call('RemoveInput', { inputName: GAME_HUD });
+  }
+  await put(GAME_AUDIO, 'wasapi_process_output_capture', { window: game.window, priority: 2 });
+  await obs.call('SetInputVolume', { inputName: GAME_AUDIO, inputVolumeDb: GAME_AUDIO_DB });
+  await obs.call('SetInputAudioMonitorType', { inputName: GAME_AUDIO, monitorType: 'OBS_MONITORING_TYPE_NONE' });
+}
+
 /** 推流到 B 站：写入推流地址和推流码，开始推流，确认真的推上了 */
 export async function startStreaming(obs: Obs, addr: string, code: string): Promise<void> {
   await obs.call('SetStreamServiceSettings', {

@@ -271,6 +271,18 @@ html, body {
 .ls-quote span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dfe6ff; }
 @keyframes ls-quote-in { from { opacity: 0; transform: translateY(-6px); } }
 
+/* ── 游戏画面位：网页画面放 iframe；游戏窗口由 OBS 叠在上面，这里只是底 ── */
+.ls-game {
+  width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
+  border-radius: 24px; border: 3px solid var(--ls-panel-border);
+  background: #10162a; box-shadow: var(--ls-shadow);
+  display: grid; place-items: center;
+}
+.ls-game-frame { width: 100%; height: 100%; border: 0; background: transparent; }
+/* 窗口画面由 OBS 垫在下面：这一块透明，只留一圈框压在画面边上 */
+.ls-game.ls-game-window { background: transparent; box-shadow: none; }
+.ls-game-wait { font-family: var(--ls-font-cute); font-size: 34px; color: rgba(220, 232, 255, 0.7); }
+
 /* ── 告示板：和弹幕栏一样的面板，一页一个标题加几条，几页轮着换 ── */
 .ls-board {
   position: relative; height: 100%; box-sizing: border-box; display: flex; flex-direction: column;

@@ -46,6 +46,8 @@ export type TopicBody =
   | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number }
   /** 直播插件重启了（主人在更新），断了 gapSec 秒，这场接着播 */
   | { kind: 'resumed'; gapSec: number }
+  /** 她在直播里开着的游戏：这一轮她停下了、直播间也没事，叫她接着玩 */
+  | { kind: 'game' }
   /** 开播账号收到了新私信、评论回复、@（只有她看得到；lines 已经写好、内容包在标签里） */
   | { kind: 'inbox'; lines: string[] }
   /**

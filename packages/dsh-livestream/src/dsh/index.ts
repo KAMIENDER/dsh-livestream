@@ -16,10 +16,10 @@ import { checkObs, connectObs } from '../body/obs';
 import { pollQrLogin, startQrLogin, whoIs } from '../body/biliLogin';
 import { SIMULATED_PREFIX } from '../body/show';
 import type { LiveEvent, LiveUser } from '../core/live';
-import type { StageEvent } from '../stage/protocol';
+import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, publishBoard, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -52,6 +52,15 @@ function state() {
     asr: { available: asr.available },
     defaultBoard: DEFAULT_BOARD,
   };
+}
+
+/** dsh-game 给的画面来源：只认约定里的两种，别的当没有 */
+function gameSource(value: unknown): GameSource | null {
+  const v = value as { url?: unknown; window?: unknown; overlay?: unknown } | null;
+  const web = (x: unknown): x is string => typeof x === 'string' && /^https?:\/\//.test(x);
+  if (v && web(v.url)) return { url: v.url };
+  if (v && typeof v.window === 'string' && v.window) return { window: v.window, ...(web(v.overlay) ? { overlay: v.overlay } : {}) };
+  return null;
 }
 
 let simSeq = 0;
@@ -127,6 +136,13 @@ export function apply(ctx: HostContext): void {
     return () => { stopped = true; };
   }, 'dsh-livestream resume');
   ctx.effect(() => () => asr.close(), 'dsh-livestream asr');
+  // 直播身体：给 dsh-game 用（约定见 docs/game-live-contract.md）。在播时她的话由这里念、游戏画面由这里放上舞台
+  ctx.provide('liveBody', {
+    get onAir() { return show.isOnAir; },
+    attention: (signal: AbortSignal) => show.waitAttention(signal),
+    showGame: (source: unknown) => show.showGame(gameSource(source)),
+  });
+  ctx.effect(() => () => show.showGame(null), 'dsh-livestream game screen');
 
   const route = (path: string, methods: string[], fetch: (request: Request) => Response | Promise<Response>, label: string) =>
     ctx.effect(() => ctx.connection.fetch.register({ path, methods, requestBody: 'buffered', fetch }), label);
@@ -175,6 +191,8 @@ export function apply(ctx: HostContext): void {
     if (next.boardText !== undefined) publishBoard();
     if (next.character) show.setNames(currentCharacter()?.names ?? []);
     if (repaint) show.stage.broadcast({ type: 'reload' });
+    // 换了主题，游戏位可能挪了：OBS 里的游戏画面跟着挪
+    if (next.template && show.gameSource) placeGame(show.gameSource);
     return json(state());
   }, 'settings');
 

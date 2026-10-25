@@ -3,7 +3,7 @@
  * 唯一往回发的是「这句念完了」（出声的页面才发；预览页静音、不回执）。
  */
 
-import type { BrainState, CharacterManifest, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
+import type { BrainState, CharacterManifest, GameSource, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
 import { type FxEvent, giftTier, pick, triggersOf } from './triggers';
 
 export interface ChatRow {
@@ -135,6 +135,8 @@ export interface StageState {
   media: Media | null;
   /** 告示板上写的（空串不显示） */
   board: string;
+  /** 她在直播里玩的游戏的画面来源：舞台换成 game 布局 */
+  game: GameSource | null;
 }
 
 const MAX_CHATS = 30;
@@ -173,7 +175,7 @@ function freshStats(): ShowStats {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', fx: [], reaction: null,
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', game: null, fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -455,6 +457,7 @@ function handle(event: StageEvent): void {
       return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
     case 'board': return update((s) => ({ ...s, board: event.text }));
+    case 'game': return update((s) => ({ ...s, game: event.source }));
     case 'note': return update((s) => term(s, event.tag, event.text));
   }
 }

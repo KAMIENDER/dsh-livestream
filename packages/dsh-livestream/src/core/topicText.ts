@@ -144,6 +144,12 @@ function body(topic: Topic, ctx: TopicContext): Body {
         how: '接着播就好，可以跟大家说一声刚才卡了一下。',
         maxChars: 40,
       };
+    case 'game':
+      return {
+        what: ['你在直播里开着的游戏还在进行，画面在舞台上，观众在看。'],
+        how: '接着用 game_continue 看看游戏里怎么样了。',
+        maxChars: 40,
+      };
     case 'inbox':
       return {
         what: ['你的 B 站账号刚收到（直播间的人看不到这些）：', ...topic.lines.map((l) => `- ${l}`)],
