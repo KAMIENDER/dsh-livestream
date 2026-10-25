@@ -67,6 +67,8 @@ export interface LiveSnapshot {
   spokenChars?: number;
   /** 停下时她在直播里玩着游戏（插件重启时游戏那局也跟着断了） */
   playing?: boolean;
+  /** 游戏线：专门玩游戏的那个会话（和直播线同时跑，见 docs/game-line.md） */
+  gameSessionId?: string;
 }
 
 export interface ShowOptions {
@@ -128,6 +130,10 @@ const GAME_WAKE_MS = 6_000;
 const GAME_WELCOME_GAP_MS = 90_000;
 /** 她在玩游戏时，一次推给她的弹幕至少可以有几位观众的（攒了一阵的弹幕一句话一起回） */
 const GAME_CHAT_PICKS = 3;
+/** 游戏线：嘴里已经排着这么多句时，游戏线的话不念了 */
+const GAME_LINE_MOUTH_BACKLOG = 2;
+const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
+const GAME_LINE_END = '直播结束了，这局就停在这里：这一轮到这儿结束，不用再调游戏工具，也不用再说话。';
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
 const GAME_MOUTH_BACKLOG = 2;
 /** 控制台「模拟观众」的用户 id 前缀 */
@@ -149,6 +155,20 @@ export class LiveShow {
   private endingTimer: NodeJS.Timeout | null = null;
   private brain: BrainState = 'off';
   private brainSession: string | null = null;
+  /**
+   * 游戏线：另一个会话里的她，专门玩游戏（直播线回直播间，两边的请求同时跑、互不等待）。
+   * 有游戏线时，直播间的事只推给直播线；游戏线这一轮停下就叫她接着玩；主人的话两边都给
+   */
+  private gameSession: string | null = null;
+  private gameTurnRunning = false;
+  private gameTurnEndedAt = 0;
+  private gamePushing = false;
+  /** 要交给游戏线的话（主人的话、直播线转来的事、续播），导演一条一条送 */
+  private gameMail: string[] = [];
+  /** 游戏那边现在怎样（游戏线最近一个时刻的进度和身体在干什么）：写进给直播线的每件事里 */
+  private gameNow = '';
+  /** 嘴里排着的话里有几句是游戏线的（直播线推下一件事时不等这些） */
+  private queuedGame = 0;
   /** 她这一轮还在进行（推了一件事、或者主人在会话里直接跟她说话） */
   private turnRunning = false;
   private turnSince = 0;
@@ -261,9 +281,11 @@ export class LiveShow {
   // ── 开播、下播 ─────────────────────────────────────
 
   /** 开播：sessionId 是她直播用的会话（控制台刚开好的），身体先推开场 */
-  goLive(sessionId: string): void {
+  goLive(sessionId: string, gameSessionId?: string): void {
     this.brainSession = sessionId;
+    this.gameSession = gameSessionId ?? null;
     if (this.onAir) return;
+    this.resetGameLine();
     this.onAir = true;
     this.ending = false;
     this.endingPushed = false;
@@ -289,6 +311,11 @@ export class LiveShow {
   resumeLive(snapshot: LiveSnapshot, now = Date.now()): void {
     if (this.onAir) return;
     this.brainSession = snapshot.sessionId;
+    this.gameSession = snapshot.gameSessionId ?? null;
+    this.resetGameLine();
+    // 有游戏线时，游戏那局由游戏线开回来；直播线只知道断了多久
+    const playing = !!snapshot.playing && !this.gameSession;
+    if (snapshot.playing && this.gameSession) this.gameMail.push(GAME_LINE_RESUMED);
     this.onAir = true;
     this.ending = false;
     this.endingPushed = false;
@@ -298,7 +325,7 @@ export class LiveShow {
     if (snapshot.streamId !== null) this.memory.resume(snapshot.streamId);
     this.liveSince = snapshot.startedAt ?? snapshot.at;
     this.spoken = snapshot.spokenChars ?? 0;
-    this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)), ...(snapshot.playing ? { playing: true } : {}) }];
+    this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)), ...(playing ? { playing: true } : {}) }];
     this.inbox = [];
     this.logFile = snapshot.logFile;
     this.record({ type: 'resume', gapMs: now - snapshot.at });
@@ -323,7 +350,7 @@ export class LiveShow {
   private persistLive(now = Date.now()): void {
     if (!this.onAir || !this.brainSession) return;
     this.persistedAt = now;
-    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.game ? { playing: true } : {}) });
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.game ? { playing: true } : {}), ...(this.gameSession ? { gameSessionId: this.gameSession } : {}) });
   }
 
   private liveSince = 0;
@@ -351,6 +378,9 @@ export class LiveShow {
     this.ending = false;
     this.endingPushed = false;
     this.priority = [];
+    // 游戏线收手：这一轮结束，不再叫她
+    if (this.gameSession) void this.hooks.push(this.gameSession, GAME_LINE_END, this.gameTurnRunning).catch(() => false);
+    this.resetGameLine();
     if (this.director) clearInterval(this.director);
     this.director = null;
     this.setBrain('off');
@@ -373,17 +403,75 @@ export class LiveShow {
     const said = text.trim();
     if (!said) return;
     this.priority.push({ kind: 'owner', text: said, ...(who?.trim() ? { who: who.trim() } : {}) });
+    // 主人的话游戏线也要知道（常常是游戏上的主意）；回话由直播线回
+    if (this.gameSession) this.gameMail.push(`主人在直播间说${who?.trim() ? `（${who.trim()}）` : ''}：「${said}」\n直播间那边的你会回他；你这边看游戏上要不要照做，不用回话。`);
+  }
+
+  /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
+  toGameLine(text: string): boolean {
+    if (!this.onAir || !this.gameSession || !text.trim()) return false;
+    this.gameMail.push(`直播间那边的你转来：${text.trim()}`);
+    return true;
+  }
+
+  get currentGameSession(): string | null {
+    return this.gameSession;
+  }
+
+  /** 游戏那边现在怎样（盯游戏线的会话时从它最近一个时刻里摘出来） */
+  setGameNow(text: string): void {
+    this.gameNow = text.trim();
+  }
+
+  private resetGameLine(): void {
+    this.gameTurnRunning = false;
+    this.gameTurnEndedAt = 0;
+    this.gamePushing = false;
+    this.gameMail = [];
+    this.gameNow = '';
+  }
+
+  /** 游戏线：有话就送；这一轮停下了、过一会儿就叫她接着玩（不等嘴，也不等直播线） */
+  private async directGameLine(now: number): Promise<void> {
+    if (!this.gameSession || this.gamePushing || this.ending) return;
+    const mail = this.gameMail.shift();
+    let text = mail;
+    if (!text) {
+      if (!this.game || this.gameTurnRunning || now - this.gameTurnEndedAt < GAME_WAKE_MS) return;
+      text = topicText({ kind: 'game', id: `g-${now}`, priority: 1, heat: this.attention.heat(now), createdAt: now }, { inGame: true });
+      this.record({ type: 'topic', seq: ++this.seq, kind: 'game', line: 'game' });
+    }
+    const running = this.gameTurnRunning;
+    this.gamePushing = true;
+    try {
+      const ok = await this.hooks.push(this.gameSession, text, running);
+      if (!ok) {
+        if (mail) this.gameMail.unshift(mail);
+        return;
+      }
+      if (!running) {
+        this.gameTurnRunning = true;
+        this.gameTurnEndedAt = now;
+      }
+      // 插进她这一轮的话：叫醒在等的 game_continue（有游戏线时只有游戏线在等），不然要等游戏里下一件事才看得到
+      else for (const wake of [...this.attentionWaiters]) wake();
+    } finally {
+      this.gamePushing = false;
+    }
   }
 
   // ── 导演：她空下来就推下一件事 ─────────────────────
 
   private async direct(): Promise<void> {
     if (this.onAir && Date.now() - this.persistedAt > PERSIST_EVERY_MS) this.persistLive();
-    if (!this.onAir || !this.brainSession || this.pushing) return;
+    if (!this.onAir || !this.brainSession) return;
     const now = Date.now();
+    if (this.gameSession) void this.directGameLine(now);
+    if (this.pushing) return;
     // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，插进她这一轮的下一步
-    if (this.turnRunning && this.game) return this.directGame(now);
-    if (this.queued > 0) return;
+    // （有游戏线时游戏在另一个会话里，直播线照平常一件一件来）
+    if (this.turnRunning && this.game && !this.gameSession) return this.directGame(now);
+    if (this.queued - this.queuedGame > 0) return;
     if (this.turnRunning) {
       if (now - this.turnSince < TURN_MAX_MS) return;
       this.hooks.log?.('warn', `她这一轮超过 ${TURN_MAX_MS / 1000} 秒还没结束，接着往下推`);
@@ -391,7 +479,7 @@ export class LiveShow {
     }
     // 道别说完了：收工
     if (this.endingPushed) return this.finish();
-    const topic = this.game ? this.takeInGame(now) : this.take(now);
+    const topic = this.game ? (this.gameSession ? this.takeLive(now) : this.takeInGame(now)) : this.take(now);
     if (!topic) return;
     await this.deliver(topic, now);
   }
@@ -437,6 +525,7 @@ export class LiveShow {
       today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
       inGame: !!this.game,
+      gameNow: this.gameSession && this.game ? this.gameNow || '刚开，还没有消息' : undefined,
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
@@ -459,6 +548,10 @@ export class LiveShow {
 
   /** 她的会话开始了一轮（身体推的，或者主人在会话里直接说话） */
   turnStarted(sessionId: string): void {
+    if (sessionId === this.gameSession && sessionId !== this.brainSession) {
+      this.gameTurnRunning = true;
+      return;
+    }
     if (sessionId !== this.brainSession) return;
     this.turnRunning = true;
     this.turnSince = Date.now();
@@ -466,6 +559,11 @@ export class LiveShow {
 
   /** 她这一轮结束了：话念完以后导演再推下一件 */
   turnEnded(sessionId: string): void {
+    if (sessionId === this.gameSession && sessionId !== this.brainSession) {
+      this.gameTurnRunning = false;
+      this.gameTurnEndedAt = Date.now();
+      return;
+    }
     if (sessionId !== this.brainSession) return;
     this.turnRunning = false;
     this.turnEndedAt = Date.now();
@@ -525,10 +623,17 @@ export class LiveShow {
   }
 
   /** 念她写的话：合成语音、交给舞台、等念完 */
-  async say(raw: string, mood: string, signal: AbortSignal): Promise<string> {
+  async say(raw: string, mood: string, signal: AbortSignal, line: 'live' | 'game' = 'live'): Promise<string> {
     const text = speakable(raw);
     if (!text) return '';
+    // 嘴两条线共用：直播线的话先念；嘴里已经排着两句以上时，游戏线的这句不念了（游戏照样在玩，只是少说一句）
+    if (line === 'game' && this.queued >= GAME_LINE_MOUTH_BACKLOG) {
+      this.record({ type: 'drop', line: 'game', text });
+      return '';
+    }
+    const game = line === 'game';
     this.queued += 1;
+    if (game) this.queuedGame += 1;
     return this.stage.withMic(async () => {
       this.speaking += 1;
       this.attention.speechStarted();
@@ -556,6 +661,7 @@ export class LiveShow {
       } finally {
         this.speaking -= 1;
         this.queued -= 1;
+        if (game) this.queuedGame -= 1;
         this.attention.speechEnded(Date.now());
         this.lines = [...this.lines, { text, mood, at: start }].slice(-RECENT_LINES);
         this.herLines.push(text);

@@ -209,9 +209,9 @@ export function apply(ctx: HostContext): void {
   }, 'disconnect');
 
   route('/api/dsh-livestream/onair', ['POST'], async (request) => {
-    const { sessionId } = await body<{ sessionId?: string }>(request);
+    const { sessionId, gameSessionId } = await body<{ sessionId?: string; gameSessionId?: string }>(request);
     if (!sessionId) return fail('缺她直播用的会话');
-    show.goLive(sessionId);
+    show.goLive(sessionId, gameSessionId || undefined);
     // 先推上流、后开播的：这一场一开始就不是彩排
     if (broadcast.streaming) show.markBroadcast();
     dm.newShow();

@@ -39,12 +39,18 @@ const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
   .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
   .map((p: any) => p.text.trim()).filter(Boolean).join('\n');
 
-/** 盯着直播的会话：新的正文就念，一轮开始、结束告诉身体 */
-let watched: { sessionId: string; seq: number } | null = null;
+/**
+ * 盯着直播的会话：新的正文就念，一轮开始、结束告诉身体。
+ * 有游戏线时两个会话一起盯：游戏线的话也念（嘴里排满了就少念一句），它的时刻里摘出游戏现在怎样，写给直播线
+ */
+const cursors = new Map<string, number>();
 let watching = false;
-/** 这场直播（她的会话）累计用掉的 token 和钱：舞台上换算成她吃了多少饭，show_stats 告诉她 */
+/** 这场直播（她的会话，有游戏线时两个加起来）累计用掉的 token 和钱：舞台上换算成她吃了多少饭，show_stats 告诉她 */
 const freshUsage = (sessionId: string) => ({ sessionId, tokens: 0, input: 0, cacheRead: 0, output: 0, yuan: 0, priced: true, model: '' });
 let usage = freshUsage('');
+/** 游戏线最近一个时刻里的进度、身体、背包，和她在游戏线上最近说的一句 */
+let gameMoment = '';
+let gameWords = '';
 
 function countUsage(sessionId: string, event: any, broadcast = true): void {
   const u = event?.data?.usage;
@@ -61,40 +67,78 @@ function countUsage(sessionId: string, event: any, broadcast = true): void {
   if (yuan === null) usage.priced = false; else usage.yuan += yuan;
   if (broadcast) show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn, ...(typeof model === 'string' ? { model } : {}) });
 }
-async function watch(ctx: AgentContext): Promise<void> {
-  const sessionId = show.currentSession;
-  if (!sessionId || watching) return;
+
+/** dsh-game 的时刻里摘出直播线要知道的：进度（位置、白天黑夜、血量饥饿）、身体在干什么、背包 */
+export function momentSummary(text: string): string {
+  const pick = (re: RegExp) => re.exec(text)?.[1]?.trim() ?? '';
+  const progress = pick(/【进度】([^\n]+)/);
+  if (!progress) return '';
+  const body = pick(/【说明】(身体[^\n]+)/);
+  const bag = pick(/【说明】背包：([^\n]+)/);
+  return [progress, body, bag && `背包：${bag.length > 120 ? `${bag.slice(0, 120)}…` : bag}`].filter(Boolean).join('；');
+}
+
+function publishGameNow(): void {
+  show.setGameNow([gameMoment, gameWords && `你在游戏线上刚说：「${gameWords}」`].filter(Boolean).join('；'));
+}
+
+function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game'): void {
   const session = ctx.get?.('sessions')?.get?.(sessionId);
   if (!session) return;
+  const total = show.currentSession ?? sessionId;
   // 刚开始盯这个会话：只管从现在起的新事件；用量从头补算（插件重启后接着播时，饭量不清零）
-  if (!watched || watched.sessionId !== sessionId) {
-    watched = { sessionId, seq: Number(session.seq) };
-    usage = freshUsage(sessionId);
-    for (const event of (session.snapshotEvents(0) as any[]) ?? []) if (event?.type === 'assistant/message') countUsage(sessionId, event, false);
+  if (!cursors.has(sessionId)) {
+    cursors.set(sessionId, Number(session.seq));
+    if (line === 'live') usage = freshUsage(sessionId);
+    for (const event of (session.snapshotEvents(0) as any[]) ?? []) if (event?.type === 'assistant/message') countUsage(total, event, false);
     if (usage.tokens) show.stage.broadcast({ type: 'usage', tokens: usage.tokens, turn: 0, ...(usage.model ? { model: usage.model } : {}) });
     return;
   }
-  const events = session.snapshotEvents(watched.seq) as any[];
-  watched.seq = Number(session.seq);
-  watching = true;
-  try {
-    for (const event of events) {
-      if (event?.type === 'turn/start') show.turnStarted(sessionId);
-      else if (event?.type === 'turn/end') show.turnEnded(sessionId);
-      else if (event?.type === 'assistant/message') {
-        countUsage(sessionId, event);
-        const key = `${sessionId}:${event.seq}`;
-        if (voiced.has(key)) continue;
-        voiced.add(key);
-        const words = wordsOf(event);
-        if (!words) continue;
-        // 交给嘴排队念（嘴一次念一句，按交来的先后），不在这里等念完：
-        // 「这一轮结束了」要马上让导演知道，导演自己看嘴里还排着几句再决定推不推下一件
-        for (const part of splitByMood(words, currentMoods())) {
-          void show.say(part.text, part.mood, AbortSignal.timeout(300_000)).catch((err) => hooks.log('warn', `念她的话出错：${(err as Error).message}`));
-        }
+  const events = session.snapshotEvents(cursors.get(sessionId)) as any[];
+  cursors.set(sessionId, Number(session.seq));
+  for (const event of events) {
+    if (event?.type === 'turn/start') show.turnStarted(sessionId);
+    else if (event?.type === 'turn/end') show.turnEnded(sessionId);
+    else if (event?.type === 'tool/result' && line === 'game') {
+      const summary = momentSummary(wordsOf(event));
+      if (summary) {
+        gameMoment = summary;
+        publishGameNow();
+      }
+    } else if (event?.type === 'assistant/message') {
+      countUsage(total, event);
+      const key = `${sessionId}:${event.seq}`;
+      if (voiced.has(key)) continue;
+      voiced.add(key);
+      const words = wordsOf(event);
+      if (!words) continue;
+      if (line === 'game') {
+        gameWords = words.replace(/\[[a-z]+\]/g, '').trim().slice(0, 80);
+        publishGameNow();
+      }
+      // 交给嘴排队念（嘴一次念一句，按交来的先后），不在这里等念完：
+      // 「这一轮结束了」要马上让导演知道，导演自己看嘴里还排着几句再决定推不推下一件
+      for (const part of splitByMood(words, currentMoods())) {
+        void show.say(part.text, part.mood, AbortSignal.timeout(300_000), line).catch((err) => hooks.log('warn', `念她的话出错：${(err as Error).message}`));
       }
     }
+  }
+}
+
+async function watch(ctx: AgentContext): Promise<void> {
+  const sessionId = show.currentSession;
+  if (!sessionId || watching) return;
+  watching = true;
+  try {
+    // 换了一场（另一个会话）：游戏线的摘要也清掉
+    if (!cursors.has(sessionId)) {
+      cursors.clear();
+      gameMoment = '';
+      gameWords = '';
+    }
+    watchSession(ctx, sessionId, 'live');
+    const game = show.currentGameSession;
+    if (game && game !== sessionId) watchSession(ctx, game, 'game');
   } finally {
     watching = false;
   }
@@ -737,4 +781,21 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
       return `停了「${stopped.video.title}」（放了 ${clock(stopped.playedSec)}），舞台换回了聊天的布局。`;
     },
   })), 'stop_video tool');
+
+  // 游戏线：另一个会话里的她专门玩游戏，这条线把话交给她
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'game_side',
+    description: '把话交给游戏线上的你（另一个对话里专门玩游戏的你，游戏画面在舞台上）：开游戏、换目标、观众给游戏出的主意、让它停手，都用这个。它按自己的判断去做，做的事和说的话观众都看得到。',
+    parameters: {
+      message: { type: 'string', required: true, description: '交给游戏线的话，比如「开 Minecraft 接着玩，目标一身钻石装备」「观众提醒：晚上先挖洞躲起来」' },
+    },
+    output: stringOut,
+    async execute(args) {
+      const message = typeof args.message === 'string' ? args.message.trim() : '';
+      if (!message) return '要交给游戏线的话是空的。';
+      show.toolCall('game_side', message.slice(0, 40));
+      if (!show.toGameLine(message)) return '这场直播没开游戏线（开播时只开了一个对话），游戏玩不了。';
+      return '交给游戏线了：它接下来会照自己的判断去做。';
+    },
+  })), 'game_side tool');
 }

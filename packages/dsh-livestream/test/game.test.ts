@@ -139,3 +139,76 @@ describe('replies while playing', () => {
     expect(topicText(topic, {})).toContain('不超过 60 字');
   });
 });
+
+describe('game line: the game in its own session', () => {
+  afterEach(() => vi.useRealTimers());
+
+  function start() {
+    vi.useFakeTimers();
+    const pushed: { session: string; text: string; now: boolean }[] = [];
+    const show = new LiveShow(
+      { push: async (session, text, now) => { pushed.push({ session, text, now: !!now }); return true; }, synthesize: async () => null },
+      { dataDir: mkdtempSync(join(tmpdir(), 'dsh-game-line-')), names: ['大肥鱼'] },
+    );
+    show.goLive('live', 'game');
+    const to = (session: string) => pushed.filter((p) => p.session === session).map((p) => p.text);
+    return { show, pushed, to };
+  }
+
+  it('sends the live room to the live line only, and keeps the game line playing', async () => {
+    const { show, pushed, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    // 直播线把开游戏交给游戏线
+    expect(show.toGameLine('开 Minecraft 接着玩')).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(to('game')).toEqual(['直播间那边的你转来：开 Minecraft 接着玩']);
+    show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
+    show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20；身体正在：采集 oak_log');
+    // 弹幕只给直播线，不插进游戏线这一轮，也不叫醒 game_continue
+    let woke = false;
+    void show.waitAttention(new AbortController().signal).then(() => { woke = true; });
+    show.inject(chat('1', '挖到钻石了吗'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    const live = to('live');
+    expect(live[live.length - 1]).toContain('挖到钻石了吗');
+    expect(live[live.length - 1]).toContain('游戏那边（游戏线上的你在玩）：主世界 (1, 64, 2)');
+    expect(to('game')).toHaveLength(1);
+    expect(woke).toBe(false);
+    // 直播线这一轮还没完（回弹幕的话还在念）也不耽误游戏线：游戏线这一轮停了，过一会儿就叫她接着玩
+    show.turnEnded('game');
+    await vi.advanceTimersByTimeAsync(7_000);
+    expect(to('game')).toHaveLength(2);
+    expect(to('game')[1]).toContain('game_continue');
+    expect(pushed.filter((p) => p.session === 'live').every((p) => !p.now)).toBe(true);
+    show.dispose();
+  });
+
+  it('gives the owner\'s words to both lines and wakes the game line mid-turn', async () => {
+    const { show, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    show.toGameLine('开 Minecraft');
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnStarted('game');
+    show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
+    let woke = false;
+    void show.waitAttention(new AbortController().signal).then(() => { woke = true; });
+    show.ownerSay('死掉的东西别回去捡');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(to('live').some((t) => t.includes('死掉的东西别回去捡'))).toBe(true);
+    expect(to('game')[1]).toContain('主人在直播间说：「死掉的东西别回去捡」');
+    expect(woke).toBe(true);
+    show.dispose();
+  });
+
+  it('lets the live line go first on the shared mouth', async () => {
+    const { show } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    // 嘴里已经排着两句（直播线的），游戏线这句不念
+    void show.say('欢迎欢迎', 'talk', new AbortController().signal);
+    void show.say('谢谢关注', 'talk', new AbortController().signal);
+    expect(await show.say('我去砍树了', 'talk', new AbortController().signal, 'game')).toBe('');
+    show.dispose();
+  });
+});

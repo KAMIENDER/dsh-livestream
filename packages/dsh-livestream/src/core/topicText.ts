@@ -22,6 +22,8 @@ export interface TopicContext {
   board?: string;
   /** 她正在直播里玩游戏：回直播间的事说短一点（嘴跟不上，观众听到的回应会越来越晚） */
   inGame?: boolean;
+  /** 有游戏线时：游戏那边现在怎样（另一个会话里的她在玩；这条线回直播间） */
+  gameNow?: string;
 }
 
 /** 玩游戏时回直播间的事最多说多少字（一句 5～6 秒） */
@@ -211,7 +213,8 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
-  return [...(head ? [head, ''] : []), ...b.what, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
+  const game = ctx.gameNow ? ['', `游戏那边（游戏线上的你在玩）：${ctx.gameNow}`] : [];
+  return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }
 
 /** 「10月23日 22:32 开播，播了 6 小时」（北京时间） */

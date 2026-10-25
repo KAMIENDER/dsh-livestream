@@ -58,6 +58,8 @@ function useServices(): ConsoleServices | null {
 // ── 宿主接口 ──────────────────────────────────────────
 
 const PRESET_ID = 'dsh-livestream';
+/** 游戏线（另一个会话里的她，专门玩游戏）用的预设 */
+const GAME_PRESET_ID = 'dsh-livestream-game';
 const SECRET_REFS = { cookie: 'BILIBILI_COOKIE', tts: 'DOUBAO_TTS_API_KEY' } as const;
 
 interface PackEntry { id: string; name: string; builtin: boolean }
@@ -164,16 +166,16 @@ function useLive(): Live {
 // ── 开播：会话 ────────────────────────────────────────
 
 /** 开一个用「大肥鱼直播」预设的会话（她直播用） */
-async function createBrainSession(svc: ConsoleServices): Promise<string> {
+async function createBrainSession(svc: ConsoleServices, line: 'live' | 'game' = 'live'): Promise<string> {
   const workspace = svc.workspaces.list.getSnapshot().items[0];
   if (!workspace) throw new Error('先在 DSH 里打开一个工作区。');
   const sessionId = await svc.sessions.create({ workspaceId: workspace.workspaceId });
-  const selected = await svc.remote.agentPresets.select(sessionId, PRESET_ID);
-  if (!selected.ok) throw new Error(selected.error?.message ?? '没能用上「大肥鱼直播」预设。');
+  const selected = await svc.remote.agentPresets.select(sessionId, line === 'game' ? GAME_PRESET_ID : PRESET_ID);
+  if (!selected.ok) throw new Error(selected.error?.message ?? `没能用上「${line === 'game' ? '大肥鱼直播·游戏线' : '大肥鱼直播'}」预设。`);
   // 让会话就绪（agent 起来），身体才能往里推
   // 会话列表里一眼认得出是哪一场（不然叫「未命名」）
   const d = new Date();
-  const title = `直播 · ${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const title = `直播${line === 'game' ? '游戏线' : ''} · ${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
   await svc.sessions.using(sessionId, { source: 'controllerOperation' }, async (reference) => {
     const { session } = await reference.ready;
     await session.rename?.(title)?.catch?.(() => {});
@@ -291,7 +293,9 @@ export function Console() {
       await waitBroadcast();
     }
     const sessionId = await createBrainSession(svc);
-    await api('onair', { sessionId });
+    // 游戏线：没装 dsh-game（预设里没有游戏工具）也开得出来，只是用不上
+    const gameSessionId = await createBrainSession(svc, 'game').catch(() => undefined);
+    await api('onair', { sessionId, gameSessionId });
     await refresh();
   });
 
