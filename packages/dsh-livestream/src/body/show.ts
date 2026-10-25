@@ -65,6 +65,8 @@ export interface LiveSnapshot {
   startedAt?: number;
   /** 到停下时她念了多少字 */
   spokenChars?: number;
+  /** 停下时她在直播里玩着游戏（插件重启时游戏那局也跟着断了） */
+  playing?: boolean;
 }
 
 export interface ShowOptions {
@@ -290,7 +292,7 @@ export class LiveShow {
     if (snapshot.streamId !== null) this.memory.resume(snapshot.streamId);
     this.liveSince = snapshot.startedAt ?? snapshot.at;
     this.spoken = snapshot.spokenChars ?? 0;
-    this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)) }];
+    this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)), ...(snapshot.playing ? { playing: true } : {}) }];
     this.inbox = [];
     this.logFile = snapshot.logFile;
     this.record({ type: 'resume', gapMs: now - snapshot.at });
@@ -315,7 +317,7 @@ export class LiveShow {
   private persistLive(now = Date.now()): void {
     if (!this.onAir || !this.brainSession) return;
     this.persistedAt = now;
-    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken });
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.game ? { playing: true } : {}) });
   }
 
   private liveSince = 0;
@@ -668,6 +670,7 @@ export class LiveShow {
     this.gamePushedAt = 0;
     this.stage.broadcast({ type: 'game', source });
     this.record({ type: 'game', source });
+    this.persistLive();
     this.hooks.onGame?.(source);
   }
 

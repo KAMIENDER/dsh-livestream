@@ -145,8 +145,11 @@ function body(topic: Topic, ctx: TopicContext): Body {
         : { what: [`你要放的视频「${cleanText(topic.title)}」没放出来（舞台加载不了 B 站的视频地址）。`], how: '跟大家说一声，可以换一个或者接着聊。', maxChars: 40 };
     case 'resumed':
       return {
-        what: [`直播插件刚才重启了一下（主人在更新功能），断了大约 ${topic.gapSec} 秒；直播间、推流和这场的对话都还在。`],
-        how: '接着播就好，可以跟大家说一声刚才卡了一下。',
+        what: [
+          `直播插件刚才重启了一下（主人在更新功能），断了大约 ${topic.gapSec} 秒；直播间、推流和这场的对话都还在。`,
+          ...(topic.playing ? ['你刚才在玩的游戏也跟着断了：游戏要用 game_start 重新开（Minecraft 的世界和背包还在服务器上）。'] : []),
+        ],
+        how: topic.playing ? '跟大家说一声刚才卡了一下，接着把游戏开回来。' : '接着播就好，可以跟大家说一声刚才卡了一下。',
         maxChars: 40,
       };
     case 'game':

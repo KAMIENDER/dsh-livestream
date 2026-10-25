@@ -45,7 +45,7 @@ export type TopicBody =
   /** 她在舞台上放的视频放完了（error：没放出来）；playedSec 是放了多久 */
   | { kind: 'video'; title: string; how: 'ended' | 'error'; playedSec: number }
   /** 直播插件重启了（主人在更新），断了 gapSec 秒，这场接着播 */
-  | { kind: 'resumed'; gapSec: number }
+  | { kind: 'resumed'; gapSec: number; playing?: boolean }
   /** 她在直播里开着的游戏：这一轮她停下了、直播间也没事，叫她接着玩 */
   | { kind: 'game' }
   /** 开播账号收到了新私信、评论回复、@（只有她看得到；lines 已经写好、内容包在标签里） */
