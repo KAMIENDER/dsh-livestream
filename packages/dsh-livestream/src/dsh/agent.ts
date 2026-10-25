@@ -96,14 +96,20 @@ async function watch(ctx: AgentContext): Promise<void> {
   }
 }
 
-/** 往她的会话里推一条消息（追加并唤醒）；会话不在线返回 false */
-async function push(ctx: AgentContext, sessionId: string, text: string): Promise<boolean> {
+/**
+ * 往她的会话里推一条消息并唤醒她；会话不在线返回 false。
+ * 平时用 followup（排到下一轮：她这一轮做完再看）；now 用 steer（插进这一轮的下一步：
+ * 她在玩游戏时一轮可以很长，用 followup 的话直播间的事要等她这一轮停下才看得到）
+ */
+async function push(ctx: AgentContext, sessionId: string, text: string, now = false): Promise<boolean> {
   const agents = ctx.get?.('agents');
   const found = agents?.get?.(sessionId);
   const agent = found?.followup ? found : found?.agent;
   if (!agent?.followup) return false;
   // 和 DSH 自己的 createUserMessage 一样：带 id、role，冻结（消息进会话后不能再改）
-  await agent.followup(Object.freeze({ id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'dsh-livestream' } }));
+  const message = Object.freeze({ id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'dsh-livestream' } });
+  if (now && agent.steer) await agent.steer(message);
+  else await agent.followup(message);
   return true;
 }
 
@@ -217,7 +223,7 @@ export function apply(ctx: AgentContext): void {
     await credentials.set(name, value);
   };
   hooks.complete = (model, system, user) => completeWithDsh(ctx, model, system, user);
-  hooks.push = (sessionId, text) => push(ctx, sessionId, text);
+  hooks.push = (sessionId, text, now) => push(ctx, sessionId, text, now);
   markAgentReady();
   // 警告也打到 stderr：DSH 网页版的日志只在内存里，服务器上看 web.log 才找得到
   if (ctx.logger) hooks.log = (level, message) => {

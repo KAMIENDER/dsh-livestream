@@ -155,7 +155,7 @@ export const hooks: {
   secret: (name: string) => Promise<string>;
   /** 存一个机密（扫码登录拿到的 Cookie）；没有凭据服务时抛错 */
   setSecret: (name: string, value: string) => Promise<void>;
-  push: (sessionId: string, text: string) => Promise<boolean>;
+  push: (sessionId: string, text: string, now?: boolean) => Promise<boolean>;
   complete: ((model: string, system: string, user: string) => Promise<string>) | null;
   log: (level: 'info' | 'warn', message: string) => void;
 } = {
@@ -196,7 +196,7 @@ const distill: DistillLlm = async (system, user) => {
 
 export const show = new LiveShow(
   {
-    push: (sessionId, text) => hooks.push(sessionId, text),
+    push: (sessionId, text, now) => hooks.push(sessionId, text, now),
     synthesize: (text, signal) => {
       const ready = prepared.get(`${currentVoice()}|${text}`);
       if (ready) {

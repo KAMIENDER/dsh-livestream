@@ -36,8 +36,11 @@ export interface VideoEnd {
 }
 
 export interface ShowHooks {
-  /** 把一件事作为一条消息推进她的会话（唤醒她）；会话不在线返回 false */
-  push(sessionId: string, text: string): Promise<boolean>;
+  /**
+   * 把一件事作为一条消息推进她的会话（唤醒她）；会话不在线返回 false。
+   * now：插进她这一轮的下一步（她在玩游戏、一轮没完时）；不然排到下一轮
+   */
+  push(sessionId: string, text: string, now?: boolean): Promise<boolean>;
   /** 合成一句话的语音（mp3）和逐字时间；没配密钥或失败返回 null（只有字幕，按字数走） */
   synthesize(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null>;
   /** 下播后提炼观众记忆用的模型 */
@@ -386,7 +389,7 @@ export class LiveShow {
     if (now - this.gamePushedAt < GAME_PUSH_GAP_MS) return;
     const topic = this.takeLive(now);
     if (!topic) return;
-    if (!(await this.deliver(topic, now))) return;
+    if (!(await this.deliver(topic, now, true))) return;
     this.gamePushedAt = Date.now();
     for (const wake of [...this.attentionWaiters]) wake();
   }
@@ -408,7 +411,7 @@ export class LiveShow {
   }
 
   /** 把一件事推进她的会话；推成了返回 true */
-  private async deliver(topic: Topic, now: number): Promise<boolean> {
+  private async deliver(topic: Topic, now: number, midTurn = false): Promise<boolean> {
     this.seq += 1;
     const focus = focusOf(topic);
     if (focus.length) this.stage.broadcast({ type: 'focus', userIds: focus });
@@ -423,7 +426,7 @@ export class LiveShow {
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
     try {
-      const ok = await this.hooks.push(this.brainSession!, text);
+      const ok = await this.hooks.push(this.brainSession!, text, midTurn);
       if (!ok) {
         // 她的会话不在线（DSH 重启过、会话被关了）：要紧的事放回去，等控制台重新开播
         if (topic.kind === 'opening' || topic.kind === 'ending' || topic.kind === 'owner') this.priority.unshift(topic);

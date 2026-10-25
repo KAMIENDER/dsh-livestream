@@ -14,17 +14,18 @@ describe('playing a game on stream', () => {
   function start() {
     vi.useFakeTimers();
     const pushed: string[] = [];
+    const midTurn: boolean[] = [];
     const onGame = vi.fn();
     const show = new LiveShow(
-      { push: async (_s, text) => { pushed.push(text); return true; }, synthesize: async () => null, onGame },
+      { push: async (_s, text, now) => { pushed.push(text); midTurn.push(!!now); return true; }, synthesize: async () => null, onGame },
       { dataDir: mkdtempSync(join(tmpdir(), 'dsh-game-live-')), names: ['大肥鱼'] },
     );
     show.goLive('s1');
-    return { show, pushed, onGame };
+    return { show, pushed, midTurn, onGame };
   }
 
   it('hands danmaku to her mid-game and wakes game_continue', async () => {
-    const { show, pushed, onGame } = start();
+    const { show, pushed, midTurn, onGame } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('s1');
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe', overlay: 'http://127.0.0.1:7391/' });
@@ -41,6 +42,8 @@ describe('playing a game on stream', () => {
     await vi.advanceTimersByTimeAsync(6_000);
     expect(pushed).toHaveLength(2);
     expect(pushed[1]).toContain('挖到钻石了吗');
+    // 插进她这一轮的下一步（steer），不是排到下一轮
+    expect(midTurn[1]).toBe(true);
     expect(woke).toBe(true);
     // 隔得太近的攒着，过了间隔再推
     show.inject(chat('2', '小心苦力怕'));
