@@ -120,6 +120,8 @@ const WATCH_MIN_SEC = 8;
 const GAME_PUSH_GAP_MS = 12_000;
 /** 她在玩游戏、这一轮停下了、话也说完了，等这么久直播间还没事，就叫她接着玩 */
 const GAME_WAKE_MS = 6_000;
+/** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
+const GAME_MOUTH_BACKLOG = 2;
 /** 控制台「模拟观众」的用户 id 前缀 */
 export const SIMULATED_PREFIX = 'sim-';
 
@@ -162,6 +164,8 @@ export class LiveShow {
   /** 排在弹幕前面的事：主人的话、开场、谢幕 */
   private priority: TopicBody[] = [];
   private speaking = 0;
+  /** 她写好、还没念完的话（包括排着队等嘴的）：导演看这个决定要不要推下一件 */
+  private queued = 0;
   private lines: SpokenLine[] = [];
   private herLines: string[] = [];
   private logFile: string | null = null;
@@ -369,9 +373,9 @@ export class LiveShow {
     if (this.onAir && Date.now() - this.persistedAt > PERSIST_EVERY_MS) this.persistLive();
     if (!this.onAir || !this.brainSession || this.pushing) return;
     const now = Date.now();
-    // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，DSH 在她下一步时插进去
+    // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，插进她这一轮的下一步
     if (this.turnRunning && this.game) return this.directGame(now);
-    if (this.speaking > 0) return;
+    if (this.queued > 0) return;
     if (this.turnRunning) {
       if (now - this.turnSince < TURN_MAX_MS) return;
       this.hooks.log?.('warn', `她这一轮超过 ${TURN_MAX_MS / 1000} 秒还没结束，接着往下推`);
@@ -387,6 +391,8 @@ export class LiveShow {
   /** 她在玩游戏、一轮没完：有弹幕、礼物、主人说话就推给她（隔开一点），推了就叫醒在等的 game_continue */
   private async directGame(now: number): Promise<void> {
     if (now - this.gamePushedAt < GAME_PUSH_GAP_MS) return;
+    // 嘴跟不上：她写好的话还排着好几句没念，先不推新的，弹幕攒着等她说完一起给（不然观众听到的回应越来越晚）
+    if (this.queued >= GAME_MOUTH_BACKLOG) return;
     const topic = this.takeLive(now);
     if (!topic) return;
     if (!(await this.deliver(topic, now, true))) return;
@@ -422,6 +428,7 @@ export class LiveShow {
       lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
       today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
+      inGame: !!this.game,
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
@@ -513,6 +520,7 @@ export class LiveShow {
   async say(raw: string, mood: string, signal: AbortSignal): Promise<string> {
     const text = speakable(raw);
     if (!text) return '';
+    this.queued += 1;
     return this.stage.withMic(async () => {
       this.speaking += 1;
       this.attention.speechStarted();
@@ -539,6 +547,7 @@ export class LiveShow {
         await done;
       } finally {
         this.speaking -= 1;
+        this.queued -= 1;
         this.attention.speechEnded(Date.now());
         this.lines = [...this.lines, { text, mood, at: start }].slice(-RECENT_LINES);
         this.herLines.push(text);

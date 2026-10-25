@@ -20,7 +20,12 @@ export interface TopicContext {
   today?: string;
   /** 开场用：直播画面上告示板写的（观众看得到） */
   board?: string;
+  /** 她正在直播里玩游戏：回直播间的事说短一点（嘴跟不上，观众听到的回应会越来越晚） */
+  inGame?: boolean;
 }
+
+/** 玩游戏时回直播间的事最多说多少字（一句 5～6 秒） */
+const IN_GAME_MAX_CHARS = 30;
 
 const HEAT_TEXT = { quiet: '直播间人不多，弹幕很慢', normal: '弹幕不快不慢', busy: '弹幕刷得很快' } as const;
 
@@ -200,7 +205,10 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   const b = body(topic, ctx);
   const heat = ['opening', 'ending', 'owner'].includes(topic.kind) ? '' : `${HEAT_TEXT[topic.heat]}。`;
   const head = `${heat}${ctx.today ? `今天是${ctx.today}。` : ''}`;
-  return [...(head ? [head, ''] : []), ...b.what, '', `${b.how}不超过 ${b.maxChars} 字。`].join('\n');
+  // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
+  const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
+  const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
+  return [...(head ? [head, ''] : []), ...b.what, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }
 
 /** 「10月23日 22:32 开播，播了 6 小时」（北京时间） */

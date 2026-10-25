@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LiveShow } from '../src/body/show';
 import { arrange, gameRect } from '../src/stage/layout';
+import { topicText } from '../src/core/topicText';
 import type { TemplateManifest } from '../src/stage/protocol';
 
 const chat = (id: string, text: string) => ({ kind: 'chat' as const, id, platform: 'bilibili' as const, ts: Date.now(), user: { id: `u-${id}`, name: `观众${id}` }, text });
@@ -72,6 +73,24 @@ describe('playing a game on stream', () => {
     show.dispose();
   });
 
+  it('holds danmaku while her mouth is backed up', async () => {
+    const { show, pushed } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('s1');
+    show.showGame({ window: 'w' });
+    show.turnStarted('s1');
+    const quiet = new AbortController().signal;
+    void show.say('这是一句挺长的话，念起来要好几秒钟才能念完的那种，观众在等。', 'talk', quiet);
+    void show.say('第二句也很长，嘴里排着两句的时候，新的弹幕先别推给她。', 'talk', quiet);
+    show.inject(chat('9', '你好呀'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(pushed.some((p) => p.includes('你好呀'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(pushed.some((p) => p.includes('你好呀'))).toBe(true);
+    show.endLive();
+    show.dispose();
+  });
+
   it('lets game_continue give up waiting', async () => {
     const { show } = start();
     const waiting = new AbortController();
@@ -109,5 +128,14 @@ describe('game layout', () => {
     const keys = (m: 'chat' | 'video' | 'game') => arrange(t, m).map((s) => s.key).sort();
     expect(keys('chat')).toEqual(keys('game'));
     expect(keys('video')).toEqual(keys('game'));
+  });
+});
+
+describe('replies while playing', () => {
+  it('asks for a short line while she plays', () => {
+    const topic = { kind: 'chat' as const, picks: [{ event: chat('1', '挖到钻石了吗'), text: '挖到钻石了吗', tags: [], score: 1 }], id: 'c', priority: 10, heat: 'quiet' as const, createdAt: 0 };
+    expect(topicText(topic, { inGame: true })).toContain('你正在玩游戏，');
+    expect(topicText(topic, { inGame: true })).toContain('不超过 30 字');
+    expect(topicText(topic, {})).toContain('不超过 60 字');
   });
 });

@@ -88,7 +88,11 @@ async function watch(ctx: AgentContext): Promise<void> {
         voiced.add(key);
         const words = wordsOf(event);
         if (!words) continue;
-        for (const part of splitByMood(words, currentMoods())) await show.say(part.text, part.mood, AbortSignal.timeout(120_000));
+        // 交给嘴排队念（嘴一次念一句，按交来的先后），不在这里等念完：
+        // 「这一轮结束了」要马上让导演知道，导演自己看嘴里还排着几句再决定推不推下一件
+        for (const part of splitByMood(words, currentMoods())) {
+          void show.say(part.text, part.mood, AbortSignal.timeout(300_000)).catch((err) => hooks.log('warn', `念她的话出错：${(err as Error).message}`));
+        }
       }
     }
   } finally {
