@@ -132,6 +132,8 @@ const GAME_WELCOME_GAP_MS = 90_000;
 const GAME_CHAT_PICKS = 3;
 /** 游戏线这么久没有游戏里的时刻，就当游戏没在玩了（不再叫她） */
 const GAME_MOMENT_FRESH_MS = 5 * 60_000;
+/** 直播线用 game_side 交给游戏线的话以这个开头（盯会话时认出「刚收到交接」） */
+export const HANDOFF_PREFIX = '你在直播间定下：';
 const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
 const GAME_LINE_END = '直播结束了，这局就停在这里：这一轮到这儿结束，不用再调游戏工具，也不用再说话。';
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
@@ -415,8 +417,13 @@ export class LiveShow {
   /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
   toGameLine(text: string): boolean {
     if (!this.onAir || !this.gameSession || !text.trim()) return false;
-    this.gameMail.push(`你在直播间定下：${text.trim()}`);
+    this.gameMail.push(`${HANDOFF_PREFIX}${text.trim()}`);
     return true;
+  }
+
+  /** 游戏线写了、但没念的话（交接后的回执）：只记在直播记录里，事后查得到 */
+  unsaid(text: string, why: string): void {
+    this.record({ type: 'unsaid', line: 'game', why, text });
   }
 
   get currentGameSession(): string | null {

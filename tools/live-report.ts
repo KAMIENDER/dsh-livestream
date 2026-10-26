@@ -71,6 +71,17 @@ for (const o of owners) {
   console.log(`  交给游戏：${handoff ? JSON.parse(handoff.data.arguments || '{}').message?.slice(0, 40) : '没交'}；之后游戏里说：${ack.length ? ack.map((a) => `「${a.slice(0, 30)}」`).join(' ') : '（没说）'}`);
 }
 
+// 3b. 交接（game_side）：观众听到几次回应；游戏线没念的回执是什么（有没有吞掉要紧的话）
+const handoffs = live.filter((e) => e.type === 'tool/call' && e.data.name === 'game_side' && e.time >= from && e.time <= to);
+let twice = 0;
+for (const h of handoffs) {
+  const gameSaid = says.filter((s) => s.line === '游戏' && s.start > h.time && s.start < h.time + 40_000);
+  if (gameSaid.length) twice++;
+}
+const unsaid = show.filter((e) => e.type === 'unsaid' && e.t >= from && e.t <= to);
+console.log(`\n交接 ${handoffs.length} 次：40 秒内游戏线又出声 ${twice} 次；游戏线没念的回执 ${unsaid.length} 条：`);
+for (const u of unsaid) console.log(`  （没念）${clean(u.text).slice(0, 60)}`);
+
 // 4. 嘴和冷场
 const talk = says.reduce((a, s) => a + (s.end - s.start), 0);
 const gaps = says.slice(1).map((s, i) => ({ at: says[i].end, gap: s.start - says[i].end })).sort((a, b) => b.gap - a.gap);

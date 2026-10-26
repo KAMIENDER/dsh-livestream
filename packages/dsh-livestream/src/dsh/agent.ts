@@ -18,6 +18,7 @@ import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
 import { ttsYuan, turnYuan } from '../core/cost';
 import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
+import { HANDOFF_PREFIX } from '../body/show';
 import { BiliRoom } from '../body/biliRoom';
 import { screenshot } from '../body/obs';
 import { whoIs } from '../body/biliLogin';
@@ -51,6 +52,8 @@ let usage = freshUsage('');
 /** 游戏线最近一个时刻里的进度、身体、背包，和她在游戏线上最近说的一句 */
 let gameMoment = '';
 let gameWords = '';
+/** 游戏线刚收到交接（game_side）：它接下来那一条回复不念（直播线已经回过观众了，那条多半是「收到」「记下了」） */
+let hushNext = false;
 
 function countUsage(sessionId: string, event: any, broadcast = true): void {
   const u = event?.data?.usage;
@@ -99,7 +102,10 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
   for (const event of events) {
     if (event?.type === 'turn/start') show.turnStarted(sessionId);
     else if (event?.type === 'turn/end') show.turnEnded(sessionId);
-    else if (event?.type === 'tool/result' && line === 'game') {
+    else if (event?.type === 'user/message' && line === 'game') {
+      const said = (event?.data?.content ?? []).filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('');
+      if (said.startsWith(HANDOFF_PREFIX)) hushNext = true;
+    } else if (event?.type === 'tool/result' && line === 'game') {
       const summary = momentSummary(wordsOf(event));
       if (summary) {
         gameMoment = summary;
@@ -113,6 +119,12 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
       const words = wordsOf(event);
       if (!words) continue;
       if (line === 'game') {
+        // 交接后的回执：同一件事直播线刚说过，这条不念（里面的游戏动作照常做）
+        if (hushNext) {
+          hushNext = false;
+          show.unsaid(words, '交接后的回执');
+          continue;
+        }
         gameWords = words.replace(/\[[a-z]+\]/g, '').trim().slice(0, 80);
         publishGameNow();
       }
@@ -135,6 +147,7 @@ async function watch(ctx: AgentContext): Promise<void> {
       cursors.clear();
       gameMoment = '';
       gameWords = '';
+      hushNext = false;
     }
     watchSession(ctx, sessionId, 'live');
     const game = show.currentGameSession;
