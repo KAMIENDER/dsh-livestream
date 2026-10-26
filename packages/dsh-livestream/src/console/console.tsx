@@ -89,7 +89,7 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -490,6 +490,14 @@ export function Console() {
             </div>
             <h3>告示板</h3>
             <BoardField value={settings?.boardText ?? ''} fallback={host?.defaultBoard ?? ''} onSave={(boardText) => choose({ boardText })} />
+            <h3>滚动通知</h3>
+            <div className="dl-field">
+              <div className="dl-row">
+                <input key={settings?.noticeText ?? ''} defaultValue={settings?.noticeText ?? ''} placeholder="比如：游戏画面卡住了，主人在修，马上回来" onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} onBlur={(e) => { if (e.target.value.trim() !== (settings?.noticeText ?? '')) choose({ noticeText: e.target.value }); }} />
+                <button type="button" onClick={() => choose({ noticeText: '' })}>收起</button>
+              </div>
+              <p className="dl-hint">写了就在画面最底下滚动，告诉观众现在出了什么状况；回车生效，「收起」就不显示了。</p>
+            </div>
             <h3>玩游戏</h3>
             <div className="dl-field">
               <div className="dl-row">

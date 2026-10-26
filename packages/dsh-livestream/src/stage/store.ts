@@ -82,7 +82,8 @@ export function litChars(line: Line, length: number): number {
 }
 
 /** 一场直播的阶段：开播前等待 → 开场动画 → 直播中 → 谢幕（之后回到等待） */
-export type ShowPhase = 'waiting' | 'opening' | 'live' | 'ending';
+/** updating：直播中插件在更新（断线了、或者换了新版本在重载），盖一张「更新中」，接回来再揭开 */
+export type ShowPhase = 'waiting' | 'opening' | 'live' | 'ending' | 'updating';
 
 /** 这场直播到现在的数（谢幕时的感谢名单也从这里来） */
 export interface ShowStats {
@@ -135,6 +136,8 @@ export interface StageState {
   media: Media | null;
   /** 告示板上写的（空串不显示） */
   board: string;
+  /** 滚动通知（画面最底下），空串不显示 */
+  notice: string;
   /** 她在直播里玩的游戏的画面来源：舞台换成 game 布局 */
   game: GameSource | null;
   /** 游戏画面上那一行「她在干嘛」 */
@@ -174,10 +177,31 @@ function freshStats(): ShowStats {
   return { startedAt: Date.now(), chats: 0, viewers: 0, peakOnline: 0, supporters: [] };
 }
 
+/** 直播中换了新版本、页面重载：重载前记一笔，重载后先盖「更新中」，别露出「马上开始」 */
+const UPDATING_KEY = 'ls-updating';
+function wasUpdating(): boolean {
+  try {
+    const at = Number(sessionStorage.getItem(UPDATING_KEY) ?? 0);
+    return Date.now() - at < UPDATING_MAX_MS;
+  } catch {
+    return false;
+  }
+}
+/** 断线多久算在更新（短暂的网络抖动不盖） */
+const UPDATING_AFTER_MS = 3000;
+/** 「更新中」最多盖这么久，还没接回来就当下播了（换回等待画面） */
+const UPDATING_MAX_MS = 3 * 60_000;
+let updatingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startUpdating(): void {
+  if (state.phase === 'updating') return;
+  setPhase('updating', { ms: UPDATING_MAX_MS, next: 'waiting' });
+}
+
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', game: null, gameStatus: null, fx: [], reaction: null,
+  phase: wasUpdating() ? 'updating' : 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', notice: '', game: null, gameStatus: null, fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -333,16 +357,19 @@ function setPhase(phase: ShowPhase, after?: { ms: number; next: ShowPhase }): vo
 /** 开没开播变了：刚连上时补发来的状态直接到位，真的开播放开场、真的下播放谢幕 */
 function onAirChanged(onAir: boolean): void {
   const s = state;
-  if (onAir === s.onAir && !(onAir && s.phase === 'waiting')) return;
+  if (onAir === s.onAir && !(onAir && (s.phase === 'waiting' || s.phase === 'updating'))) return;
   const catchingUp = Date.now() - helloAt < CATCHUP_MS;
   if (onAir) {
     const fresh = <T extends { at: number }>(list: T[]) => list.filter((item) => item.at > offAirAt);
     update((x) => term({ ...x, onAir: true, stats: freshStats(), tokens: 0, chats: fresh(x.chats), alerts: fresh(x.alerts) }, 'live', catchingUp ? '舞台连上，正在直播' : '开播'));
-    if (catchingUp) setPhase('live');
+    try { sessionStorage.removeItem(UPDATING_KEY); } catch { /* 没存过 */ }
+    // 更新完接回来：直接揭开，不再放一遍开场
+    if (catchingUp || s.phase === 'updating') setPhase('live');
     else setPhase('opening', { ms: OPENING_MS, next: 'live' });
   } else {
     offAirAt = Date.now();
     update((x) => term({ ...x, onAir: false }, 'live', '下播'));
+    if (s.phase === 'updating') return; // 更新完刚接上、直播还没续上：接着盖「更新中」，等开播的消息（盖太久会自己换回等待画面）
     if (catchingUp || s.phase === 'waiting') setPhase('waiting');
     else setPhase('ending', { ms: ENDING_MS, next: 'waiting' });
   }
@@ -454,6 +481,9 @@ function handle(event: StageEvent): void {
     case 'hello':
       // 插件更新过（DSH 重启后重连上来，版本变了）：重新加载页面拿新代码。OBS 的浏览器源不会自己刷新
       if (event.build && pageBuild && event.build !== pageBuild) {
+        if (state.onAir || state.phase === 'updating') {
+          try { sessionStorage.setItem(UPDATING_KEY, String(Date.now())); } catch { /* 存不了就算了 */ }
+        }
         location.reload();
         return;
       }
@@ -488,6 +518,7 @@ function handle(event: StageEvent): void {
       return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
     case 'board': return update((s) => ({ ...s, board: event.text }));
+    case 'notice': return update((s) => ({ ...s, notice: event.text }));
     case 'game': return update((s) => ({ ...s, game: event.source, ...(event.source ? {} : { gameStatus: null }) }));
     case 'gameStatus': return update((s) => ({ ...s, gameStatus: event.status }));
     case 'note': return update((s) => term(s, event.tag, event.text));
@@ -525,6 +556,7 @@ function startDemo(name: string): void {
 }
 
 export function connect(): void {
+  if (state.phase === 'updating') setPhase('updating', { ms: UPDATING_MAX_MS, next: 'waiting' });
   const source = new EventSource(`/events?token=${encodeURIComponent(token)}${preview ? '&preview=1' : ''}`);
   source.onmessage = (message) => {
     try {
@@ -533,6 +565,14 @@ export function connect(): void {
       // 认不出的事件跳过（新版本的事件旧舞台不认识）
     }
   };
-  source.onerror = () => update((s) => ({ ...s, connected: false }));
+  source.onerror = () => {
+    update((s) => ({ ...s, connected: false }));
+    // 直播中断线（插件在重启、在更新）：过一会儿还没接上就盖「更新中」
+    if (!state.onAir || preview || updatingTimer) return;
+    updatingTimer = setTimeout(() => {
+      updatingTimer = null;
+      if (!state.connected && state.onAir) startUpdating();
+    }, UPDATING_AFTER_MS);
+  };
   source.onopen = () => update((s) => ({ ...s, connected: true }));
 }

@@ -302,7 +302,7 @@ html, body {
 }
 .ls-board-head {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 24px 4px;
-  font-family: var(--ls-font-cute); font-size: 24px; letter-spacing: 2px; color: var(--ls-accent-2);
+  font-family: var(--ls-font-cute); font-size: 28px; letter-spacing: 2px; color: var(--ls-accent-2);
 }
 /* 小图钉 */
 .ls-board-head::before {
@@ -314,13 +314,13 @@ html, body {
 .ls-board-page { flex: 1; min-height: 0; overflow: hidden; padding: 6px 26px 34px; animation: ls-board-in .6s cubic-bezier(.22, .9, .25, 1); }
 @keyframes ls-board-in { from { opacity: 0; transform: translateY(10px); } }
 .ls-board-title {
-  font-family: var(--ls-font-cute); font-size: 32px; line-height: 1.3; color: var(--ls-accent);
+  font-family: var(--ls-font-cute); font-size: 40px; line-height: 1.25; color: var(--ls-accent);
   margin-bottom: 8px;
 }
 .ls-board-page ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .ls-board-page li {
   position: relative; padding-left: 22px;
-  font-size: 26px; font-weight: 600; line-height: 1.35; color: var(--ls-text);
+  font-size: 32px; font-weight: 700; line-height: 1.3; color: var(--ls-text);
 }
 .ls-board-page li::before {
   content: ''; position: absolute; left: 2px; top: .55em; width: 10px; height: 10px; border-radius: 50%;
@@ -685,6 +685,19 @@ html, body {
 .ls-scenes.ls-scene-out { animation: ls-scene-out 0.7s ease-in forwards; }
 @keyframes ls-scene-out { to { opacity: 0; transform: scale(1.03); } }
 .ls-scene { position: absolute; inset: 0; background: linear-gradient(160deg, #e9f5ff, #fff2f7); }
+/* 滚动通知：画面最底下一条，盖在挂件上、过场下面 */
+.ls-notice {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 60; height: 52px; display: flex; align-items: center; gap: 14px;
+  padding: 0 0 0 20px; box-sizing: border-box; overflow: hidden;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ls-accent) 92%, transparent), color-mix(in srgb, var(--ls-accent-2) 92%, transparent));
+  box-shadow: 0 -4px 16px rgba(40, 70, 130, 0.25);
+}
+.ls-notice b { flex: none; padding: 4px 14px; border-radius: 999px; background: #fff; color: var(--ls-accent); font: 900 24px var(--ls-font-cute); letter-spacing: 2px; }
+.ls-notice-track { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.ls-notice-track span { display: inline-block; padding-left: 100%; font-size: 32px; font-weight: 800; color: #fff; text-shadow: 0 2px 4px rgba(20, 40, 90, 0.35); animation: ls-ticker linear infinite; }
+@keyframes ls-ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+/* 更新中：和等待画面一样的卡片，小人在敲电脑 */
+.ls-update-art { animation: ls-type 0.5s steps(2) infinite; }
 .ls-scene-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: ls-kenburns 30s ease-in-out infinite alternate; }
 @keyframes ls-kenburns { to { transform: scale(1.06) translate(-1%, -1%); } }
 

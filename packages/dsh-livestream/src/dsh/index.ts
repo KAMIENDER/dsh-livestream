@@ -19,7 +19,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -82,6 +82,8 @@ function simulated(input: { kind?: string; name?: string; text?: string; gift?: 
 
 /** 下播后等她道别说完再停推 */
 let waitingOffair: NodeJS.Timeout | null = null;
+/** 舞台的谢幕画面放多久（stage/store.ts 的 ENDING_MS 是 16 秒）：放完再停推流 */
+const ENDING_SCENE_MS = 17_000;
 
 /** 断多久以内算重启（接着播）；更久就当上一场已经结束了 */
 const RESUME_WITHIN_MS = 10 * 60_000;
@@ -188,6 +190,7 @@ export function apply(ctx: HostContext): void {
     if (patch.asrPython !== undefined) next.asrPython = String(patch.asrPython).trim().replace(/^"|"$/g, '');
     if (patch.asrModel !== undefined) next.asrModel = String(patch.asrModel).trim() || 'large-v3-turbo';
     if (patch.boardText !== undefined) next.boardText = String(patch.boardText).replace(/\r/g, '').slice(0, 1000);
+    if (patch.noticeText !== undefined) next.noticeText = String(patch.noticeText).replace(/\s+/g, ' ').trim().slice(0, 200);
     const own = (patch as { ownRoom?: boolean }).ownRoom;
     if (own !== undefined && settings.roomId) {
       const rooms = new Set(settings.ownRooms);
@@ -200,6 +203,7 @@ export function apply(ctx: HostContext): void {
     if ((next.asrPython !== undefined && next.asrPython !== settings.asrPython) || (next.asrModel !== undefined && next.asrModel !== settings.asrModel)) asr.close();
     updateSettings(next);
     if (next.boardText !== undefined) publishBoard();
+    if (next.noticeText !== undefined) publishNotice();
     if (next.character) show.setNames(currentCharacter()?.names ?? []);
     if (repaint) show.stage.broadcast({ type: 'reload' });
     // 换了主题，游戏位可能挪了：OBS 里的游戏画面跟着挪
@@ -231,13 +235,13 @@ export function apply(ctx: HostContext): void {
 
   route('/api/dsh-livestream/offair', ['POST'], () => {
     show.endLive();
-    // 在推流：等她道别说完（这场结束），再停推、下播
+    // 在推流：等她道别说完（这场结束），舞台放完谢幕，再停推、下播（以前一说完就断，观众看不到谢幕）
     if (broadcast.streaming && !waitingOffair) {
       waitingOffair = setInterval(() => {
         if (show.isOnAir) return;
         if (waitingOffair) clearInterval(waitingOffair);
         waitingOffair = null;
-        void broadcast.stop();
+        setTimeout(() => void broadcast.stop(), ENDING_SCENE_MS);
       }, 1000);
     }
     return json(state());

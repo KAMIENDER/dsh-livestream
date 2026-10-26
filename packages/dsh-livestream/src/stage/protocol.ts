@@ -170,6 +170,8 @@ export type StageEvent =
   | { v: 1; type: 'note'; tag: string; text: string; at: number }
   /** 告示板：主人想让观众知道的（空行分页，每页第一行是标题）；空串不显示 */
   | { v: 1; type: 'board'; text: string; at: number }
+  /** 滚动通知（主人在控制台写的，出状况时告诉观众）；空串收起 */
+  | { v: 1; type: 'notice'; text: string; at: number }
   /** isUpdate：同 id 再来一次（礼物连击累加） */
   | { v: 1; type: 'live'; event: StageLiveEvent; isUpdate: boolean; at: number }
   /** 她正在回应这几位观众（弹幕流里高亮） */

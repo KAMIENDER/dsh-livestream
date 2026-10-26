@@ -810,6 +810,27 @@ function Waiting() {
   );
 }
 
+/** 直播中插件在更新：观众看到的是「更新中」，不是「马上开始」（直播没断，等一下就回来） */
+function Updating() {
+  const { character } = useStage();
+  // 角色包里没有更新专用的画（art.updating）就借等待画面的；小人借敲电脑的那张
+  const [updating, waiting, updatingSticker, laptop] = [useArt('updating'), useArt('waiting'), useArt('updating-sticker'), useArt('laptop')];
+  const bg = updating ?? waiting;
+  const sticker = updatingSticker ?? laptop;
+  const name = character?.name ?? '她';
+  return (
+    <div className="ls-scene ls-scene-updating">
+      {bg && <ArtImg className="ls-scene-bg" src={bg} />}
+      <div className="ls-wait-card">
+        {sticker && <ArtImg className="ls-wait-art ls-update-art" src={sticker} />}
+        <div className="ls-wait-room">{name}的直播间</div>
+        <div className="ls-wait-title">{name}在升级<i /><i /><i /></div>
+        <div className="ls-wait-hint">主人在给她装新功能，直播没断，一会儿就回来</div>
+      </div>
+    </div>
+  );
+}
+
 function Opening() {
   const { character } = useStage();
   const kv = useArt('kv');
@@ -860,6 +881,20 @@ function Ending() {
   );
 }
 
+/** 画面最底下的滚动通知：主人在控制台写，出状况时告诉观众（卡了、在修、马上回来） */
+export function Notice() {
+  const { notice } = useStage();
+  if (!notice) return null;
+  // 字越多滚得越久：每个字大约 0.28 秒，最少 12 秒一轮
+  const seconds = Math.max(12, [...notice].length * 0.28 + 8);
+  return (
+    <div className="ls-notice">
+      <b>通知</b>
+      <div className="ls-notice-track"><span key={notice} style={{ animationDuration: `${seconds}s` }}>{notice}</span></div>
+    </div>
+  );
+}
+
 /** 整屏的过场（模板把它放在 0,0、和画布一样大，盖在最上面） */
 export function Scene() {
   const { phase } = useStage();
@@ -869,7 +904,7 @@ export function Scene() {
   if (!shown) return null;
   return (
     <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>
-      {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : <Ending />}
+      {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : shown === 'updating' ? <Updating /> : <Ending />}
     </div>
   );
 }

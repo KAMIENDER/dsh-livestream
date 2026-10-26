@@ -64,6 +64,8 @@ export interface Settings {
   asrModel: string;
   /** 告示板：主人想让观众知道的。空行分页，每页第一行是标题；空串不显示告示板 */
   boardText: string;
+  /** 滚动通知：画面最底下一条滚动的字，出状况时告诉观众（卡了、在修、马上回来）；空串不显示 */
+  noticeText: string;
 }
 
 /** 告示板默认写的：观众怎么跟她玩 */
@@ -136,6 +138,7 @@ function loadSettings(): Settings {
     asrPython: '',
     asrModel: 'large-v3-turbo',
     boardText: DEFAULT_BOARD,
+    noticeText: '',
     ...saved,
   };
   if (!settings.stageToken) {
@@ -247,6 +250,12 @@ export function publishBoard(): void {
   show.stage.broadcast({ type: 'board', text: settings.boardText });
 }
 publishBoard();
+
+/** 滚动通知换了：舞台马上换 */
+export function publishNotice(): void {
+  show.stage.broadcast({ type: 'notice', text: settings.noticeText ?? '' });
+}
+publishNotice();
 
 async function speech(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null> {
   const voice = currentVoice();
