@@ -78,7 +78,8 @@ export function momentSummary(text: string): string {
   if (!progress) return '';
   const body = pick(/【说明】(身体[^\n]+)/);
   const bag = pick(/【说明】背包：([^\n]+)/);
-  return [progress, body, bag && `背包：${bag.length > 120 ? `${bag.slice(0, 120)}…` : bag}`].filter(Boolean).join('；');
+  // 背包整行给（以前截到 120 字，背包一满，钻石剑这些排在后面的就被截掉，她当着观众说「没有钻石剑」）
+  return [progress, body, bag && `背包：${bag}`].filter(Boolean).join('；');
 }
 
 function publishGameNow(moment = false): void {
