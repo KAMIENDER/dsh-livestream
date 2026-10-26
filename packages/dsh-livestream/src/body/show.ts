@@ -146,6 +146,13 @@ const GAME_MOUTH_BACKLOG = 2;
 /** 控制台「模拟观众」的用户 id 前缀 */
 export const SIMULATED_PREFIX = 'sim-';
 
+/** 开场时告诉她现在几号、几点（服务器在北京时间）：她只知道日期的话，下午开播也会说「晚上好」 */
+function whenNow(d: Date): string {
+  const h = d.getHours();
+  const part = h < 5 ? '凌晨' : h < 8 ? '早上' : h < 11 ? '上午' : h < 13 ? '中午' : h < 18 ? '下午' : '晚上';
+  return `${d.getMonth() + 1}月${d.getDate()}日${part} ${h}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export class LiveShow {
   readonly hub = new LiveHub();
   readonly stage = new Stage();
@@ -582,7 +589,7 @@ export class LiveShow {
     const text = topicText(topic, {
       viewerCard: (u: LiveUser) => this.memory.viewerCard(u, now),
       lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
-      today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
+      today: topic.kind === 'opening' ? whenNow(d) : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
       inGame: this.gameOn,
       gameNow: !this.gameSession ? undefined

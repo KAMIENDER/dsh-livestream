@@ -16,7 +16,7 @@ export interface TopicContext {
   viewerCard?: (user: LiveUser) => string | null;
   /** 开场白用：上一场的回顾 */
   lastRecap?: LastRecap | null;
-  /** 今天的日期（观众卡片里的日期要和它比） */
+  /** 现在几号、几点（开场时给；观众卡片里的日期要和它比） */
   today?: string;
   /** 开场用：直播画面上告示板写的（观众看得到） */
   board?: string;
@@ -211,7 +211,7 @@ function minutes(sec: number): string {
 export function topicText(topic: Topic, ctx: TopicContext): string {
   const b = body(topic, ctx);
   const heat = ['opening', 'ending', 'owner'].includes(topic.kind) ? '' : `${HEAT_TEXT[topic.heat]}。`;
-  const head = `${heat}${ctx.today ? `今天是${ctx.today}。` : ''}`;
+  const head = `${heat}${ctx.today ? `现在是${ctx.today}。` : ''}`;
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
