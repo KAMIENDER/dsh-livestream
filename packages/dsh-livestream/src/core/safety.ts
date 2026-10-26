@@ -14,6 +14,7 @@ export interface SanitizedChat {
 }
 
 const MAX_TEXT = 240;
+const MAX_OWNER_TEXT = 4000;
 const MAX_NAME = 32;
 
 const INJECTION_PATTERNS: Array<[RegExp, string]> = [
@@ -32,6 +33,11 @@ export function cleanName(value: unknown): string {
 /** 观众文字进提示词前的清洗 */
 export function cleanText(value: unknown): string {
   return cleanScalar(value, MAX_TEXT);
+}
+
+/** 主人和帮忙管直播的人的话：自己人，不按弹幕的长度截（图纸、清单可以很长） */
+export function cleanOwnerText(value: unknown): string {
+  return cleanScalar(value, MAX_OWNER_TEXT);
 }
 
 function cleanScalar(value: unknown, maxLen: number): string {

@@ -9,7 +9,7 @@
 import type { LiveUser } from './live';
 import type { Topic } from './attention/topics';
 import type { LastRecap } from './memory/memory';
-import { cleanName, cleanText } from './safety';
+import { cleanName, cleanOwnerText, cleanText } from './safety';
 
 export interface TopicContext {
   /** 直播记忆：她记得这位观众什么（没有返回 null） */
@@ -136,8 +136,8 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return {
         what: [
           ...(topic.who
-            ? [`${cleanText(topic.who)}（在电脑前和主人一起管这场直播）在直播间跟你说话，观众也看得到：`, `<${cleanText(topic.who)}>${cleanText(topic.text)}</${cleanText(topic.who)}>`]
-            : ['主人（你的搭档）在直播间跟你说话，观众也看得到：', `<主人>${cleanText(topic.text)}</主人>`]),
+            ? [`${cleanText(topic.who)}（在电脑前和主人一起管这场直播）在直播间跟你说话，观众也看得到：`, `<${cleanText(topic.who)}>${cleanOwnerText(topic.text)}</${cleanText(topic.who)}>`]
+            : ['主人（你的搭档）在直播间跟你说话，观众也看得到：', `<主人>${cleanOwnerText(topic.text)}</主人>`]),
           ...(topic.interrupted ? [`你刚才正说到「${cleanText(topic.interrupted).slice(0, 60)}」，被他打断了。`] : []),
         ],
         how: '像搭档一样直接回他：可以吐槽、接梗、反驳或者撒娇；需要的话最后把话头拉回直播间。',
@@ -215,7 +215,9 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
-  const game = ctx.gameNow ? ['', `你在游戏里：${ctx.gameNow}`] : ctx.gameOff ? ['', '游戏现在没开。'] : [];
+  const game = ctx.gameNow
+    ? ['', `你在游戏里：${ctx.gameNow}`, '直播间这边看不到游戏画面，只有上面这段：没写的就是不知道；刚交代、上面还没出现的事，就是还没做成。']
+    : ctx.gameOff ? ['', '游戏现在没开。'] : [];
   return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }
 

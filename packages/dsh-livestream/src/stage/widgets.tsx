@@ -705,13 +705,16 @@ const BRAIN_TEXT = { off: '', listening: '在听弹幕', thinking: '正在想…
 
 /** options.room：最前面加一块「××的直播间」名牌 */
 export function Status({ options }: { options?: Record<string, unknown> }) {
-  const { brain, brainDetail, online, onAir, character, connected } = useStage();
+  const { brain, brainDetail, online, onAir, character, connected, line } = useStage();
+  // 嘉宾在说话：写嘉宾，不写她
+  const guest = line?.speaker;
   return (
     <div className={`ls-status ls-brain-${brain}`}>
       {options?.room ? <span className="ls-room">{typeof options.room === 'string' ? options.room : `${character?.name ?? ''}的直播间`}</span> : null}
       <span className={`ls-live${onAir ? ' ls-on' : ''}`}><i />{onAir ? 'LIVE' : '准备中'}</span>
       {online !== undefined && <span className="ls-online"><EyeIcon />{online}<small>人在看</small></span>}
-      {brain !== 'off' && <span className="ls-brain" key={brain}><i className="ls-brain-icon"><b /><b /><b /></i>{character?.name ?? ''}{brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[brain]}</span>}
+      {guest ? <span className="ls-brain ls-brain-guest" key="guest"><i className="ls-brain-icon"><b /><b /><b /></i>{guest}在说话</span>
+        : brain !== 'off' && <span className="ls-brain" key={brain}><i className="ls-brain-icon"><b /><b /><b /></i>{character?.name ?? ''}{brain === 'thinking' && brainDetail ? brainDetail : BRAIN_TEXT[brain]}</span>}
       {!connected && <span className="ls-offline">舞台没连上</span>}
     </div>
   );

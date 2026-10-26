@@ -313,8 +313,10 @@ export function apply(ctx: HostContext): void {
   }, 'login poll');
 
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
-    const { text, who } = await body<{ text?: string; who?: string }>(request);
+    const { text, who, line } = await body<{ text?: string; who?: string; line?: string }>(request);
     if (!text?.trim()) return fail('说点什么');
+    // line: 'game'：只交给游戏线（长图纸、坐标清单这类只关游戏的事），直播线不经手
+    if (line === 'game') return show.ownerToGame(text) ? json({ ok: true }) : fail('这场没开游戏线');
     show.ownerSay(text, who ? String(who).slice(0, 20) : undefined);
     return json({ ok: true });
   }, 'owner');

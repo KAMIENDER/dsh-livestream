@@ -136,10 +136,12 @@ const GAME_WELCOME_GAP_MS = 90_000;
 const GAME_CHAT_PICKS = 3;
 /** 游戏线这么久没有游戏里的时刻，就当游戏没在玩了（不再叫她） */
 const GAME_MOMENT_FRESH_MS = 5 * 60_000;
-/** 直播线用 game_side 交给游戏线的话以这个开头（盯会话时认出「刚收到交接」） */
-export const HANDOFF_PREFIX = '你在直播间定下：';
 /** 插件重启、游戏线还在把游戏开回来时，给直播线看的游戏情况 */
 const GAME_RESTARTING = '插件刚重启了一下，游戏也跟着断了，正在重新开（还没回到游戏里）';
+/** 直播线回这些事时说的话，游戏线也要听到 */
+const HEARD_BY_GAME = new Set(['chat', 'owner', 'superchat', 'trend', 'thanks']);
+/** 直播线说的话多久交给游戏线一次 */
+const LIVE_WORDS_EVERY_MS = 45_000;
 const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
 const GAME_LINE_END = '直播结束了，这局就停在这里：这一轮到这儿结束，不用再调游戏工具，也不用再说话。';
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
@@ -193,6 +195,11 @@ export class LiveShow {
   private gameMomentAt = 0;
   /** 嘴里排着的话里有几句是游戏线的（直播线推下一件事时不等这些） */
   private queuedGame = 0;
+  /** 直播线最近一件事是什么（她接下来说的话是在回什么） */
+  private lastTopicKind = '';
+  /** 直播线回观众、回主人时说的话，攒着隔一会儿交给游戏线（她自己说过的话，游戏里的她也要知道） */
+  private liveWords: string[] = [];
+  private liveWordsSentAt = 0;
   /** 她这一轮还在进行（推了一件事、或者主人在会话里直接跟她说话） */
   private turnRunning = false;
   private turnSince = 0;
@@ -440,13 +447,16 @@ export class LiveShow {
   /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
   toGameLine(text: string): boolean {
     if (!this.onAir || !this.gameSession || !text.trim()) return false;
-    this.gameMail.push(`${HANDOFF_PREFIX}${text.trim()}`);
+    // 这件事直播间那边已经回过观众了：写在这条里，游戏线照着做、不再回一遍（二测：写在消息里的这句它都照做；只靠预设时一半会再说「收到」）
+    this.gameMail.push(`你在直播间定下：${text.trim()}\n这件事观众已经听你说过了，去做就行，不用再说一遍。`);
     return true;
   }
 
-  /** 游戏线写了、但没念的话（交接后的回执）：只记在直播记录里，事后查得到 */
-  unsaid(text: string, why: string): void {
-    this.record({ type: 'unsaid', line: 'game', why, text });
+  /** 主人只跟游戏里的她说（长图纸、坐标清单这类只关游戏的事）：直接送到游戏线，不经过直播线、不截短；没开游戏线返回 false */
+  ownerToGame(text: string): boolean {
+    if (!this.onAir || !this.gameSession || !text.trim()) return false;
+    this.gameMail.push(`主人跟你说（游戏上的事）：\n${text.trim()}`);
+    return true;
   }
 
   get currentGameSession(): string | null {
@@ -486,11 +496,18 @@ export class LiveShow {
     this.gameNow = '';
     this.gameMomentAt = 0;
     this.resumingGame = false;
+    this.liveWords = [];
+    this.liveWordsSentAt = 0;
   }
 
   /** 游戏线：有话就送；这一轮停下了、过一会儿就叫她接着玩（不等嘴，也不等直播线） */
   private async directGameLine(now: number): Promise<void> {
     if (!this.gameSession || this.gamePushing || this.ending) return;
+    if (this.liveWords.length && now - this.liveWordsSentAt >= LIVE_WORDS_EVERY_MS) {
+      this.liveWordsSentAt = now;
+      const words = this.liveWords.splice(0).slice(-6);
+      this.gameMail.push(`你在直播间刚说过这些（观众都听到了）：\n${words.map((w) => `- ${w}`).join('\n')}\n里面答应要在游戏里做的事，接着去做；已经在做的、不用做的就不管。这些话观众已经听过了，不用再说一遍。`);
+    }
     const mail = this.gameMail.shift();
     let text = mail;
     if (!text) {
@@ -586,6 +603,7 @@ export class LiveShow {
     const focus = focusOf(topic);
     if (focus.length) this.stage.broadcast({ type: 'focus', userIds: focus });
     this.record({ type: 'topic', seq: this.seq, kind: topic.kind });
+    this.lastTopicKind = topic.kind;
     const d = new Date(now);
     const text = topicText(topic, {
       viewerCard: (u: LiveUser) => this.memory.viewerCard(u, now),
@@ -595,7 +613,7 @@ export class LiveShow {
       inGame: this.gameOn,
       gameNow: !this.gameSession ? undefined
         : this.resumingGame && !this.gameOn ? GAME_RESTARTING
-        : this.gameOn ? this.gameNow || '刚开，还没有消息' : undefined,
+        : this.gameOn ? `${this.gameNow ? `（${Math.max(1, Math.round((now - this.gameMomentAt) / 1000))} 秒前）${this.gameNow}` : '刚开，还没有消息'}` : undefined,
       gameOff: !!this.gameSession && !this.gameOn && !this.resumingGame && topic.kind === 'owner',
     });
     this.pushing = true;
@@ -701,6 +719,8 @@ export class LiveShow {
     const game = line === 'game';
     this.queued += 1;
     if (game) this.queuedGame += 1;
+    // 直播线在回观众、回主人时说的话，游戏线也要听到（里面常常答应了游戏里的事）
+    if (!game && this.gameSession && this.gameOn && HEARD_BY_GAME.has(this.lastTopicKind)) this.liveWords.push(text);
     return this.stage.withMic(async () => {
       this.speaking += 1;
       this.attention.speechStarted();
@@ -737,7 +757,7 @@ export class LiveShow {
         this.setBrain(!this.onAir ? 'off' : this.turnRunning ? 'thinking' : 'listening');
       }
       return text;
-    });
+    }, game ? 1 : 0);
   }
 
   /**

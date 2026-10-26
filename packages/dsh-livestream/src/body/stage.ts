@@ -15,7 +15,6 @@ export class Stage {
   /** 出声的舞台页（OBS 的浏览器源）；预览页静音、不回执 */
   private speakers = new Set<Listener>();
   private pending = new Map<string, () => void>();
-  private micTail: Promise<void> = Promise.resolve();
   /** 状态类事件的最新一条：舞台页中途连上（OBS 刷新）时先补给它，不用等下一次变化 */
   private latest = new Map<string, StageEvent>();
 
@@ -70,9 +69,26 @@ export class Stage {
   }
 
   /** 一句一句说：谁先要谁先说 */
-  withMic<T>(play: () => Promise<T>): Promise<T> {
-    const turn = this.micTail.then(play, play);
-    this.micTail = turn.then(() => undefined, () => undefined);
-    return turn;
+  /** priority 大的先念（同样大的按先后）：游戏线说的是游戏里此刻的事，排在直播线回观众的话前面 */
+  withMic<T>(play: () => Promise<T>, priority = 0): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.micQueue.push({ priority, run: () => Promise.resolve().then(play).then(resolve, reject) });
+      this.nextOnMic();
+    });
+  }
+
+  private micQueue: Array<{ priority: number; run: () => Promise<void> }> = [];
+  private micBusy = false;
+
+  private nextOnMic(): void {
+    if (this.micBusy || !this.micQueue.length) return;
+    let k = 0;
+    for (let i = 1; i < this.micQueue.length; i++) if (this.micQueue[i].priority > this.micQueue[k].priority) k = i;
+    const [turn] = this.micQueue.splice(k, 1);
+    this.micBusy = true;
+    void turn.run().finally(() => {
+      this.micBusy = false;
+      this.nextOnMic();
+    });
   }
 }

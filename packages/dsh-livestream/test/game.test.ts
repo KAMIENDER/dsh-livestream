@@ -162,7 +162,7 @@ describe('game line: the game in its own session', () => {
     // 直播线把开游戏交给游戏线
     expect(show.toGameLine('开 Minecraft 接着玩')).toBe(true);
     await vi.advanceTimersByTimeAsync(500);
-    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩']);
+    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩\n这件事观众已经听你说过了，去做就行，不用再说一遍。']);
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
     show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20；身体正在：采集 oak_log');
     // 弹幕只给直播线，不插进游戏线这一轮，也不叫醒 game_continue
@@ -172,7 +172,7 @@ describe('game line: the game in its own session', () => {
     await vi.advanceTimersByTimeAsync(3_000);
     const live = to('live');
     expect(live[live.length - 1]).toContain('挖到钻石了吗');
-    expect(live[live.length - 1]).toContain('你在游戏里：主世界 (1, 64, 2)');
+    expect(live[live.length - 1]).toMatch(/你在游戏里：（\d+ 秒前）主世界 \(1, 64, 2\)/);
     expect(to('game')).toHaveLength(1);
     expect(woke).toBe(false);
     // 直播线这一轮还没完（回弹幕的话还在念）也不耽误游戏线：游戏线这一轮停了，过一会儿就叫她接着玩
@@ -181,6 +181,51 @@ describe('game line: the game in its own session', () => {
     expect(to('game')).toHaveLength(2);
     expect(to('game')[1]).toContain('game_continue');
     expect(pushed.filter((p) => p.session === 'live').every((p) => !p.now)).toBe(true);
+    show.dispose();
+  });
+
+  it('lets the game line speak before live replies already waiting on the mic', async () => {
+    const { show } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    const order: string[] = [];
+    show.stage.subscribe((e: any) => { if (e.type === 'say') order.push(e.text); }, false);
+    void show.say('第一句直播线', 'talk', new AbortController().signal);
+    void show.say('第二句直播线', 'talk', new AbortController().signal);
+    void show.say('苦力怕贴脸了', 'scared', new AbortController().signal, 'game');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(order.slice(-3)).toEqual(['第一句直播线', '苦力怕贴脸了', '第二句直播线']);
+    show.dispose();
+  });
+
+  it('lets the game line hear what the live line told viewers', async () => {
+    const { show, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    show.toGameLine('开 Minecraft');
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnStarted('game');
+    show.setGameNow('主世界 (1, 64, 2)', true);
+    show.inject(chat('1', '塔太小了'));
+    await vi.advanceTimersByTimeAsync(2_000);
+    // 直播线回弹幕时答应了游戏里的事
+    void show.say('小？那我加高加大，重来一遍', 'talk', new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(50_000);
+    const heard = to('game').find((t) => t.includes('你在直播间刚说过这些'));
+    expect(heard).toContain('小？那我加高加大，重来一遍');
+    show.dispose();
+  });
+
+  it('keeps the owner\'s long text whole, and can hand it straight to the game line', async () => {
+    const { show, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    const plan = `图例：A oak_planks、B glass、G gray_wool\n${'AAAABBBBGGGG\n'.repeat(40)}最后一行`;
+    show.ownerSay(plan);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(to('live').some((t) => t.includes('最后一行'))).toBe(true);
+    expect(show.ownerToGame(plan)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(to('game').some((t) => t.startsWith('主人跟你说（游戏上的事）：') && t.includes('最后一行'))).toBe(true);
     show.dispose();
   });
 
@@ -214,7 +259,7 @@ describe('game line: the game in its own session', () => {
     // 她在直播线上把这件事定下来，插进游戏线这一轮并叫醒 game_continue
     show.toGameLine('掉的东西不回去捡了，就地重新采集');
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(to('game')[1]).toBe('你在直播间定下：掉的东西不回去捡了，就地重新采集');
+    expect(to('game')[1]).toContain('你在直播间定下：掉的东西不回去捡了，就地重新采集');
     expect(woke).toBe(true);
     show.dispose();
   });
@@ -244,7 +289,7 @@ describe('game line: the game in its own session', () => {
     show.inject(chat('2', '现在在哪'));
     await vi.advanceTimersByTimeAsync(3_000);
     const after = pushed.filter((p) => p.session === 'live').map((p) => p.text);
-    expect(after[after.length - 1]).toContain('你在游戏里：主世界 (1, 64, 2)');
+    expect(after[after.length - 1]).toMatch(/你在游戏里：（\d+ 秒前）主世界 \(1, 64, 2\)/);
     show.dispose();
   });
 
