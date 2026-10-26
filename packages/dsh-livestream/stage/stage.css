@@ -282,10 +282,10 @@ html, body {
 /* 窗口画面由 OBS 垫在下面：这一块透明，只留一圈框压在画面边上 */
 .ls-game.ls-game-window { background: transparent; box-shadow: none; }
 .ls-game-wait { font-family: var(--ls-font-cute); font-size: 34px; color: rgba(220, 232, 255, 0.7); }
-/* 她在干嘛：左下角（顶上让给进场欢迎，正下方是快捷栏） */
+/* 她在干嘛：左上角（底下是游戏的血条和快捷栏） */
 .ls-game { position: relative; }
 .ls-game-status {
-  position: absolute; left: 18px; bottom: 18px; max-width: 46%; display: flex; align-items: center; gap: 10px;
+  position: absolute; left: 18px; top: 18px; max-width: 46%; display: flex; align-items: center; gap: 10px;
   padding: 8px 18px; border-radius: 999px; background: rgba(16, 22, 42, 0.78); border: 2px solid var(--ls-panel-border);
   font-size: 28px; font-weight: 700; color: #f2f6ff; white-space: nowrap; overflow: hidden;
 }
