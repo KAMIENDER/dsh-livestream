@@ -135,6 +135,8 @@ const GAME_CHAT_PICKS = 3;
 const GAME_MOMENT_FRESH_MS = 5 * 60_000;
 /** 直播线用 game_side 交给游戏线的话以这个开头（盯会话时认出「刚收到交接」） */
 export const HANDOFF_PREFIX = '你在直播间定下：';
+/** 插件重启、游戏线还在把游戏开回来时，给直播线看的游戏情况 */
+const GAME_RESTARTING = '插件刚重启了一下，游戏也跟着断了，正在重新开（还没回到游戏里）';
 const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
 const GAME_LINE_END = '直播结束了，这局就停在这里：这一轮到这儿结束，不用再调游戏工具，也不用再说话。';
 /** 她在玩游戏时，嘴里还排着这么多句没念完，就先不推新的弹幕 */
@@ -170,6 +172,13 @@ export class LiveShow {
   private gameMail: string[] = [];
   /** 游戏那边现在怎样（游戏线最近一个时刻的进度和身体在干什么）：写进给直播线的每件事里 */
   private gameNow = '';
+  /**
+   * 插件重启前在玩游戏、游戏线还没回到游戏里：快照照样记着在玩（再重启一次也不会忘），
+   * 给直播线的事里写着游戏断了、正在重开（不然她会照着记忆接着讲游戏）
+   */
+  private resumingGame = false;
+  /** 送不到游戏线（它的会话不在线）上次报警的时间 */
+  private gameLineWarnedAt = 0;
   /** 游戏线最近一次有游戏里的时刻（game_continue / game_act 的结果）是什么时候 */
   private gameMomentAt = 0;
   /** 嘴里排着的话里有几句是游戏线的（直播线推下一件事时不等这些） */
@@ -320,7 +329,10 @@ export class LiveShow {
     this.resetGameLine();
     // 有游戏线时，游戏那局由游戏线开回来；直播线只知道断了多久
     const playing = !!snapshot.playing && !this.gameSession;
-    if (snapshot.playing && this.gameSession) this.gameMail.push(GAME_LINE_RESUMED);
+    if (snapshot.playing && this.gameSession) {
+      this.gameMail.push(GAME_LINE_RESUMED);
+      this.resumingGame = true;
+    }
     this.onAir = true;
     this.ending = false;
     this.endingPushed = false;
@@ -355,7 +367,7 @@ export class LiveShow {
   private persistLive(now = Date.now()): void {
     if (!this.onAir || !this.brainSession) return;
     this.persistedAt = now;
-    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.gameOn ? { playing: true } : {}), ...(this.gameSession ? { gameSessionId: this.gameSession } : {}) });
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.gameOn || this.resumingGame ? { playing: true } : {}), ...(this.gameSession ? { gameSessionId: this.gameSession } : {}) });
   }
 
   private liveSince = 0;
@@ -434,7 +446,10 @@ export class LiveShow {
   /** 游戏那边现在怎样（盯游戏线的会话时从它最近一个时刻里摘出来） */
   setGameNow(text: string, moment = false): void {
     this.gameNow = text.trim();
-    if (moment) this.gameMomentAt = Date.now();
+    if (moment) {
+      this.gameMomentAt = Date.now();
+      this.resumingGame = false;
+    }
     // 游戏画面上那一行「她在干嘛」：只在变了的时候发
     const status = gameStatusOf(this.gameNow);
     if (status && JSON.stringify(status) !== JSON.stringify(this.gameStatus)) {
@@ -460,6 +475,7 @@ export class LiveShow {
     this.gameMail = [];
     this.gameNow = '';
     this.gameMomentAt = 0;
+    this.resumingGame = false;
   }
 
   /** 游戏线：有话就送；这一轮停下了、过一会儿就叫她接着玩（不等嘴，也不等直播线） */
@@ -478,6 +494,10 @@ export class LiveShow {
       const ok = await this.hooks.push(this.gameSession, text, running);
       if (!ok) {
         if (mail) this.gameMail.unshift(mail);
+        if (now - this.gameLineWarnedAt > 60_000) {
+          this.gameLineWarnedAt = now;
+          this.hooks.log?.('warn', `游戏线的会话不在线（${this.gameSession}），要交给它的话送不出去`);
+        }
         return;
       }
       if (!running) {
@@ -560,7 +580,9 @@ export class LiveShow {
       today: topic.kind === 'opening' ? `${d.getMonth() + 1}月${d.getDate()}日` : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
       inGame: this.gameOn,
-      gameNow: this.gameSession && this.gameOn ? this.gameNow || '刚开，还没有消息' : undefined,
+      gameNow: !this.gameSession ? undefined
+        : this.resumingGame && !this.gameOn ? GAME_RESTARTING
+        : this.gameOn ? this.gameNow || '刚开，还没有消息' : undefined,
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));

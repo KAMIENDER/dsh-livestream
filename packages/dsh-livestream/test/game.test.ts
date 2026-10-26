@@ -207,6 +207,35 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 
+  it('brings the game back after a plugin restart and tells the live line it dropped', async () => {
+    vi.useFakeTimers();
+    const pushed: { session: string; text: string }[] = [];
+    const saved: any[] = [];
+    const show = new LiveShow(
+      { push: async (session, text) => { pushed.push({ session, text }); return true; }, synthesize: async () => null, persist: (s) => { saved.push(s); } },
+      { dataDir: mkdtempSync(join(tmpdir(), 'dsh-game-resume-')), names: ['大肥鱼'] },
+    );
+    show.resumeLive({ sessionId: 'live', gameSessionId: 'game', playing: true, roomId: null, streamId: null, logFile: null, at: Date.now() - 20_000 });
+    // 重启后马上存的快照仍然记着在玩（再重启一次也不会忘）
+    expect(saved[saved.length - 1]).toMatchObject({ gameSessionId: 'game', playing: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(pushed.filter((p) => p.session === 'game').map((p) => p.text)[0]).toContain('game_start');
+    // 直播线知道游戏断了，不照着记忆讲
+    show.turnEnded('live');
+    show.inject(chat('1', '挖到钻石了吗'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    const live = pushed.filter((p) => p.session === 'live').map((p) => p.text);
+    expect(live[live.length - 1]).toContain('游戏也跟着断了，正在重新开');
+    // 游戏线回到游戏里：换回游戏里的情况
+    show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20', true);
+    show.turnEnded('live');
+    show.inject(chat('2', '现在在哪'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    const after = pushed.filter((p) => p.session === 'live').map((p) => p.text);
+    expect(after[after.length - 1]).toContain('你在游戏里：主世界 (1, 64, 2)');
+    show.dispose();
+  });
+
   it('never drops the game line\'s words, and the live line does not wait for them', async () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);

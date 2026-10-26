@@ -114,6 +114,16 @@ async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<voi
     show.closeStale(saved);
     return;
   }
+  // 游戏线的会话也要接回来（不然交给它的话一直送不出去，游戏也开不回来）；接不回来就这场不用游戏线
+  if (saved.gameSessionId) {
+    const controller = ctx.get?.('sessionController');
+    const result = await controller.agents.resolveAgent(saved.gameSessionId).catch((err: Error) => ({ error: err }));
+    if ('error' in result) {
+      console.warn(`[dsh-livestream] 恢复游戏线的会话失败：${String(result.error?.message ?? result.error)}`);
+      saved.gameSessionId = undefined;
+      saved.playing = undefined;
+    }
+  }
   // 等 agent 子插件把推消息的钩子装上
   while (!stopped() && Date.now() < deadline && !agentReady()) await new Promise((r) => setTimeout(r, 500));
   if (saved.roomId) show.connect(saved.roomId, await cookie(), settings.ownRooms.includes(saved.roomId));
