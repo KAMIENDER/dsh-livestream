@@ -24,6 +24,8 @@ export interface TopicContext {
   inGame?: boolean;
   /** 有游戏线时：她在游戏里现在怎样（游戏在另一个会话里玩；写给她看时就是她自己在游戏里） */
   gameNow?: string;
+  /** 有游戏线、但游戏现在没开（主人的话里常常是「开游戏」：她得知道现在没在玩） */
+  gameOff?: boolean;
 }
 
 /** 玩游戏时回直播间的事最多说多少字（一句 5～6 秒） */
@@ -213,7 +215,7 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
-  const game = ctx.gameNow ? ['', `你在游戏里：${ctx.gameNow}`] : [];
+  const game = ctx.gameNow ? ['', `你在游戏里：${ctx.gameNow}`] : ctx.gameOff ? ['', '游戏现在没开。'] : [];
   return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }
 

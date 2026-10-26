@@ -184,6 +184,18 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 
+  it('tells the live line the game is off when the owner speaks before any game', async () => {
+    const { show, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    show.ownerSay('开 Minecraft 去挖煤');
+    await vi.advanceTimersByTimeAsync(1_000);
+    const live = to('live');
+    expect(live[live.length - 1]).toContain('开 Minecraft 去挖煤');
+    expect(live[live.length - 1]).toContain('游戏现在没开。');
+    show.dispose();
+  });
+
   it('answers the owner once on the live line, and wakes the game line mid-turn for a hand-off', async () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);

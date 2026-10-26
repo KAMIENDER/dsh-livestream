@@ -583,6 +583,7 @@ export class LiveShow {
       gameNow: !this.gameSession ? undefined
         : this.resumingGame && !this.gameOn ? GAME_RESTARTING
         : this.gameOn ? this.gameNow || '刚开，还没有消息' : undefined,
+      gameOff: !!this.gameSession && !this.gameOn && !this.resumingGame && topic.kind === 'owner',
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));
