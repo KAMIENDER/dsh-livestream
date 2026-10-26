@@ -89,7 +89,7 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string; pace?: { welcomeSec?: number | 'off'; thanksSec?: number; followSec?: number; chatPicks?: number } };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -508,7 +508,17 @@ export function Console() {
                 <input defaultValue={settings?.gameChatGapSec ?? 15} inputMode="numeric" title="弹幕间隔（秒）" onBlur={(e) => choose({ gameChatGapSec: Number(e.target.value.replace(/\D/g, '')) || 15 })} />
                 <span className="dl-meta">秒：玩游戏时弹幕至少隔这么久推给她一次</span>
               </div>
-              <p className="dl-hint">都是改了马上生效，不用重启。弹幕间隔越大她回得越少、玩得越多（一次最多带三位观众的弹幕）。</p>
+              <div className="dl-pace">
+                {PACE_FIELDS.map(([key, label]) => (
+                  <label key={key}>
+                    <span>{label}</span>
+                    <input key={String(settings?.pace?.[key] ?? '')} defaultValue={String(settings?.pace?.[key] ?? '')} placeholder="自动"
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== String(settings?.pace?.[key] ?? '')) choose({ pace: { [key]: key === 'welcomeSec' && /^(off|关)$/i.test(v) ? 'off' : v } as never }); }} />
+                  </label>
+                ))}
+              </div>
+              <p className="dl-hint">都是改了马上生效，不用重启。留空就按直播间热闹程度自动（人少时回得勤、人多时攒一攒）；现场不合适就直接填：间隔填秒数，「欢迎」填 off 就不欢迎新进来的观众。大礼物、醒目留言、上舰不受这些间隔限制。</p>
             </div>
             <h3>看视频</h3>
             <div className="dl-field">
@@ -616,6 +626,9 @@ function LoginField() {
 }
 
 /** 告示板：主人想让观众知道的。改完离开输入框就换到舞台上 */
+/** 节奏里主人可以改的几项（秒；一次回几位是人数） */
+const PACE_FIELDS = [['welcomeSec', '欢迎新观众间隔'], ['thanksSec', '谢小礼物间隔'], ['followSec', '谢关注间隔'], ['chatPicks', '一次回几位']] as const;
+
 function BoardField({ value, fallback, onSave }: { value: string; fallback: string; onSave: (text: string) => void }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
@@ -854,6 +867,9 @@ export const CONSOLE_CSS = `
 /* 按钮、输入框 */
 .dl-room input,.dl-room select{flex:1;min-width:0;padding:10px 12px;border-radius:12px;border:1px solid var(--dl-line);background:var(--dl-sunken);color:var(--dl-text);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s}
 .dl-room textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--dl-line);background:var(--dl-sunken);color:var(--dl-text);font:13px/1.6 inherit;outline:none;resize:vertical}
+.dl-pace{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:8px}
+.dl-pace label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--dl-dim)}
+.dl-pace input{width:64px;text-align:center}
 .dl-room textarea:focus{border-color:rgba(63,163,255,.6);box-shadow:0 0 0 3px rgba(63,163,255,.14)}
 .dl-room input:focus{border-color:rgba(63,163,255,.6);box-shadow:0 0 0 3px rgba(63,163,255,.14)}
 .dl-room input.dl-name{flex:0 0 120px}

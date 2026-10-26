@@ -19,7 +19,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
-import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Settings } from './runtime';
+import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Pace, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -55,6 +55,20 @@ function state() {
 }
 
 /** dsh-game 给的画面来源：只认约定里的两种，别的当没有 */
+/** 控制台填的节奏：空的项删掉（回到自动），秒数夹在 0～600，一次回几位 1～5，欢迎可以填 off */
+function cleanPace(raw: Record<string, unknown>): Pace {
+  const sec = (v: unknown) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? undefined : Math.max(0, Math.min(600, Math.round(Number(v)))));
+  const welcome = raw.welcomeSec === 'off' ? 'off' : sec(raw.welcomeSec);
+  const thanks = sec(raw.thanksSec), follow = sec(raw.followSec);
+  const picks = sec(raw.chatPicks);
+  return {
+    ...(welcome !== undefined ? { welcomeSec: welcome } : {}),
+    ...(thanks !== undefined ? { thanksSec: thanks } : {}),
+    ...(follow !== undefined ? { followSec: follow } : {}),
+    ...(picks !== undefined ? { chatPicks: Math.max(1, Math.min(5, picks)) } : {}),
+  };
+}
+
 function gameSource(value: unknown): GameSource | null {
   const v = value as { url?: unknown; window?: unknown; overlay?: unknown } | null;
   const web = (x: unknown): x is string => typeof x === 'string' && /^https?:\/\//.test(x);
@@ -180,6 +194,7 @@ export function apply(ctx: HostContext): void {
     if (patch.voice !== undefined) next.voice = String(patch.voice).trim();
     if (patch.idleAfterSec !== undefined) next.idleAfterSec = Math.max(10, Math.min(600, Number(patch.idleAfterSec) || 45));
     if (patch.gameChatGapSec !== undefined) next.gameChatGapSec = Math.max(5, Math.min(120, Number(patch.gameChatGapSec) || 15));
+    if (patch.pace !== undefined) next.pace = cleanPace({ ...settings.pace, ...patch.pace });
     if (patch.distillModel !== undefined) next.distillModel = String(patch.distillModel).trim() || settings.distillModel;
     if (patch.broadcast !== undefined) next.broadcast = !!patch.broadcast;
     if (patch.areaId !== undefined) next.areaId = patch.areaId ? Number(patch.areaId) : null;

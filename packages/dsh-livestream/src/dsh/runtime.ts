@@ -29,6 +29,7 @@ import type { DistillLlm } from '../core/memory/distill';
 import type { CharacterManifest, GameSource } from '../stage/protocol';
 import { gameRect } from '../stage/layout';
 import { connectObs, showGameSources } from '../body/obs';
+import type { OwnerPace } from '../core/attention/attention';
 
 export interface Settings {
   roomId: number | null;
@@ -66,6 +67,26 @@ export interface Settings {
   boardText: string;
   /** 滚动通知：画面最底下一条滚动的字，出状况时告诉观众（卡了、在修、马上回来）；空串不显示 */
   noticeText: string;
+  /** 主人定的节奏（秒）：没填的项按直播间热度自动；欢迎填 off 就不欢迎新观众 */
+  pace: Pace;
+}
+
+export interface Pace {
+  welcomeSec?: number | 'off';
+  thanksSec?: number;
+  followSec?: number;
+  chatPicks?: number;
+}
+
+/** 控制台填的节奏 → 注意力层用的（毫秒） */
+function ownerPace(p: Pace | undefined): OwnerPace {
+  if (!p) return {};
+  return {
+    ...(p.welcomeSec === 'off' ? { welcomeOff: true } : p.welcomeSec !== undefined ? { welcomeGapMs: p.welcomeSec * 1000 } : {}),
+    ...(p.thanksSec !== undefined ? { thanksGapMs: p.thanksSec * 1000 } : {}),
+    ...(p.followSec !== undefined ? { followGapMs: p.followSec * 1000 } : {}),
+    ...(p.chatPicks !== undefined ? { chatPicks: p.chatPicks } : {}),
+  };
 }
 
 /** 告示板默认写的：观众怎么跟她玩 */
@@ -139,6 +160,7 @@ function loadSettings(): Settings {
     asrModel: 'large-v3-turbo',
     boardText: DEFAULT_BOARD,
     noticeText: '',
+    pace: {},
     ...saved,
   };
   if (!settings.stageToken) {
@@ -221,7 +243,7 @@ export const show = new LiveShow(
     persist: (snapshot) => saveLive(snapshot),
     onGame: (source) => placeGame(source),
   },
-  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000 },
+  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000 },
 );
 
 /**

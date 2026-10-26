@@ -262,3 +262,25 @@ describe.runIf(hasFixtures)('attention replay (real recordings)', () => {
     expect([...speakers].every((id) => answered.has(id))).toBe(true);
   });
 });
+
+describe('owner pace', () => {
+  const user = (id: string) => ({ id, name: `观众${id}` });
+  it('turns welcomes off when the owner says so, and back on when cleared', () => {
+    const a = new LiveAttention(0);
+    a.owner = { welcomeOff: true };
+    a.observe({ id: 'e1', platform: 'bilibili', kind: 'enter', ts: 0, user: user('1') }, false, 0);
+    expect(a.next(TUNING.welcomeGatherMs + 100)).toBeNull();
+    a.owner = {};
+    expect(a.next(TUNING.welcomeGatherMs + 200)?.kind).toBe('welcome');
+  });
+
+  it('uses the owner gap over the quiet-room default', () => {
+    const a = new LiveAttention(0);
+    a.owner = { welcomeGapMs: 60_000 };
+    a.observe({ id: 'e1', platform: 'bilibili', kind: 'enter', ts: 0, user: user('1') }, false, 0);
+    expect(a.next(TUNING.welcomeGatherMs + 100)?.kind).toBe('welcome');
+    a.observe({ id: 'e2', platform: 'bilibili', kind: 'enter', ts: 0, user: user('2') }, false, 10_000);
+    expect(a.next(20_000)).toBeNull(); // 冷清时本来不隔，主人定了 60 秒
+    expect(a.next(TUNING.welcomeGatherMs + 100 + 60_000)?.kind).toBe('welcome');
+  });
+});

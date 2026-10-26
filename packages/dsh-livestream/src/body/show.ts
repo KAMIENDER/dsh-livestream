@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { LiveAttention } from '../core/attention/attention';
+import { LiveAttention, type OwnerPace } from '../core/attention/attention';
 import { setHerNames } from '../core/attention/features';
 import type { Topic, TopicBody } from '../core/attention/topics';
 import { LiveHub } from '../core/hub';
@@ -79,6 +79,8 @@ export interface ShowOptions {
   names: string[];
   /** 没话题时多久开始自己找话说（控制台设置，改了马上生效） */
   idleAfterMs?: () => number;
+  /** 主人定的节奏：欢迎、谢礼物、谢关注的间隔，一次回几位（控制台设置，改了马上生效） */
+  pace?: () => OwnerPace;
   /** 告示板上写的（开场时告诉她，观众看得到什么） */
   board?: () => string;
   /** 她在玩游戏时，两次把直播间的事推给她至少隔多少毫秒（控制台设置，改了马上生效） */
@@ -519,6 +521,9 @@ export class LiveShow {
     const now = Date.now();
     // 在玩游戏（舞台上有画面，或者游戏线还在玩、摄像机没开或挂了）：欢迎攒着说，一次弹幕多带几位
     const gameOn = this.gameOn;
+    // 控制台改的节奏马上生效：每一拍都按现在的设置来
+    if (this.options.pace) this.attention.owner = this.options.pace();
+    if (this.options.idleAfterMs) this.attention.idleAfterMs = this.options.idleAfterMs();
     this.attention.welcomeGapMs = gameOn ? GAME_WELCOME_GAP_MS : 0;
     this.attention.minChatPicks = gameOn ? GAME_CHAT_PICKS : 0;
     if (this.gameSession) void this.directGameLine(now);
@@ -631,7 +636,6 @@ export class LiveShow {
   private take(now: number): Topic | null {
     const body = this.priority.shift();
     if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
-    if (this.options.idleAfterMs) this.attention.idleAfterMs = this.options.idleAfterMs();
     const topic = this.attention.next(now);
     // 弹幕、礼物这些照常先回；没别的事时，先说收件箱，再说在放的视频（不用她找话说）
     if (topic && topic.kind !== 'idle') return topic;

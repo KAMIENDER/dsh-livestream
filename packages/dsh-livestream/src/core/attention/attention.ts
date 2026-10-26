@@ -27,6 +27,20 @@ import { chatFeatures, type ChatFeatures } from './features';
 import type { ChatPick, RoomHeat, Topic, TopicBody } from './topics';
 
 /** 可调参数集中在这里 */
+/** 主人定的节奏（控制台「节奏」里填的；没填的项不出现，按热度自动） */
+export interface OwnerPace {
+  /** 两次欢迎新观众至少隔多久 */
+  welcomeGapMs?: number;
+  /** 不欢迎新观众 */
+  welcomeOff?: boolean;
+  /** 两次感谢小礼物至少隔多久（大礼物、醒目留言、上舰照常马上谢） */
+  thanksGapMs?: number;
+  /** 两次感谢关注至少隔多久 */
+  followGapMs?: number;
+  /** 一次弹幕话题最多接几位观众 */
+  chatPicks?: number;
+}
+
 export const TUNING = {
   /**
    * 冷清 / 正常 / 热闹：看最近一分钟有几个人在说话（不是几条弹幕，也不是在线人数）。
@@ -131,6 +145,8 @@ export class LiveAttention {
   welcomeGapMs = 0;
   /** 一次弹幕话题至少挑几位观众（她在玩游戏时设成 3：推得少，每次多带几条） */
   minChatPicks = 0;
+  /** 主人在控制台定的节奏：定了的按主人的（盖过按热度的值和玩游戏时的下限），没定的照旧自动 */
+  owner: OwnerPace = {};
   /** 最近一次有观众动静的时间 */
   private lastAudienceAt = -Infinity;
   private online: number | undefined;
@@ -363,7 +379,7 @@ export class LiveAttention {
         const picks: ChatPick[] = [];
         const taken = new Set<string>();
         for (const { c, score } of scored) {
-          if (picks.length >= Math.max(TUNING.chatPicks[heat], this.minChatPicks)) break;
+          if (picks.length >= (this.owner.chatPicks ?? Math.max(TUNING.chatPicks[heat], this.minChatPicks))) break;
           if (taken.has(c.uid)) continue;
           taken.add(c.uid);
           // 这个人还没回的话全部按顺序合成一句交给她（她说话的十几秒里他可能又发了好几条，一条都不能丢）
@@ -416,7 +432,7 @@ export class LiveAttention {
     // 免费礼物只在冷清的时候谢
     const ready = [...this.smallGifts.values()].filter((g) => this.settled(g, now) && (g.valueYuan > 0 || heat === 'quiet'));
     if (!ready.length) return null;
-    if (now - (this.lastSaid.gifts ?? -Infinity) < TUNING.giftsIntervalMs[heat]) return null;
+    if (now - (this.lastSaid.gifts ?? -Infinity) < (this.owner.thanksGapMs ?? TUNING.giftsIntervalMs[heat])) return null;
     const oldest = Math.min(...ready.map((g) => g.ts));
     return {
       priority: Math.min(75, 35 + (now - oldest) / 2000),
@@ -452,8 +468,8 @@ export class LiveAttention {
   private welcomeCandidate(heat: RoomHeat, now: number): { priority: number; build: () => TopicBody } | null {
     // 热闹时只欢迎舰长和老粉
     const eligible = this.enters.filter((e) => heat !== 'busy' || (e.user.guardLevel ?? 0) > 0 || (e.user.medal?.ofThisRoom && e.user.medal.level >= 20));
-    if (!eligible.length) return null;
-    if (now - (this.lastSaid.welcome ?? -Infinity) < Math.max(TUNING.welcomeIntervalMs[heat], this.welcomeGapMs)) return null;
+    if (!eligible.length || this.owner.welcomeOff) return null;
+    if (now - (this.lastSaid.welcome ?? -Infinity) < (this.owner.welcomeGapMs ?? Math.max(TUNING.welcomeIntervalMs[heat], this.welcomeGapMs))) return null;
     if (now - Math.min(...eligible.map((e) => e.at)) < TUNING.welcomeGatherMs) return null;
     return {
       // 冷清时欢迎排在环节拍前面（环节拍最高 55）
@@ -469,7 +485,7 @@ export class LiveAttention {
 
   private followCandidate(heat: RoomHeat, now: number): { priority: number; build: () => TopicBody } | null {
     if (!this.follows.length) return null;
-    if (now - (this.lastSaid.follow ?? -Infinity) < TUNING.followIntervalMs[heat]) return null;
+    if (now - (this.lastSaid.follow ?? -Infinity) < (this.owner.followGapMs ?? TUNING.followIntervalMs[heat])) return null;
     const oldest = this.follows[0].at;
     return {
       priority: Math.min(60, 30 + (now - oldest) / 2000),
