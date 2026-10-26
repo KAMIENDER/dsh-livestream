@@ -77,8 +77,8 @@ export interface ShowOptions {
   dataDir: string;
   /** 观众叫她时用的名字 */
   names: string[];
-  /** 没话题时多久开始自己找话说 */
-  idleAfterMs?: number;
+  /** 没话题时多久开始自己找话说（控制台设置，改了马上生效） */
+  idleAfterMs?: () => number;
   /** 告示板上写的（开场时告诉她，观众看得到什么） */
   board?: () => string;
   /** 她在玩游戏时，两次把直播间的事推给她至少隔多少毫秒（控制台设置，改了马上生效） */
@@ -229,7 +229,7 @@ export class LiveShow {
 
   private freshAttention(): LiveAttention {
     const a = new LiveAttention(Date.now());
-    if (this.options.idleAfterMs) a.idleAfterMs = this.options.idleAfterMs;
+    if (this.options.idleAfterMs) a.idleAfterMs = this.options.idleAfterMs();
     return a;
   }
 
@@ -631,6 +631,7 @@ export class LiveShow {
   private take(now: number): Topic | null {
     const body = this.priority.shift();
     if (body) return { ...body, id: `p-${now}`, priority: 200, heat: this.attention.heat(now), createdAt: now };
+    if (this.options.idleAfterMs) this.attention.idleAfterMs = this.options.idleAfterMs();
     const topic = this.attention.next(now);
     // 弹幕、礼物这些照常先回；没别的事时，先说收件箱，再说在放的视频（不用她找话说）
     if (topic && topic.kind !== 'idle') return topic;

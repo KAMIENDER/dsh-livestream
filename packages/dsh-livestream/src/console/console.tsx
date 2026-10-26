@@ -498,13 +498,17 @@ export function Console() {
               </div>
               <p className="dl-hint">写了就在画面最底下滚动，告诉观众现在出了什么状况；回车生效，「收起」就不显示了。</p>
             </div>
-            <h3>玩游戏</h3>
+            <h3>节奏</h3>
             <div className="dl-field">
+              <div className="dl-row">
+                <input defaultValue={settings?.idleAfterSec ?? 45} inputMode="numeric" title="找话说（秒）" onBlur={(e) => choose({ idleAfterSec: Number(e.target.value.replace(/\D/g, '')) || 45 })} />
+                <span className="dl-meta">秒：直播间没动静这么久，她自己找话说</span>
+              </div>
               <div className="dl-row">
                 <input defaultValue={settings?.gameChatGapSec ?? 15} inputMode="numeric" title="弹幕间隔（秒）" onBlur={(e) => choose({ gameChatGapSec: Number(e.target.value.replace(/\D/g, '')) || 15 })} />
                 <span className="dl-meta">秒：玩游戏时弹幕至少隔这么久推给她一次</span>
               </div>
-              <p className="dl-hint">越大她回得越少、玩得越多（一次最多带三位观众的弹幕）；改了马上生效，不用重启。</p>
+              <p className="dl-hint">都是改了马上生效，不用重启。弹幕间隔越大她回得越少、玩得越多（一次最多带三位观众的弹幕）。</p>
             </div>
             <h3>看视频</h3>
             <div className="dl-field">
