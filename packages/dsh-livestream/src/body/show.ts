@@ -23,7 +23,8 @@ import { cleanName, cleanText } from '../core/safety';
 import { speakable } from '../core/speakable';
 import { topicText } from '../core/topicText';
 import { lookupViewer, type ViewerLookup } from '../core/viewerLookup';
-import type { BrainState, GameSource, StageLiveEvent, StageUser } from '../stage/protocol';
+import type { BrainState, GameSource, GameStatus, StageLiveEvent, StageUser } from '../stage/protocol';
+import { gameStatusOf } from './gameStatus';
 import { Player, type PlayRequest } from './player';
 import type { VideoNotes } from './watchAlong';
 import { Stage } from './stage';
@@ -434,7 +435,15 @@ export class LiveShow {
   setGameNow(text: string, moment = false): void {
     this.gameNow = text.trim();
     if (moment) this.gameMomentAt = Date.now();
+    // 游戏画面上那一行「她在干嘛」：只在变了的时候发
+    const status = gameStatusOf(this.gameNow);
+    if (status && JSON.stringify(status) !== JSON.stringify(this.gameStatus)) {
+      this.gameStatus = status;
+      this.stage.broadcast({ type: 'gameStatus', status });
+    }
   }
+
+  private gameStatus: GameStatus | null = null;
 
   /**
    * 在玩游戏：舞台上有游戏画面，或者游戏线最近还有游戏里的时刻
@@ -803,6 +812,10 @@ export class LiveShow {
     this.game = source;
     this.gamePushedAt = 0;
     this.stage.broadcast({ type: 'game', source });
+    if (!source && this.gameStatus) {
+      this.gameStatus = null;
+      this.stage.broadcast({ type: 'gameStatus', status: null });
+    }
     this.record({ type: 'game', source });
     this.persistLive();
     this.hooks.onGame?.(source);

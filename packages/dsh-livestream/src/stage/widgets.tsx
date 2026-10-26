@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
-import { assetUrl, dropAlert, getState, litChars, mediaUrl, preview, reportMedia, subscribe, type Alert, type ReplyItem, type StageState } from './store';
+import { assetUrl, dropAlert, energy, riceOf, getState, litChars, mediaUrl, preview, reportMedia, subscribe, type Alert, type ReplyItem, type StageState } from './store';
 import { giftTier } from './triggers';
 
 export function useStage(): StageState {
@@ -490,12 +490,21 @@ export function Chat({ options }: { options?: Record<string, unknown> }) {
  * 这里只留一个底（窗口还没出来时观众看到的就是这个）
  */
 export function Game() {
-  const { game } = useStage();
+  const { game, gameStatus, character } = useStage();
+  const name = character?.name ?? '她';
   return (
     <div className={`ls-game${game && 'window' in game ? ' ls-game-window' : ''}`}>
       {game && 'url' in game
         ? <iframe className="ls-game-frame" src={game.url} title="游戏画面" allow="autoplay" />
         : <div className="ls-game-wait">{game ? '' : '游戏画面马上就来…'}</div>}
+      {/* 观众老问「你在干嘛」：身体在后台采集、走路时画面上看着像站着 */}
+      {game && gameStatus && (
+        <div className="ls-game-status">
+          <b>{name}</b>
+          <span>{gameStatus.doing ? `正在${gameStatus.doing}${gameStatus.seconds ? `（${gameStatus.seconds} 秒）` : ''}` : '在想下一步'}</span>
+          {gameStatus.time && <em>{gameStatus.time}</em>}
+        </div>
+      )}
     </div>
   );
 }
@@ -710,17 +719,6 @@ export function AiLabel({ options }: { options?: Record<string, unknown> }) {
 
 // ── 吃饭计数 ─────────────────────────────────────────
 
-/**
- * 她吃了多少饭：这场用掉的 token 按「每个 token 耗多少焦耳电」换成电，再按一碗饭的热量换成米粒。
- * options：jPerToken（默认 1 焦耳）、bowlKcal（一碗饭的热量，默认 230 千卡）、grainsPerBowl（一碗多少粒，默认 3000）
- */
-function riceOf(tokens: number, options?: Record<string, unknown>) {
-  const jPerToken = Number(options?.jPerToken ?? 1);
-  const bowlJ = Number(options?.bowlKcal ?? 230) * 4184;
-  const perBowl = Number(options?.grainsPerBowl ?? 3000);
-  const joules = tokens * jPerToken;
-  return { joules, perBowl, grains: Math.floor((joules / bowlJ) * perBowl), grainsOf: (t: number) => Math.round(((t * jPerToken) / bowlJ) * perBowl) };
-}
 
 export function Rice({ options }: { options?: Record<string, unknown> }) {
   const { tokens } = useStage();
@@ -737,7 +735,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
         <div className="ls-rice-label">今天吃了</div>
         <div className="ls-rice-count"><b key={grains}>{grains.toLocaleString()}</b><span>粒米</span>{added > 0 && <em key={tokens}>+{Math.max(1, grainsOf(added))}</em>}</div>
         <div className="ls-rice-bowl" title={`第 ${bowls + 1} 碗`}><i style={{ width: `${((grains % perBowl) / perBowl) * 100}%` }} /><span>第 {bowls + 1} 碗</span></div>
-        <div className="ls-rice-note">{tokens.toLocaleString()} token ≈ {joules >= 1000 ? `${(joules / 1000).toFixed(1)} 千焦` : `${Math.round(joules)} 焦`}电</div>
+        <div className="ls-rice-note">{tokens.toLocaleString()} token ≈ {energy(joules)}电</div>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
  * 唯一往回发的是「这句念完了」（出声的页面才发；预览页静音、不回执）。
  */
 
-import type { BrainState, CharacterManifest, GameSource, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
+import type { BrainState, CharacterManifest, GameSource, GameStatus, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
 import { type FxEvent, giftTier, pick, triggersOf } from './triggers';
 
 export interface ChatRow {
@@ -137,6 +137,8 @@ export interface StageState {
   board: string;
   /** 她在直播里玩的游戏的画面来源：舞台换成 game 布局 */
   game: GameSource | null;
+  /** 游戏画面上那一行「她在干嘛」 */
+  gameStatus: GameStatus | null;
 }
 
 const MAX_CHATS = 30;
@@ -175,7 +177,7 @@ function freshStats(): ShowStats {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', game: null, fx: [], reaction: null,
+  phase: 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', game: null, gameStatus: null, fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -285,6 +287,25 @@ function replyItems(userIds: string[]): ReplyItem[] {
 
 function term(s: StageState, tag: string, text: string): StageState {
   return { ...s, term: [...s.term, { id: ++termSeq, at: Date.now(), tag, text }].slice(-MAX_TERM) };
+}
+
+/**
+ * 她吃了多少饭：这场用掉的 token 按「每个 token 耗多少焦耳电」换成电，再按一碗饭的热量换成米粒。
+ * options：jPerToken（默认 1 焦耳）、bowlKcal（一碗饭的热量，默认 230 千卡）、grainsPerBowl（一碗多少粒，默认 3000）
+ */
+export function riceOf(tokens: number, options?: Record<string, unknown>) {
+  const jPerToken = Number(options?.jPerToken ?? 1);
+  const bowlJ = Number(options?.bowlKcal ?? 230) * 4184;
+  const perBowl = Number(options?.grainsPerBowl ?? 3000);
+  const joules = tokens * jPerToken;
+  return { joules, perBowl, grains: Math.floor((joules / bowlJ) * perBowl), grainsOf: (t: number) => Math.round(((t * jPerToken) / bowlJ) * perBowl) };
+}
+
+/** 电能：焦、千焦、兆焦 */
+export function energy(joules: number): string {
+  if (joules >= 1e6) return `${(joules / 1e6).toFixed(1)} 兆焦`;
+  if (joules >= 1000) return `${(joules / 1000).toFixed(1)} 千焦`;
+  return `${Math.round(joules)} 焦`;
 }
 
 /** token 数按中文习惯读：2.1 万、6158.2 万、1.23 亿 */
@@ -454,8 +475,10 @@ function handle(event: StageEvent): void {
     case 'usage':
       return update((s) => {
         const next = { ...s, tokens: event.tokens, model: event.model ?? s.model };
-        // 观众看不懂「+20,863」（以为是加了 token），写成她这一步吃掉了多少、今晚一共吃了多少
-        return event.turn ? term(next, 'token', `这一步吃掉 ${tokenCount(event.turn)} token · 今晚一共吃了 ${tokenCount(event.tokens)}`) : next;
+        // 观众看不懂「+20,863」（以为是加了 token），也老问「吃了多少钱」：写成这一步吃掉多少、折成米粒和电，再加今晚一共吃了多少米（不算钱）
+        if (!event.turn) return next;
+        const step = riceOf(event.turn);
+        return term(next, 'token', `这一步吃掉 ${tokenCount(event.turn)} token ≈ ${Math.max(1, step.grainsOf(event.turn))} 粒米、${energy(step.joules)}电 · 今晚共 ${riceOf(event.tokens).grains.toLocaleString()} 粒米`);
       });
     case 'media':
       if (event.action === 'play') {
@@ -465,7 +488,8 @@ function handle(event: StageEvent): void {
       return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
     case 'board': return update((s) => ({ ...s, board: event.text }));
-    case 'game': return update((s) => ({ ...s, game: event.source }));
+    case 'game': return update((s) => ({ ...s, game: event.source, ...(event.source ? {} : { gameStatus: null }) }));
+    case 'gameStatus': return update((s) => ({ ...s, gameStatus: event.status }));
     case 'note': return update((s) => term(s, event.tag, event.text));
   }
 }

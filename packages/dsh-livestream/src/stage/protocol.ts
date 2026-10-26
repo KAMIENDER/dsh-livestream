@@ -113,6 +113,17 @@ export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status'
  */
 export type GameSource = { url: string } | { window: string; overlay?: string };
 
+/** 游戏画面上那一行「她在干嘛」 */
+export interface GameStatus {
+  /** 身体正在做的事（中文），没在做事时为空：她在想下一步 */
+  doing: string;
+  /** 这件事做了几秒 */
+  seconds?: number;
+  health?: number;
+  /** 白天、夜晚、黄昏、清晨…… */
+  time?: string;
+}
+
 export interface WidgetPlacement {
   type: WidgetType;
   /** 画布坐标（像素） */
@@ -174,5 +185,7 @@ export type StageEvent =
   | { v: 1; type: 'media'; action: 'stop'; id: string; at: number }
   /** 她在直播里玩游戏：游戏画面上舞台（null：这局结束了） */
   | { v: 1; type: 'game'; source: GameSource | null; at: number }
+  /** 游戏画面上那一行「她在干嘛」（身体在做的事、血量、白天黑夜）；null：没在玩 */
+  | { v: 1; type: 'gameStatus'; status: GameStatus | null; at: number }
   /** 模板或角色换了：舞台重新加载 */
   | { v: 1; type: 'reload'; at: number };
