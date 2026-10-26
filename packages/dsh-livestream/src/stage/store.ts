@@ -514,7 +514,7 @@ function handle(event: StageEvent): void {
         // 观众看不懂「+20,863」（以为是加了 token），也老问「吃了多少钱」：写成这一步吃掉多少、折成米粒和电，再加今晚一共吃了多少米（不算钱）
         if (!event.turn) return next;
         const step = riceOf(event.turn);
-        return term(next, 'token', `这一步吃掉 ${tokenCount(event.turn)} token ≈ ${Math.max(1, step.grainsOf(event.turn))} 粒米、${energy(step.joules)}电 · 今晚共 ${riceOf(event.tokens).grains.toLocaleString()} 粒米`);
+        return term(next, 'token', `这一步吃掉 ${tokenCount(event.turn)} token ≈ ${Math.max(1, step.grainsOf(event.turn))} 粒米、${energy(step.joules)}电 · 这场共 ${riceOf(event.tokens).grains.toLocaleString()} 粒米`);
       });
     case 'media':
       if (event.action === 'play') {
