@@ -136,6 +136,50 @@
         "w": 1170,
         "h": 256
       }
+    ],
+    "game": [
+      {
+        "type": "game",
+        "x": 480,
+        "y": 96,
+        "w": 1400,
+        "h": 788
+      },
+      {
+        "type": "subtitle",
+        "x": 480,
+        "y": 896,
+        "w": 1400,
+        "h": 164,
+        "options": {
+          "pageChars": 22
+        }
+      },
+      {
+        "type": "terminal",
+        "x": 480,
+        "y": 896,
+        "w": 1400,
+        "h": 164,
+        "options": {
+          "rows": 3
+        }
+      },
+      {
+        "type": "character",
+        "x": 1690,
+        "y": 530,
+        "scale": 0.36
+      },
+      {
+        "type": "alerts",
+        "x": 1370,
+        "y": 112
+      },
+      {
+        "type": "rice",
+        "hidden": true
+      }
     ]
   }
 }
