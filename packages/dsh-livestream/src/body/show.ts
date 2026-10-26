@@ -130,8 +130,6 @@ const GAME_WAKE_MS = 6_000;
 const GAME_WELCOME_GAP_MS = 90_000;
 /** 她在玩游戏时，一次推给她的弹幕至少可以有几位观众的（攒了一阵的弹幕一句话一起回） */
 const GAME_CHAT_PICKS = 3;
-/** 游戏线：嘴里已经排着这么多句时，游戏线的话不念了 */
-const GAME_LINE_MOUTH_BACKLOG = 2;
 /** 游戏线这么久没有游戏里的时刻，就当游戏没在玩了（不再叫她） */
 const GAME_MOMENT_FRESH_MS = 5 * 60_000;
 const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
@@ -159,13 +157,13 @@ export class LiveShow {
   private brainSession: string | null = null;
   /**
    * 游戏线：另一个会话里的她，专门玩游戏（直播线回直播间，两边的请求同时跑、互不等待）。
-   * 有游戏线时，直播间的事只推给直播线；游戏线这一轮停下就叫她接着玩；主人的话两边都给
+   * 有游戏线时，直播间的事（主人的话也是）只推给直播线；游戏线这一轮停下就叫她接着玩
    */
   private gameSession: string | null = null;
   private gameTurnRunning = false;
   private gameTurnEndedAt = 0;
   private gamePushing = false;
-  /** 要交给游戏线的话（主人的话、直播线转来的事、续播），导演一条一条送 */
+  /** 要交给游戏线的话（直播线定下的事、续播），导演一条一条送 */
   private gameMail: string[] = [];
   /** 游戏那边现在怎样（游戏线最近一个时刻的进度和身体在干什么）：写进给直播线的每件事里 */
   private gameNow = '';
@@ -410,9 +408,8 @@ export class LiveShow {
   ownerSay(text: string, who?: string): void {
     const said = text.trim();
     if (!said) return;
+    // 主人的话只给直播线（回一次）；里面要游戏里做的事，她用 game_side 定下来
     this.priority.push({ kind: 'owner', text: said, ...(who?.trim() ? { who: who.trim() } : {}) });
-    // 主人的话游戏线也要知道（常常是游戏上的主意）；回话由直播线回
-    if (this.gameSession) this.gameMail.push(`主人在直播间说${who?.trim() ? `（${who.trim()}）` : ''}：「${said}」\n你在直播间回他；这里看游戏上要不要照做。`);
   }
 
   /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
@@ -484,6 +481,10 @@ export class LiveShow {
     if (this.onAir && Date.now() - this.persistedAt > PERSIST_EVERY_MS) this.persistLive();
     if (!this.onAir || !this.brainSession) return;
     const now = Date.now();
+    // 在玩游戏（舞台上有画面，或者游戏线还在玩、摄像机没开或挂了）：欢迎攒着说，一次弹幕多带几位
+    const gameOn = this.gameOn;
+    this.attention.welcomeGapMs = gameOn ? GAME_WELCOME_GAP_MS : 0;
+    this.attention.minChatPicks = gameOn ? GAME_CHAT_PICKS : 0;
     if (this.gameSession) void this.directGameLine(now);
     if (this.pushing) return;
     // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，插进她这一轮的下一步
@@ -644,11 +645,7 @@ export class LiveShow {
   async say(raw: string, mood: string, signal: AbortSignal, line: 'live' | 'game' = 'live'): Promise<string> {
     const text = speakable(raw);
     if (!text) return '';
-    // 嘴两条线共用：直播线的话先念；嘴里已经排着两句以上时，游戏线的这句不念了（游戏照样在玩，只是少说一句）
-    if (line === 'game' && this.queued >= GAME_LINE_MOUTH_BACKLOG) {
-      this.record({ type: 'drop', line: 'game', text });
-      return '';
-    }
+    // 嘴两条线共用、按先后念：游戏线的话一句不丢（死了、危险、拿到装备都在这里说）；直播线推下一件事时不等游戏线的话
     const game = line === 'game';
     this.queued += 1;
     if (game) this.queuedGame += 1;
@@ -798,8 +795,6 @@ export class LiveShow {
     if (JSON.stringify(source) === JSON.stringify(this.game)) return;
     this.game = source;
     this.gamePushedAt = 0;
-    this.attention.welcomeGapMs = source ? GAME_WELCOME_GAP_MS : 0;
-    this.attention.minChatPicks = source ? GAME_CHAT_PICKS : 0;
     this.stage.broadcast({ type: 'game', source });
     this.record({ type: 'game', source });
     this.persistLive();

@@ -184,7 +184,7 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 
-  it('gives the owner\'s words to both lines and wakes the game line mid-turn', async () => {
+  it('answers the owner once on the live line, and wakes the game line mid-turn for a hand-off', async () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
@@ -197,18 +197,32 @@ describe('game line: the game in its own session', () => {
     show.ownerSay('死掉的东西别回去捡');
     await vi.advanceTimersByTimeAsync(1_000);
     expect(to('live').some((t) => t.includes('死掉的东西别回去捡'))).toBe(true);
-    expect(to('game')[1]).toContain('主人在直播间说：「死掉的东西别回去捡」');
+    expect(to('game')).toHaveLength(1);
+    expect(woke).toBe(false);
+    // 她在直播线上把这件事定下来，插进游戏线这一轮并叫醒 game_continue
+    show.toGameLine('掉的东西不回去捡了，就地重新采集');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(to('game')[1]).toBe('你在直播间定下：掉的东西不回去捡了，就地重新采集');
     expect(woke).toBe(true);
     show.dispose();
   });
 
-  it('lets the live line go first on the shared mouth', async () => {
-    const { show } = start();
+  it('never drops the game line\'s words, and the live line does not wait for them', async () => {
+    const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);
-    // 嘴里已经排着两句（直播线的），游戏线这句不念
+    show.turnEnded('live');
+    // 嘴里排着两句直播线的话，游戏线的这句照样排上、照样念
     void show.say('欢迎欢迎', 'talk', new AbortController().signal);
     void show.say('谢谢关注', 'talk', new AbortController().signal);
-    expect(await show.say('我去砍树了', 'talk', new AbortController().signal, 'game')).toBe('');
+    const dying = show.say('只剩半滴血了，拼一把', 'scared', new AbortController().signal, 'game');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await dying).toBe('只剩半滴血了，拼一把');
+    // 只有游戏线的话在嘴里时，直播线照样推下一件
+    show.turnEnded('live');
+    void show.say('先挖条台阶上去', 'talk', new AbortController().signal, 'game');
+    show.inject(chat('9', '你在干嘛'));
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(to('live').some((t) => t.includes('你在干嘛'))).toBe(true);
     show.dispose();
   });
 });
