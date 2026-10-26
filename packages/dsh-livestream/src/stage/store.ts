@@ -167,6 +167,8 @@ let helloAt = 0;
 /** 这个页面加载时舞台服务器的版本 */
 let pageBuild: string | undefined;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+/** 身体发过 room（开没开播）事件：开播下播只认它 */
+let roomSeen = false;
 /** 上次下播的时刻：再开播时，那之前的弹幕、提醒是上一场的，清掉（舞台页在两场之间不刷新） */
 let offAirAt = 0;
 let termSeq = 0;
@@ -472,8 +474,9 @@ function onBrain(event: Extract<StageEvent, { type: 'brain' }>): void {
     if (event.state === 'away') next = term(next, 'warn', event.detail || '她的会话不在线');
     return next;
   });
-  // 她在动就是在播（旧版身体连上时不补发 room 事件）
-  if (event.state !== 'off' && !state.onAir) onAirChanged(true);
+  // 她在动就是在播（旧版身体连上时不补发 room 事件）。收到过 room 就只认 room：
+  // 下播以后游戏线还会说一句收尾的话，不能因此又当成开播（会重放开场、一直停在直播画面）
+  if (event.state !== 'off' && !state.onAir && !roomSeen) onAirChanged(true);
 }
 
 function handle(event: StageEvent): void {
@@ -500,6 +503,7 @@ function handle(event: StageEvent): void {
     case 'live': return onLive(event.event, event.isUpdate);
     case 'focus': return update((s) => ({ ...s, focus: new Set(event.userIds), reply: replyItems(event.userIds), replySeq: s.replySeq + 1 }));
     case 'room':
+      roomSeen = true;
       update((s) => ({ ...s, online: event.online, stats: { ...s.stats, peakOnline: Math.max(s.stats.peakOnline, event.online ?? 0) } }));
       return onAirChanged(event.onAir);
     case 'usage':
