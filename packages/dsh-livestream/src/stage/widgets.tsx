@@ -898,14 +898,20 @@ export function Notice() {
 /** 整屏的过场（模板把它放在 0,0、和画布一样大，盖在最上面） */
 export function Scene() {
   const { phase } = useStage();
+  // 「更新中」只在插件断了的时候出现，那时候图已经取不到了：平时先把它的图取进浏览器缓存
+  const updatingArt = useArt('updating');
   // 控制台里的小预览不盖等待画面：主人没开播时也要看得到这个主题开播后的样子（OBS 里照常是等待画面）
   const hidden = phase === 'live' || (preview && phase === 'waiting');
   const [shown, leaving] = useLinger(hidden ? null : phase, 700);
-  if (!shown) return null;
   return (
-    <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>
-      {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : shown === 'updating' ? <Updating /> : <Ending />}
-    </div>
+    <>
+      {updatingArt && <img src={updatingArt} alt="" hidden />}
+      {shown && (
+        <div className={`ls-scenes${leaving ? ' ls-scene-out' : ''}`} key={shown}>
+          {shown === 'waiting' ? <Waiting /> : shown === 'opening' ? <Opening /> : shown === 'updating' ? <Updating /> : <Ending />}
+        </div>
+      )}
+    </>
   );
 }
 
