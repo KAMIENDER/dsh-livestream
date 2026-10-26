@@ -162,7 +162,7 @@ describe('game line: the game in its own session', () => {
     // 直播线把开游戏交给游戏线
     expect(show.toGameLine('开 Minecraft 接着玩')).toBe(true);
     await vi.advanceTimersByTimeAsync(500);
-    expect(to('game')).toEqual(['直播间那边的你转来：开 Minecraft 接着玩']);
+    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩']);
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
     show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20；身体正在：采集 oak_log');
     // 弹幕只给直播线，不插进游戏线这一轮，也不叫醒 game_continue
@@ -172,7 +172,7 @@ describe('game line: the game in its own session', () => {
     await vi.advanceTimersByTimeAsync(3_000);
     const live = to('live');
     expect(live[live.length - 1]).toContain('挖到钻石了吗');
-    expect(live[live.length - 1]).toContain('游戏那边（游戏线上的你在玩）：主世界 (1, 64, 2)');
+    expect(live[live.length - 1]).toContain('你在游戏里：主世界 (1, 64, 2)');
     expect(to('game')).toHaveLength(1);
     expect(woke).toBe(false);
     // 直播线这一轮还没完（回弹幕的话还在念）也不耽误游戏线：游戏线这一轮停了，过一会儿就叫她接着玩

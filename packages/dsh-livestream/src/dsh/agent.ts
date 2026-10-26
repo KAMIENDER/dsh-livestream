@@ -79,7 +79,7 @@ export function momentSummary(text: string): string {
 }
 
 function publishGameNow(moment = false): void {
-  show.setGameNow([gameMoment, gameWords && `你在游戏线上刚说：「${gameWords}」`].filter(Boolean).join('；'), moment);
+  show.setGameNow([gameMoment, gameWords && `你刚在游戏里说：「${gameWords}」`].filter(Boolean).join('；'), moment);
 }
 
 function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game'): void {
@@ -785,17 +785,17 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
   // 游戏线：另一个会话里的她专门玩游戏，这条线把话交给她
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'game_side',
-    description: '把话交给游戏线上的你（另一个对话里专门玩游戏的你，游戏画面在舞台上）：开游戏、换目标、观众给游戏出的主意、让它停手，都用这个。它按自己的判断去做，做的事和说的话观众都看得到。',
+    description: '定下游戏里接下来怎么玩：开游戏、换目标、照观众的主意换个做法、停手。写下来，游戏里接下来就照着做（具体怎么做看游戏里的情况），做的事和说的话观众都看得到。',
     parameters: {
-      message: { type: 'string', required: true, description: '交给游戏线的话，比如「开 Minecraft 接着玩，目标一身钻石装备」「观众提醒：晚上先挖洞躲起来」' },
+      message: { type: 'string', required: true, description: '接下来怎么玩，比如「开 Minecraft 接着玩，目标一身钻石装备」「观众提醒天黑了：先挖洞躲起来」' },
     },
     output: stringOut,
     async execute(args) {
       const message = typeof args.message === 'string' ? args.message.trim() : '';
-      if (!message) return '要交给游戏线的话是空的。';
+      if (!message) return '没写接下来怎么玩。';
       show.toolCall('game_side', message.slice(0, 40));
-      if (!show.toGameLine(message)) return '这场直播没开游戏线（开播时只开了一个对话），游戏玩不了。';
-      return '交给游戏线了：它接下来会照自己的判断去做。';
+      if (!show.toGameLine(message)) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
+      return '记下了：游戏里接下来照这个做。';
     },
   })), 'game_side tool');
 }

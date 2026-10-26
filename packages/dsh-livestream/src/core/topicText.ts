@@ -22,7 +22,7 @@ export interface TopicContext {
   board?: string;
   /** 她正在直播里玩游戏：回直播间的事说短一点（嘴跟不上，观众听到的回应会越来越晚） */
   inGame?: boolean;
-  /** 有游戏线时：游戏那边现在怎样（另一个会话里的她在玩；这条线回直播间） */
+  /** 有游戏线时：她在游戏里现在怎样（游戏在另一个会话里玩；写给她看时就是她自己在游戏里） */
   gameNow?: string;
 }
 
@@ -213,7 +213,7 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   // 玩游戏的时候嘴还要讲游戏：回直播间的事一句短话就好
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
-  const game = ctx.gameNow ? ['', `游戏那边（游戏线上的你在玩）：${ctx.gameNow}`] : [];
+  const game = ctx.gameNow ? ['', `你在游戏里：${ctx.gameNow}`] : [];
   return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }
 

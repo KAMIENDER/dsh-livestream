@@ -412,13 +412,13 @@ export class LiveShow {
     if (!said) return;
     this.priority.push({ kind: 'owner', text: said, ...(who?.trim() ? { who: who.trim() } : {}) });
     // 主人的话游戏线也要知道（常常是游戏上的主意）；回话由直播线回
-    if (this.gameSession) this.gameMail.push(`主人在直播间说${who?.trim() ? `（${who.trim()}）` : ''}：「${said}」\n直播间那边的你会回他；你这边看游戏上要不要照做，不用回话。`);
+    if (this.gameSession) this.gameMail.push(`主人在直播间说${who?.trim() ? `（${who.trim()}）` : ''}：「${said}」\n你在直播间回他；这里看游戏上要不要照做。`);
   }
 
   /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
   toGameLine(text: string): boolean {
     if (!this.onAir || !this.gameSession || !text.trim()) return false;
-    this.gameMail.push(`直播间那边的你转来：${text.trim()}`);
+    this.gameMail.push(`你在直播间定下：${text.trim()}`);
     return true;
   }
 
