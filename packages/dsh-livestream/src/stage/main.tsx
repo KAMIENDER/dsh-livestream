@@ -9,7 +9,7 @@ import { arrange, type Mode, type Slot } from './layout';
 import type { WidgetType } from './protocol';
 import { assetUrl, connect, preview, unlockAudio } from './store';
 import { Effects } from './effects';
-import { AiLabel, Alerts, Board, Character, Chat, Game, Reply, Rice, Scene, Status, Subtitle, Terminal, useStage, Video } from './widgets';
+import { AiLabel, Alerts, Board, Character, Chat, Game, Reply, Rice, Scene, Status, Subtitle, SUBTITLE_LINGER_MS, Terminal, useLinger, useStage, Video } from './widgets';
 
 const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string, unknown> }>> = {
   character: Character,
@@ -38,12 +38,20 @@ function useViewport(): { width: number; height: number } {
   return size;
 }
 
-function Placed({ p }: { p: Slot }) {
+/** 两块摆的地方重叠了一半以上（小的那块为准） */
+function overlaps(a: Slot, b: Slot): boolean {
+  if (a.w === undefined || a.h === undefined || b.w === undefined || b.h === undefined) return false;
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 && w * h > 0.5 * Math.min(a.w * a.h, b.w * b.h);
+}
+
+function Placed({ p, covered = false }: { p: Slot; covered?: boolean }) {
   const Widget = WIDGETS[p.type];
   if (!Widget) return null;
   return (
     <div
-      className={`ls-slot ls-slot-${p.type}${p.hidden ? ' ls-hidden' : ''}`}
+      className={`ls-slot ls-slot-${p.type}${p.hidden || covered ? ' ls-hidden' : ''}`}
       style={{ left: p.x, top: p.y, width: p.w, height: p.h, transform: p.scale && p.scale !== 1 ? `scale(${p.scale})` : undefined }}
     >
       <Widget options={p.options} />
@@ -58,10 +66,14 @@ function holePath(s: Slot, cw: number, ch: number): string {
 }
 
 function App() {
-  const { template, needsClick, media, game } = useStage();
+  const { template, needsClick, media, game, line } = useStage();
   // 玩游戏的时候放视频：视频照放（游戏画面让给视频）
   const mode: Mode = media ? 'video' : game ? 'game' : 'chat';
   const slots = useMemo(() => (template ? arrange(template, mode) : []), [template, mode]);
+  // 字幕和终端摆在同一块（看视频、玩游戏的布局）：她说话时（和字幕退场那一会儿）只露字幕，说完换回终端
+  const [speaking] = useLinger(line, SUBTITLE_LINGER_MS);
+  const subtitle = slots.find((s) => s.type === 'subtitle' && !s.hidden);
+  const sharesSubtitle = (p: Slot) => p.type === 'terminal' && !!subtitle && overlaps(p, subtitle);
   const { width, height } = useViewport();
   // 模板自己的样式：每次换模板、每次打开页面都重新取（服务器让浏览器缓存一小时，改了模板刷新一下就要看到）。
   // 样式里的相对路径（url("room.jpg")）换成带 token 的地址，模板就能直接引用自己目录里的图
@@ -93,7 +105,7 @@ function App() {
       >
         {/* 背景和前景各几层空的 div：模板拿它们（和各自的 ::before / ::after）画光、气泡、云……，挂件在中间 */}
         <div className="ls-backdrop" style={hole}><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /><i className="ls-layer ls-layer-3" /></div>
-        {slots.map((p) => <Placed key={p.key} p={p} />)}
+        {slots.map((p) => <Placed key={p.key} p={p} covered={!!speaking && sharesSubtitle(p)} />)}
         <div className="ls-overlay" style={hole}><i className="ls-layer ls-layer-1" /><i className="ls-layer ls-layer-2" /></div>
       </div>
       {needsClick && !preview && (

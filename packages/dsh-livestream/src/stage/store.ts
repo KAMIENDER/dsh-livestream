@@ -287,6 +287,13 @@ function term(s: StageState, tag: string, text: string): StageState {
   return { ...s, term: [...s.term, { id: ++termSeq, at: Date.now(), tag, text }].slice(-MAX_TERM) };
 }
 
+/** token 数按中文习惯读：2.1 万、6158.2 万、1.23 亿 */
+export function tokenCount(n: number): string {
+  if (n >= 1e8) return `${(n / 1e8).toFixed(2)} 亿`;
+  if (n >= 1e4) return `${(n / 1e4).toFixed(1)} 万`;
+  return n.toLocaleString();
+}
+
 function short(text: string, max = 22): string {
   const chars = [...text];
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
@@ -447,7 +454,8 @@ function handle(event: StageEvent): void {
     case 'usage':
       return update((s) => {
         const next = { ...s, tokens: event.tokens, model: event.model ?? s.model };
-        return event.turn ? term(next, 'token', `+${event.turn.toLocaleString()}${event.model ? ` · ${event.model}` : ''} · 累计 ${event.tokens.toLocaleString()}`) : next;
+        // 观众看不懂「+20,863」（以为是加了 token），写成她这一步吃掉了多少、今晚一共吃了多少
+        return event.turn ? term(next, 'token', `这一步吃掉 ${tokenCount(event.turn)} token · 今晚一共吃了 ${tokenCount(event.tokens)}`) : next;
       });
     case 'media':
       if (event.action === 'play') {

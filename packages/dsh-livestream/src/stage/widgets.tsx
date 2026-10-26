@@ -13,7 +13,7 @@ export function useStage(): StageState {
 }
 
 /** 值变成空以后再留 ms 毫秒（给退场动画）：返回 [还显示的值, 是不是在退场] */
-function useLinger<T>(value: T | null, ms: number): [T | null, boolean] {
+export function useLinger<T>(value: T | null, ms: number): [T | null, boolean] {
   const [kept, setKept] = useState<T | null>(value);
   useEffect(() => {
     if (value !== null) { setKept(value); return; }
@@ -373,9 +373,12 @@ function paginate(chars: string[], max: number): Array<[number, number]> {
   return pages;
 }
 
+/** 一句说完字幕还留多久（和字幕摆在同一块的终端也等这么久再出来） */
+export const SUBTITLE_LINGER_MS = 2600;
+
 export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   const { line, character, reply } = useStage();
-  const [shown, ended] = useLinger(line, 2600);
+  const [shown, ended] = useLinger(line, SUBTITLE_LINGER_MS);
   const chars = useMemo(() => [...(shown?.text ?? '')], [shown?.text]);
   const [lit, setLit] = useState({ id: '', n: 0 });
   useEffect(() => {
@@ -742,7 +745,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
 
 // ── 终端 ─────────────────────────────────────────────
 
-const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: 'token', gift: '礼物', sc: '留言', warn: '注意', listen: '听写' };
+const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: '饭量', gift: '礼物', sc: '留言', warn: '注意', listen: '听写' };
 
 function clock(at: number): string {
   const d = new Date(at);
