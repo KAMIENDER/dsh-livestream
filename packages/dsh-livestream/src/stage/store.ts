@@ -52,6 +52,8 @@ export interface Line {
   durationMs: number;
   /** 逐字时间（音频毫秒 → 亮到第几个字）；没有就按 durationMs 匀速 */
   timeline?: Array<{ chars: number; atMs: number }>;
+  /** 嘉宾说的（Claude 小姐这些）：字幕写她的名字，大肥鱼的立绘不动嘴 */
+  speaker?: string;
 }
 
 /** 这句念到了第几毫秒：有在放的音频就读它的真实播放位置，不然按开始以来的时间 */
@@ -250,7 +252,7 @@ function endLine(id: string): void {
 
 function onSay(event: Extract<StageEvent, { type: 'say' }>): void {
   audio?.pause();
-  const begin = (durationMs: number) => update((s) => ({ ...s, line: { id: event.id, text: event.text, mood: event.mood, startedAt: Date.now(), durationMs, timeline: event.timeline } }));
+  const begin = (durationMs: number) => update((s) => ({ ...s, line: { id: event.id, text: event.text, mood: event.mood, startedAt: Date.now(), durationMs, timeline: event.timeline, speaker: event.speaker } }));
   const fallback = () => {
     begin(event.estimateMs);
     setTimeout(() => endLine(event.id), event.estimateMs);
@@ -496,7 +498,7 @@ function handle(event: StageEvent): void {
       if (demo && !demoStarted) startDemo(event.character.name);
       return;
     case 'say':
-      update((s) => term(s, 'say', `${MOOD_TEXT[event.mood] ? `（${MOOD_TEXT[event.mood]}）` : ''}${short(event.text, 26)}`));
+      update((s) => term(s, event.speaker ? 'guest' : 'say', `${event.speaker ? `${event.speaker}：` : ''}${MOOD_TEXT[event.mood] ? `（${MOOD_TEXT[event.mood]}）` : ''}${short(event.text, 26)}`));
       return onSay(event);
     case 'brain': return onBrain(event);
     case 'tool': return update((s) => term({ ...s, brain: 'thinking', brainDetail: event.doing ?? s.brainDetail }, 'tool', `${event.name}${event.detail ? ` ${event.detail}` : ''}`));

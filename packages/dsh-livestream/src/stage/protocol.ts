@@ -162,7 +162,7 @@ export type StageEvent =
    * 她说一句话。timeline：逐字时间（音频里的毫秒 → 亮到第几个字），字幕按实际播放位置走；
    * 没有时（没语音、旧版身体）按 estimateMs 匀速走
    */
-  | { v: 1; type: 'say'; id: string; text: string; mood: string; audio: string | null; estimateMs: number; timeline?: Array<{ chars: number; atMs: number }>; at: number }
+  | { v: 1; type: 'say'; id: string; text: string; mood: string; audio: string | null; estimateMs: number; timeline?: Array<{ chars: number; atMs: number }>; speaker?: string; at: number }
   | { v: 1; type: 'brain'; state: BrainState; detail?: string; at: number }
   /** 她调用了一个工具（终端里记一行「调用 工具名 对象」）；doing：提示符上显示她在干什么 */
   | { v: 1; type: 'tool'; name: string; detail: string; doing?: string; at: number }

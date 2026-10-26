@@ -43,7 +43,8 @@ export interface ShowHooks {
    */
   push(sessionId: string, text: string, now?: boolean): Promise<boolean>;
   /** 合成一句话的语音（mp3）和逐字时间；没配密钥或失败返回 null（只有字幕，按字数走） */
-  synthesize(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null>;
+  /** voice：嘉宾用自己的音色；不给就是她的 */
+  synthesize(text: string, signal: AbortSignal, voice?: string): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null>;
   /** 下播后提炼观众记忆用的模型 */
   distill?: DistillLlm;
   log?(level: 'info' | 'warn', message: string): void;
@@ -737,6 +738,42 @@ export class LiveShow {
       }
       return text;
     });
+  }
+
+  /**
+   * 嘉宾（主人那边的人，比如 Claude 小姐）在直播间开口：用自己的音色念出来，字幕上写嘉宾的名字，和她共用一个麦（不抢话）；
+   * 念完把这句交给她（像主人的话一样排在最前），她来回。观众和她都听得到
+   */
+  async guestSay(who: string, raw: string, voice: string, signal: AbortSignal): Promise<string> {
+    const text = speakable(raw);
+    if (!text || !this.onAir) return '';
+    this.queued += 1;
+    try {
+      await this.stage.withMic(async () => {
+        const start = Date.now();
+        let speech: Awaited<ReturnType<ShowHooks['synthesize']>> = null;
+        for (let attempt = 1; attempt <= 2 && !speech && !signal.aborted; attempt++) {
+          speech = await this.hooks.synthesize(text, AbortSignal.any([signal, AbortSignal.timeout(SYNTH_TIMEOUT_MS)]), voice).catch((err) => {
+            this.hooks.log?.('warn', `嘉宾的语音合成失败（第 ${attempt} 次）：${(err as Error).message}`);
+            return null;
+          });
+        }
+        const id = randomUUID();
+        const estimateMs = estimateSpeechMs(text);
+        const done = this.stage.waitSaid(id, estimateMs, signal);
+        this.stage.broadcast({
+          type: 'say', id, text, mood: '', estimateMs, speaker: who,
+          audio: speech ? Buffer.from(speech.audio).toString('base64') : null,
+          ...(speech?.timeline.length ? { timeline: speech.timeline } : {}),
+        });
+        await done;
+        this.record({ type: 'guest', who, text, start, end: Date.now() });
+      });
+    } finally {
+      this.queued -= 1;
+    }
+    this.ownerSay(raw, who);
+    return text;
   }
 
   get currentSession(): string | null {

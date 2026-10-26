@@ -230,7 +230,8 @@ const distill: DistillLlm = async (system, user) => {
 export const show = new LiveShow(
   {
     push: (sessionId, text, now) => hooks.push(sessionId, text, now),
-    synthesize: (text, signal) => {
+    synthesize: (text, signal, voice) => {
+      if (voice) return speech(text, signal, voice);
       const ready = prepared.get(`${currentVoice()}|${text}`);
       if (ready) {
         prepared.delete(`${currentVoice()}|${text}`);
@@ -279,8 +280,7 @@ export function publishNotice(): void {
 }
 publishNotice();
 
-async function speech(text: string, signal: AbortSignal): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null> {
-  const voice = currentVoice();
+async function speech(text: string, signal: AbortSignal, voice = currentVoice()): Promise<{ audio: Uint8Array; timeline: Array<{ chars: number; atMs: number }> } | null> {
   const auth = await ttsAuth(voice);
   if (!auth) return null;
   const { audio, words } = await synthesize(auth, voice, text, signal);

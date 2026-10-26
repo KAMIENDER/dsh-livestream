@@ -65,7 +65,9 @@ export function Character() {
  */
 function ClipCharacter({ character }: { character: CharacterManifest }) {
   const clips = character.clips!;
-  const { line, reaction } = useStage();
+  const { line: said, reaction } = useStage();
+  // 嘉宾在说话时她不动嘴
+  const line = said?.speaker ? null : said;
   const [queue, setQueue] = useState<string[]>([clips.idle]);
   const lineId = line?.id ?? null;
 
@@ -257,7 +259,9 @@ function ClipPlayer({ src, name, loop, onEnded, names, graph }: { src: (name: st
 /** 立绘渲染器：一张图，说话时轻轻弹跳；有表情差分就换图 */
 function ImageCharacter({ character }: { character: CharacterManifest }) {
   const image = character.image!;
-  const { line, reaction } = useStage();
+  const { line: said, reaction } = useStage();
+  // 嘉宾在说话时她不动嘴
+  const line = said?.speaker ? null : said;
   const reacting = useReaction(reaction, 1800);
   const mood = line?.mood ?? reacting;
   const file = (mood && image.moods?.[mood]) || image.idle;
@@ -405,7 +409,7 @@ export function Subtitle({ options }: { options?: Record<string, unknown> }) {
   const mark = MOOD_MARK[shown.mood];
   return (
     <div className={`ls-subtitle${ended ? ' ls-ended' : ''}${quoted ? ' ls-quoting' : ''}`} key={shown.id} data-mood={shown.mood || undefined} style={{ '--ls-sub': color } as React.CSSProperties}>
-      <span className="ls-speaker">{!ended && <Voice />}{character?.name ?? ''}{mark && <i className="ls-mood-mark">{mark}</i>}</span>
+      <span className="ls-speaker">{!ended && <Voice />}{shown.speaker ?? character?.name ?? ''}{mark && <i className="ls-mood-mark">{mark}</i>}</span>
       {quoted && (
         <div className="ls-quote" key={quoted.key}>
           <Avatar user={quoted.event.user} />
@@ -743,7 +747,7 @@ export function Rice({ options }: { options?: Record<string, unknown> }) {
 
 // ── 终端 ─────────────────────────────────────────────
 
-const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', tool: '调用', token: '饭量', gift: '礼物', sc: '留言', warn: '注意', listen: '听写' };
+const TERM_TAG: Record<string, string> = { live: '直播', push: '推给她', say: '她说', guest: '嘉宾', tool: '调用', token: '饭量', gift: '礼物', sc: '留言', warn: '注意', listen: '听写' };
 
 function clock(at: number): string {
   const d = new Date(at);

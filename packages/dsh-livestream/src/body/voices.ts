@@ -8,6 +8,9 @@
 /** 大肥鱼的默认音色：萌丫头 2.0 */
 export const DEFAULT_VOICE = 'zh_female_mengyatou_uranus_bigtts';
 
+/** 嘉宾（Claude 小姐这些在电脑前帮忙管直播的人）上直播间说话的默认音色：知性女 2.0，和她的声音分得开 */
+export const GUEST_VOICE = 'zh_female_zhixingnv_uranus_bigtts';
+
 /** 这个音色要新版控制台的 API Key（不是就要旧版的 APP ID + Access Token） */
 export function usesNewConsole(voice: string): boolean {
   return voice.startsWith('S_') || voice.includes('_uranus_');

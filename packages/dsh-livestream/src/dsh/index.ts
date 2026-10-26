@@ -19,6 +19,7 @@ import type { LiveEvent, LiveUser } from '../core/live';
 import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
+import { GUEST_VOICE } from '../body/voices';
 import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Pace, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
@@ -317,6 +318,16 @@ export function apply(ctx: HostContext): void {
     show.ownerSay(text, who ? String(who).slice(0, 20) : undefined);
     return json({ ok: true });
   }, 'owner');
+
+  // 嘉宾上直播间说话（Claude 小姐这些在电脑前帮忙管直播的人）：用嘉宾的音色念给观众听，字幕写嘉宾的名字；念完交给她回。念完才返回
+  route('/api/dsh-livestream/guest', ['POST'], async (request) => {
+    const { who, text, voice } = await body<{ who?: string; text?: string; voice?: string }>(request);
+    if (!text?.trim()) return fail('说点什么');
+    if (!show.isOnAir) return fail('没在播');
+    const name = String(who ?? '').trim().slice(0, 20) || 'Claude小姐';
+    const said = await show.guestSay(name, text.slice(0, 300), String(voice ?? '').trim() || GUEST_VOICE, AbortSignal.timeout(120_000));
+    return json({ ok: true, said });
+  }, 'guest');
 
   // 念稿：主人写好的话由她原样念出来（口播、公告、彩排台词），不经过她的会话；[mood] 标记照样换表情。念完才返回。
   // prepare: true 只提前合成好语音（一串台词先全部 prepare，念的时候句和句之间不用等合成）
