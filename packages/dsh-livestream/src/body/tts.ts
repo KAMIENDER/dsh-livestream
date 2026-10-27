@@ -30,12 +30,23 @@ interface VoiceRoute {
 
 /**
  * 复刻音色要说清楚念哪种语言（不说的话中文会念成别的腔调，见 hiyoriai 的实测）。
- * 每段单独合成，所以按这一段的字来定：假名占一半以上就是日语，别的按中文（中文里夹几个日语词也按中文，那几个词照样念得出来）
+ * 每段单独合成，所以按这一段的字来定：假名、谚文、西里尔字母占一半以上就是日语、韩语、俄语；
+ * 拉丁字母占一半以上（德语、英语、法语、西语……）交给豆包自己认（crosslingual，2026-10-28 实测这几种都念对；
+ * 按 zh-cn 念德语会念成乱码英语）；别的按中文（中文里夹几个外语词也按中文，那几个词照样念得出来）
  */
-export function languageOf(text: string): 'ja' | 'zh-cn' {
-  const kana = (text.match(/[\u3040-\u30ff]/g) ?? []).length;
-  const letters = (text.match(/[\u3040-\u30ff\u4e00-\u9fffA-Za-z]/g) ?? []).length;
-  return kana >= 2 && kana * 2 >= letters ? 'ja' : 'zh-cn';
+export function languageOf(text: string): 'ja' | 'ko' | 'ru' | 'crosslingual' | 'zh-cn' {
+  const count = (re: RegExp) => (text.match(re) ?? []).length;
+  const kana = count(/[\u3040-\u30ff]/g);
+  const hangul = count(/[\uac00-\ud7af]/g);
+  const cyrillic = count(/[\u0400-\u04ff]/g);
+  const latin = count(/[A-Za-z\u00c0-\u024f]/g);
+  const letters = kana + hangul + cyrillic + latin + count(/[\u4e00-\u9fff]/g);
+  const most = (n: number) => n >= 2 && n * 2 >= letters;
+  if (most(kana)) return 'ja';
+  if (most(hangul)) return 'ko';
+  if (most(cyrillic)) return 'ru';
+  if (most(latin)) return 'crosslingual';
+  return 'zh-cn';
 }
 
 export function routeOf(voice: string, text = ''): VoiceRoute {

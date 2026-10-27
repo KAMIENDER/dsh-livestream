@@ -30,5 +30,10 @@ describe('clone voice language', () => {
     expect(languageOf('Qビット，又见面啦，こんばんは！三天前你还跟我用日语聊过呢。')).toBe('zh-cn');
     expect(languageOf('今天吃了三碗饭。')).toBe('zh-cn');
     expect(languageOf('JSON 我闭着眼都能写')).toBe('zh-cn');
+    expect(languageOf('Guten Abend, ich bin der große Fisch.')).toBe('crosslingual');
+    expect(languageOf('Good evening, I am the big fish.')).toBe('crosslingual');
+    expect(languageOf('안녕하세요, 저는 큰 물고기예요.')).toBe('ko');
+    expect(languageOf('Добрый вечер, я большая рыба.')).toBe('ru');
+    expect(languageOf('谢谢你，Danke 也会说一句')).toBe('zh-cn');
   });
 });
