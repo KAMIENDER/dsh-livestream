@@ -66,6 +66,10 @@ export const TUNING = {
   comboSettleMs: 3_000,
   /** 两次感谢小礼物之间至少间隔 */
   giftsIntervalMs: { quiet: 0, normal: 20_000, busy: 45_000 } as Record<RoomHeat, number>,
+  /** 小礼物等了这么久还没谢，就排到弹幕前面 */
+  giftsWaitMs: 30_000,
+  /** 一次谢小礼物点名几位（再多的说「还有另外 N 位」） */
+  giftsNamed: 6,
   welcomeIntervalMs: { quiet: 0, normal: 60_000, busy: 90_000 } as Record<RoomHeat, number>,
   followIntervalMs: { quiet: 0, normal: 20_000, busy: 60_000 } as Record<RoomHeat, number>,
   /** 进场后等一小会儿，把前后脚进来的人一起欢迎 */
@@ -436,7 +440,8 @@ export class LiveAttention {
     if (now - (this.lastSaid.gifts ?? -Infinity) < (this.owner.thanksGapMs ?? TUNING.giftsIntervalMs[heat])) return null;
     const oldest = Math.min(...ready.map((g) => g.ts));
     return {
-      priority: Math.min(75, 35 + (now - oldest) / 2000),
+      // 等了半分钟还没谢：排到弹幕前面（弹幕最高 85），一分钟内谢到
+      priority: now - oldest >= TUNING.giftsWaitMs ? 88 : Math.min(75, 35 + (now - oldest) / 2000),
       build: () => {
         // 同一个人的礼物合在一起，按金额排
         const byUser = new Map<string, LiveGiftEvent[]>();
@@ -446,7 +451,7 @@ export class LiveAttention {
           byUser.set(key, [...(byUser.get(key) ?? []), g]);
         }
         const ranked = [...byUser.values()].sort((a, b) => sum(b) - sum(a));
-        return { kind: 'gifts', events: ranked.slice(0, 3).flat(), more: Math.max(0, ranked.length - 3) };
+        return { kind: 'gifts', events: ranked.slice(0, TUNING.giftsNamed).flat(), more: Math.max(0, ranked.length - TUNING.giftsNamed) };
       },
     };
   }

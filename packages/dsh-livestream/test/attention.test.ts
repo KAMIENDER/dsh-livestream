@@ -222,6 +222,18 @@ describe('attention rules', () => {
     expect(t?.kind === 'chat' && t.picks.map((p) => p.text)).toEqual(['画我的头像']);
   });
 
+  it('small gifts waiting half a minute go before chat, and the thanks names up to six', () => {
+    const a = new LiveAttention(0);
+    for (let i = 0; i < 7; i++) {
+      a.observe({ id: `g${i}`, platform: 'bilibili', kind: 'gift', ts: 0, user: user(`p${i}`), giftName: '人气票', count: 1, valueYuan: 0.1 } as LiveEvent, false, 0);
+    }
+    a.observe(chat('c1', 'v', '画我的头像'), false, 30_000);
+    const t = a.next(31_000);
+    expect(t?.kind).toBe('gifts');
+    expect(t?.kind === 'gifts' && [t.events.length, t.more]).toEqual([6, 1]);
+    expect(a.next(32_000)?.kind).toBe('chat');
+  });
+
   it('speaks up on her own after a long silence, never while speaking', () => {
     const a = new LiveAttention(0);
     a.setOnline(3); // 有人在看，只是没人说话

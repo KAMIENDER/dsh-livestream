@@ -100,7 +100,7 @@ function body(topic: Topic, ctx: TopicContext): Body {
       }
       const lines = [...byUser.values()].map((e) => `- ${who(e.user)}：${e.gifts.join('、')}`);
       if (topic.more) lines.push(`- 还有另外 ${topic.more} 位也送了小礼物`);
-      return { what: ['这段时间收到的小礼物：', ...lines], how: '用一句轻快的话一起谢谢大家，点名不超过三位。', maxChars: 50 };
+      return { what: ['这段时间收到的小礼物：', ...lines], how: '用一句轻快的话一起谢谢大家，上面列出名字的每一位都点到名。', maxChars: 90 };
     }
     case 'trend':
       return {
