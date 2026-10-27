@@ -89,7 +89,7 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string; pace?: { welcomeSec?: number | 'off'; thanksSec?: number; followSec?: number; chatPicks?: number } };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string; pace?: { welcomeSec?: number | 'off'; thanksSec?: number; followSec?: number; chatPicks?: number }; blocked?: BlockedViewer[] };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
@@ -520,6 +520,12 @@ export function Console() {
               </div>
               <p className="dl-hint">都是改了马上生效，不用重启。留空就按直播间热闹程度自动（人少时回得勤、人多时攒一攒）；现场不合适就直接填：间隔填秒数，「欢迎」填 off 就不欢迎新进来的观众。大礼物、醒目留言、上舰不受这些间隔限制。</p>
             </div>
+            <h3>黑名单</h3>
+            <div className="dl-field">
+              <textarea key={blockedText(settings?.blocked)} defaultValue={blockedText(settings?.blocked)} rows={3} placeholder="一行一位：UID 名字 原因"
+                onBlur={(e) => { if (e.target.value.trim() !== blockedText(settings?.blocked)) choose({ blocked: parseBlocked(e.target.value, settings?.blocked ?? []) }); }} />
+              <p className="dl-hint">一行一位：UID、名字、原因，空格隔开。名单上的人进直播间、发弹幕、送礼物她都看不到，不欢迎、不回、不记、不私信；改了马上生效。</p>
+            </div>
             <h3>看视频</h3>
             <div className="dl-field">
               <label>语音识别用的 Python {host?.asr.available ? <span className="dl-tag dl-ok-tag">能用</span> : <span className="dl-tag">没配好</span>}</label>
@@ -626,6 +632,20 @@ function LoginField() {
 }
 
 /** 告示板：主人想让观众知道的。改完离开输入框就换到舞台上 */
+interface BlockedViewer { uid: string; name: string; why: string; at: number }
+
+function blockedText(list: BlockedViewer[] | undefined): string {
+  return (list ?? []).map((b) => [b.uid, b.name, b.why].filter(Boolean).join(' ')).join('\n');
+}
+
+/** 「UID 名字 原因」一行一位；原来就在名单上的保留拉黑时间 */
+function parseBlocked(text: string, before: BlockedViewer[]): BlockedViewer[] {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+    const [uid = '', name = '', ...why] = line.split(/\s+/);
+    return { uid, name, why: why.join(' '), at: before.find((b) => b.uid === uid)?.at ?? Date.now() };
+  });
+}
+
 /** 节奏里主人可以改的几项（秒；一次回几位是人数） */
 const PACE_FIELDS = [['welcomeSec', '欢迎新观众间隔'], ['thanksSec', '谢小礼物间隔'], ['followSec', '谢关注间隔'], ['chatPicks', '一次回几位']] as const;
 

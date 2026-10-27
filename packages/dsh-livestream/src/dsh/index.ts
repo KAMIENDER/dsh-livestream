@@ -20,7 +20,7 @@ import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
 import { GUEST_VOICE } from '../body/voices';
-import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type Pace, type Settings } from './runtime';
+import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type BlockedViewer, type Pace, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
 export const inject = ['connection'];
@@ -68,6 +68,18 @@ function cleanPace(raw: Record<string, unknown>): Pace {
     ...(follow !== undefined ? { followSec: follow } : {}),
     ...(picks !== undefined ? { chatPicks: Math.max(1, Math.min(5, picks)) } : {}),
   };
+}
+
+/** 控制台填的黑名单：UID 是数字串；同一个 UID 只留一条 */
+function cleanBlocked(raw: unknown): BlockedViewer[] {
+  const out = new Map<string, BlockedViewer>();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const b = item as Partial<BlockedViewer>;
+    const uid = String(b.uid ?? '').trim();
+    if (!/^\d{1,20}$/.test(uid)) continue;
+    out.set(uid, { uid, name: String(b.name ?? '').trim().slice(0, 40), why: String(b.why ?? '').trim().slice(0, 200), at: Number(b.at) || Date.now() });
+  }
+  return [...out.values()];
 }
 
 function gameSource(value: unknown): GameSource | null {
@@ -207,6 +219,7 @@ export function apply(ctx: HostContext): void {
     if (patch.asrModel !== undefined) next.asrModel = String(patch.asrModel).trim() || 'large-v3-turbo';
     if (patch.boardText !== undefined) next.boardText = String(patch.boardText).replace(/\r/g, '').slice(0, 1000);
     if (patch.noticeText !== undefined) next.noticeText = String(patch.noticeText).replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (patch.blocked !== undefined) next.blocked = cleanBlocked(patch.blocked);
     const own = (patch as { ownRoom?: boolean }).ownRoom;
     if (own !== undefined && settings.roomId) {
       const rooms = new Set(settings.ownRooms);

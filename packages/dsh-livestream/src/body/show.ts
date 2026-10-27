@@ -86,6 +86,8 @@ export interface ShowOptions {
   board?: () => string;
   /** 她在玩游戏时，两次把直播间的事推给她至少隔多少毫秒（控制台设置，改了马上生效） */
   gameChatGapMs?: () => number;
+  /** 主人拉黑的观众（控制台设置，改了马上生效）：他的进场、弹幕、礼物她都看不到 */
+  blocked?: (uid: string) => boolean;
 }
 
 /** 她说过的一句话（控制台显示、下播提炼用） */
@@ -284,6 +286,7 @@ export class LiveShow {
   }
 
   private observe(event: LiveEvent, isUpdate: boolean): void {
+    if (this.isBlocked(event.user.id)) return;
     const now = Date.now();
     this.attention.observe(event, isUpdate, now);
     // 只记自己直播间的观众（主人在控制台勾了的）；模拟观众（控制台彩排）不记
@@ -848,6 +851,11 @@ export class LiveShow {
   /** 这位观众说过「忘了我」：不看、不记 */
   optedOut(uid: string): boolean {
     return this.memory.store.isOptedOut('bilibili', uid);
+  }
+
+  /** 主人拉黑了这位观众：不欢迎、不回、不记、不看主页、不私信 */
+  isBlocked(uid: string): boolean {
+    return !!uid && !!this.options.blocked?.(uid);
   }
 
   /** 她看了这位观众的主页：自己的直播间里记一句，下次见到他卡片里会提 */

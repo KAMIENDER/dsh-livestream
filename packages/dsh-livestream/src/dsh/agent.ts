@@ -306,6 +306,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
       }
       const viewer = show.lookupViewer(who);
       if (viewer.kind !== 'found') return lookupProblem(who, viewer);
+      if (show.isBlocked(viewer.uid)) return `${viewer.user.name} 在主人的黑名单上，不和他来往，主页也不看。`;
       if (show.optedOut(viewer.uid)) return `${viewer.user.name} 说过不想被记住，他的主页就不看了。`;
       show.toolCall('view_profile', viewer.how === 'unseen-uid' ? `UID ${viewer.uid}` : viewer.user.name, viewer.how === 'unseen-uid' ? `在看 UID ${viewer.uid} 的主页` : `在看${viewer.user.name}的主页`);
       const profile = await fetchProfile(viewer.uid, await cookie());
@@ -335,6 +336,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
     async execute(args) {
       const who = person(String(args.who ?? ''));
       if (typeof who === 'string') return who;
+      if (show.isBlocked(who.uid)) return `${who.name} 在主人的黑名单上，不给他发私信。`;
       if (show.optedOut(who.uid)) return `${who.name} 说过不想被记住，就不私信他了。`;
       show.toolCall('send_dm', `→ ${who.name}`, `在给${who.name}发私信`);
       const result = await dm.send(who, String(args.text ?? ''));

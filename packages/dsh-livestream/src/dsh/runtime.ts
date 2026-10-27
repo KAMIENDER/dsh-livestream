@@ -69,6 +69,17 @@ export interface Settings {
   noticeText: string;
   /** 主人定的节奏（秒）：没填的项按直播间热度自动；欢迎填 off 就不欢迎新观众 */
   pace: Pace;
+  /** 黑名单：主人拉黑的观众。她不欢迎、不回、不记、不看主页、不私信；别的程序（私信、运营）读这个文件也照着跳过 */
+  blocked: BlockedViewer[];
+}
+
+export interface BlockedViewer {
+  /** B 站 UID */
+  uid: string;
+  name: string;
+  /** 为什么拉黑（主人自己看的） */
+  why: string;
+  at: number;
 }
 
 export interface Pace {
@@ -161,6 +172,7 @@ function loadSettings(): Settings {
     boardText: DEFAULT_BOARD,
     noticeText: '',
     pace: {},
+    blocked: [],
     ...saved,
   };
   if (!settings.stageToken) {
@@ -244,7 +256,7 @@ export const show = new LiveShow(
     persist: (snapshot) => saveLive(snapshot),
     onGame: (source) => placeGame(source),
   },
-  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000 },
+  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000, blocked: (uid) => settings.blocked.some((b) => b.uid === uid) },
 );
 
 /**
