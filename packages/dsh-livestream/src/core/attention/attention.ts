@@ -374,7 +374,8 @@ export class LiveAttention {
     if (!scored.length) return null;
 
     return {
-      priority: Math.min(85, 50 * scored[0].score),
+      // 观众在跟她说话：排在欢迎、谢关注前面（冷清时欢迎是 60：人进得多的晚上，弹幕排不上、衰减到过期，一条也没回）
+      priority: Math.min(85, 65 + 20 * scored[0].score),
       build: () => {
         const picks: ChatPick[] = [];
         const taken = new Set<string>();

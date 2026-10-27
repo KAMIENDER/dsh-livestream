@@ -211,6 +211,17 @@ describe('attention rules', () => {
     expect(a.next(20_000)).toBeNull();
   });
 
+  it('quiet room with many arrivals: a viewer talking to her goes before welcoming and follows', () => {
+    const a = new LiveAttention(0);
+    for (let i = 0; i < 6; i++) a.observe({ id: `e${i}`, platform: 'bilibili', kind: 'enter', ts: 0, user: user(`n${i}`) }, false, 0);
+    a.observe({ id: 'f1', platform: 'bilibili', kind: 'follow', ts: 0, user: user('f') }, false, 0);
+    a.observe(chat('c1', 'v', '画我的头像'), false, 30_000);
+    expect(a.heat(70_000)).toBe('quiet');
+    // 弹幕已经等了 40 秒，欢迎和关注也都攒好了：先回说话的人
+    const t = a.next(70_000);
+    expect(t?.kind === 'chat' && t.picks.map((p) => p.text)).toEqual(['画我的头像']);
+  });
+
   it('speaks up on her own after a long silence, never while speaking', () => {
     const a = new LiveAttention(0);
     a.setOnline(3); // 有人在看，只是没人说话
