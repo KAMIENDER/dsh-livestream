@@ -162,7 +162,7 @@ describe('game line: the game in its own session', () => {
     // 直播线把开游戏交给游戏线
     expect(show.toGameLine('开 Minecraft 接着玩')).toBe(true);
     await vi.advanceTimersByTimeAsync(500);
-    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩\n这件事观众已经听你说过了，去做就行，不用再说一遍。']);
+    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩\n去做就行，边做边说你在做什么。']);
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
     show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20；身体正在：采集 oak_log');
     // 弹幕只给直播线，不插进游戏线这一轮，也不叫醒 game_continue
@@ -197,7 +197,7 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 
-  it('lets the game line hear what the live line told viewers', async () => {
+  it('hands a viewer\'s request to the game line with the viewer\'s own words, for the game line to answer', async () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
@@ -205,13 +205,15 @@ describe('game line: the game in its own session', () => {
     await vi.advanceTimersByTimeAsync(500);
     show.turnStarted('game');
     show.setGameNow('主世界 (1, 64, 2)', true);
-    show.inject(chat('1', '塔太小了'));
-    await vi.advanceTimersByTimeAsync(2_000);
-    // 直播线回弹幕时答应了游戏里的事
-    void show.say('小？那我加高加大，重来一遍', 'talk', new AbortController().signal);
-    await vi.advanceTimersByTimeAsync(50_000);
-    const heard = to('game').find((t) => t.includes('你在直播间刚说过这些'));
-    expect(heard).toContain('小？那我加高加大，重来一遍');
+    show.inject(chat('1', '塔太小了，再加高'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    // 直播线回这条弹幕时把它交给游戏线
+    show.toGameLine('塔加高加大，重来一遍');
+    await vi.advanceTimersByTimeAsync(1_000);
+    const mail = to('game')[to('game').length - 1];
+    expect(mail).toContain('观众1：塔太小了，再加高');
+    expect(mail).toContain('你在直播间定下：塔加高加大，重来一遍');
+    expect(mail).toContain('点名回他');
     show.dispose();
   });
 

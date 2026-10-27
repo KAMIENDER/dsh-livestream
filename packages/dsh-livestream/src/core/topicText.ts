@@ -216,7 +216,7 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
   const game = ctx.gameNow
-    ? ['', `你在游戏里：${ctx.gameNow}`, '直播间这边看不到游戏画面，只有上面这段：没写的就是不知道；刚交代、上面还没出现的事，就是还没做成。']
+    ? ['', `你在游戏里：${ctx.gameNow}`, '直播间这边看不到游戏画面：没写的就是不知道（要细节用 game_state 查）；刚交代、上面还没出现的事，就是还没做成。']
     : ctx.gameOff ? ['', '游戏现在没开。'] : [];
   return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }

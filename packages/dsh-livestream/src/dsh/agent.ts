@@ -101,9 +101,11 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
     if (event?.type === 'turn/start') show.turnStarted(sessionId);
     else if (event?.type === 'turn/end') show.turnEnded(sessionId);
     else if (event?.type === 'tool/result' && line === 'game') {
-      const summary = momentSummary(wordsOf(event));
+      const moment = wordsOf(event);
+      const summary = momentSummary(moment);
       if (summary) {
         gameMoment = summary;
+        show.setGameMomentFull(moment);
         publishGameNow(true);
       }
     } else if (event?.type === 'assistant/message') {
@@ -113,6 +115,11 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
       voiced.add(key);
       const words = wordsOf(event);
       if (!words) continue;
+      // 直播线把这件事交给了游戏线（game_side）：这条不念，由游戏里的她点名回观众
+      if (line === 'live' && (event?.data?.message?.content ?? []).some((p: any) => p?.type === 'tool-call' && p.name === 'game_side')) {
+        show.unsaid(words, '交给游戏线回');
+        continue;
+      }
       if (line === 'game') {
         gameWords = words.replace(/\[[a-z]+\]/g, '').trim().slice(0, 80);
         publishGameNow();
@@ -788,9 +795,9 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
   // 游戏线：另一个会话里的她专门玩游戏，这条线把话交给她
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'game_side',
-    description: '定下游戏里接下来怎么玩：开游戏、换目标、照观众的主意换个做法、停手。写下来，游戏里接下来就照着做（具体怎么做看游戏里的情况），做的事和说的话观众都看得到。',
+    description: '观众或主人想让你在游戏里做什么、或者你要答应游戏里的事：写下怎么做，交给游戏里的你。他们的原话会一起交过去，由游戏里的你点名回他、再去做；调这个工具的那条消息里你写的话不会念出来。',
     parameters: {
-      message: { type: 'string', required: true, description: '接下来怎么玩，比如「开 Minecraft 接着玩，目标一身钻石装备」「观众提醒天黑了：先挖洞躲起来」' },
+      message: { type: 'string', required: true, description: '游戏里接下来怎么做，比如「开 Minecraft 接着玩，目标一身钻石装备」「天黑了，先挖洞躲起来」' },
     },
     output: stringOut,
     async execute(args) {
@@ -798,7 +805,20 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
       if (!message) return '没写接下来怎么玩。';
       show.toolCall('game_side', message.slice(0, 40));
       if (!show.toGameLine(message)) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
-      return '记下了：游戏里接下来照这个做。';
+      return '交过去了：游戏里的你会回他、去做。';
     },
   })), 'game_side tool');
+
+  // 查游戏里现在的完整情况（游戏线最近一个时刻的全文）
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'game_state',
+    description: '查你在游戏里现在的完整情况：位置、血量、饥饿、完整背包、身体在做什么、刚发生了什么。观众问游戏里的细节时先查一下再回。',
+    parameters: {},
+    output: stringOut,
+    async execute() {
+      show.toolCall('game_state', '', '在看游戏里的情况');
+      const state = show.gameState();
+      return state ? `（${state.ageSec} 秒前，游戏里最近一个时刻）\n${state.text}` : '游戏现在没开。';
+    },
+  })), 'game_state tool');
 }
