@@ -296,9 +296,23 @@ export class LiveShow {
     if (this.onAir && this.memoryStream && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
     const shown = toStage(event);
     if (shown) this.stage.broadcast({ type: 'live', event: shown, isUpdate });
-    if (this.onAir && !isUpdate && (event.kind === 'superchat' || event.kind === 'membership' || (event.kind === 'gift' && event.valueYuan > 0))) {
-      this.record({ type: 'event', kind: event.kind, user: cleanName(event.user.name), yuan: event.valueYuan, text: event.kind === 'superchat' ? cleanText(event.text) : undefined });
+    if (this.onAir) this.recordViewer(event, isUpdate);
+  }
+
+  /**
+   * 观众的原话和礼物，按 uid 原样记进这场的记录：下播后的私信、复盘只读这个，不从她的台词或推给她的提示里猜。
+   * 礼物连击会用同一个 id 再来几次（数量、钱数是累计的）：读的时候每个 id 取最后一条
+   */
+  private recordViewer(event: LiveEvent, isUpdate: boolean): void {
+    const who = { uid: event.user.id, user: cleanName(event.user.name) };
+    if (event.kind === 'gift') {
+      if (event.valueYuan > 0) this.record({ type: 'event', kind: 'gift', id: event.id, ...who, gift: cleanName(event.giftName), count: event.count, yuan: event.valueYuan });
+      return;
     }
+    if (isUpdate) return;
+    if (event.kind === 'chat') this.record({ type: 'event', kind: 'chat', ...who, text: cleanText(event.text) });
+    else if (event.kind === 'superchat') this.record({ type: 'event', kind: 'superchat', ...who, yuan: event.valueYuan, text: cleanText(event.text) });
+    else if (event.kind === 'membership') this.record({ type: 'event', kind: 'membership', ...who, level: event.levelName, count: event.count, yuan: event.valueYuan });
   }
 
   /** 在线人数、主播身份、开没开播：跟着直播间走 */
@@ -622,7 +636,8 @@ export class LiveShow {
     this.seq += 1;
     const focus = focusOf(topic);
     if (focus.length) this.stage.broadcast({ type: 'focus', userIds: focus });
-    this.record({ type: 'topic', seq: this.seq, kind: topic.kind });
+    // to：这一轮她回应的观众（uid）；接下来的 say 就是她这一轮说的
+    this.record({ type: 'topic', seq: this.seq, kind: topic.kind, ...(focus.length ? { to: focus } : {}) });
     this.lastTopic = topic;
     const d = new Date(now);
     const text = topicText(topic, {
