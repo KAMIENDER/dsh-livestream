@@ -295,7 +295,7 @@ export function apply(ctx: AgentContext): void {
   // 看观众的 B 站主页（公开信息）
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'view_profile',
-    description: '看一个 B 站个人主页：等级、签名、粉丝和关注数、最近投稿、置顶视频、代表作、空间公告、有没有直播间。'
+    description: '看一个 B 站个人主页：等级、签名、粉丝和关注数、最近投稿、置顶视频、代表作、空间公告、有没有直播间、头像图片的网址。'
       + '可以看观众的，也可以看你自己开播账号的。只看得到主页上公开的东西。要几秒钟。',
     parameters: {
       who: { type: 'string', required: true, description: '观众的名字（照消息里写的）或 UID；看你自己开播账号的主页填「自己」' },

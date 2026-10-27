@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { profileSummary, profileText, type BiliProfile } from '../src/body/biliProfile';
+import { faceUrl, profileSummary, profileText, type BiliProfile } from '../src/body/biliProfile';
 
 const base: BiliProfile = {
   uid: '42', name: '考研的阿杰', level: 5, sex: '', sign: '上岸！', fans: 12, following: 230, videos: 3, official: '', vip: false,
@@ -16,6 +16,17 @@ describe('viewer profile text', () => {
   });
   it('says so when the page is empty', () => {
     expect(profileText({ ...base, videos: 0, sign: '', recent: [] })).toContain('主页很空');
+  });
+  it('hands over the avatar url so the game can draw it', () => {
+    const face = 'https://i2.hdslb.com/bfs/face/05e0eedaa342b6558f8198187172e190e0a99f40.jpg';
+    expect(profileText({ ...base, face })).toContain(`头像图片：${face}`);
+    expect(profileText(base)).not.toContain('头像');
+  });
+  it('only passes avatars from the bilibili image host', () => {
+    expect(faceUrl('http://i0.hdslb.com/bfs/face/abc.jpg')).toBe('https://i0.hdslb.com/bfs/face/abc.jpg');
+    expect(faceUrl('https://evil.example.com/x.jpg')).toBe('');
+    expect(faceUrl('https://i0.hdslb.com/bfs/face/member/noface.jpg')).toBe('https://i0.hdslb.com/bfs/face/member/noface.jpg');
+    expect(faceUrl(undefined)).toBe('');
   });
   it('remembers a short line for the viewer card', () => {
     expect(profileSummary(base)).toBe('5级，投稿3个，最近一个是「复习日记 Day 30」，签名「上岸！」');

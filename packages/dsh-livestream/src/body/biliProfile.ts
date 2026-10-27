@@ -39,6 +39,8 @@ export interface BiliProfile {
   notice: string;
   /** 有直播间：房间号、在不在播、标题 */
   live: { roomId: number; onAir: boolean; title: string } | null;
+  /** 头像图片的网址（B 站图床上的，没有就空） */
+  face?: string;
 }
 
 async function get<T>(url: string, uid: string, cookie: string): Promise<T | null> {
@@ -66,7 +68,7 @@ function video(v: RawVideo | null | undefined): ProfileVideo | null {
 export async function fetchProfile(uid: string, cookie = ''): Promise<BiliProfile | null> {
   if (!/^\d{1,20}$/.test(uid)) return null;
   // 一个一个请求：同时发六个会被 B 站限流（412），总共也就一两秒
-  const card = await get<{ card?: { name?: string; sex?: string; sign?: string; fans?: number; attention?: number; level_info?: { current_level?: number }; Official?: { title?: string }; vip?: { status?: number } }; archive_count?: number; follower?: number }>(
+  const card = await get<{ card?: { name?: string; face?: string; sex?: string; sign?: string; fans?: number; attention?: number; level_info?: { current_level?: number }; Official?: { title?: string }; vip?: { status?: number } }; archive_count?: number; follower?: number }>(
     `https://api.bilibili.com/x/web-interface/card?mid=${uid}&photo=false`, uid, cookie);
   const c = card?.card;
   if (!c?.name) return null;
@@ -91,7 +93,14 @@ export async function fetchProfile(uid: string, cookie = ''): Promise<BiliProfil
     masterpieces: (master ?? []).map(video).filter((v): v is ProfileVideo => !!v).slice(0, 3),
     notice: cleanText(typeof notice === 'string' ? notice : ''),
     live: room?.roomid ? { roomId: room.roomid, onAir: room.liveStatus === 1, title: cleanText(room.title ?? '') } : null,
+    face: faceUrl(c.face),
   };
+}
+
+/** 只认 B 站图床上的头像（https://i0.hdslb.com/bfs/face/…）：别的网址不往下传 */
+export function faceUrl(raw?: string): string {
+  const url = (raw ?? '').trim().replace(/^http:\/\//, 'https://');
+  return /^https:\/\/i\d\.hdslb\.com\/bfs\/[\w/.-]+\.(?:jpe?g|png|webp|gif)$/i.test(url) ? url : '';
 }
 
 function count(n: number): string {
@@ -124,6 +133,8 @@ export function profileText(p: BiliProfile, inRoom?: string): string {
   if (p.masterpieces.length) lines.push(`- 代表作：${p.masterpieces.map(line).join('、')}`);
   if (p.notice) lines.push(`- 空间公告：<公告>${p.notice.slice(0, 200)}</公告>`);
   if (p.live) lines.push(`- 有直播间（${p.live.roomId}）${p.live.onAir ? `，正在直播：${p.live.title}` : '，现在没在播'}`);
+  // 游戏里的 picture 吃图片网址：观众让你画他的头像时，这个网址原样交给游戏里的你
+  if (p.face) lines.push(`- 头像图片：${p.face}（游戏里的 picture 能把这张图做成像素画）`);
   if (!p.videos && !p.sign && !p.pinned) lines.push('- 主页很空：没投稿、没写签名，是个安静看直播的人');
   return lines.join('\n');
 }
