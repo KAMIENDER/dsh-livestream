@@ -125,6 +125,9 @@ export class Broadcast {
       }
     }
 
+    // 开播会把标题换回直播姬里存的那个（10-28 实测：开播前改了、开播后又是上一场的）：开上了再改一次
+    if (title) await room.update(roomId, { title }).catch((err) => this.options.log?.('warn', `开播后改标题没成：${(err as Error).message}`));
+
     this.set({ step: '打开 OBS、设好画质' });
     this.obs = await connectObs(true);
     await prepareObs(this.obs, this.options.stageUrl(), this.options.kbps());

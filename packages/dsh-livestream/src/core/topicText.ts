@@ -20,6 +20,8 @@ export interface TopicContext {
   today?: string;
   /** 开场用：直播画面上告示板写的（观众看得到） */
   board?: string;
+  /** 这场直播的标题（主人开播前定的：今天要做什么） */
+  title?: string;
   /** 她正在直播里玩游戏：回直播间的事说短一点（嘴跟不上，观众听到的回应会越来越晚） */
   inGame?: boolean;
   /** 有游戏线时：她在游戏里现在怎样（游戏在另一个会话里玩；写给她看时就是她自己在游戏里） */
@@ -120,6 +122,7 @@ function body(topic: Topic, ctx: TopicContext): Body {
       return {
         what: [
           '直播刚刚开始。',
+          ...(ctx.title?.trim() ? [`这场直播的标题是「${cleanText(ctx.title.trim())}」：这是主人定的今天要做的事，开场介绍就按它说。`] : []),
           ...(ctx.board?.trim() ? ['直播画面上有块告示板，观众看得到，上面写着：', '<告示板>', ctx.board.trim(), '</告示板>'] : []),
           ...(ctx.lastRecap ? [`上一场直播（${whenLive(ctx.lastRecap)}）的回顾（可以提一句）：${ctx.lastRecap.lines.join('；')}`] : []),
         ],

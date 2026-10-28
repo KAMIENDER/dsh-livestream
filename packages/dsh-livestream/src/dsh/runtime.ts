@@ -256,7 +256,7 @@ export const show = new LiveShow(
     persist: (snapshot) => saveLive(snapshot),
     onGame: (source) => placeGame(source),
   },
-  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000, blocked: (uid) => settings.blocked.some((b) => b.uid === uid) },
+  { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, title: () => settings.liveTitle, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000, blocked: (uid) => settings.blocked.some((b) => b.uid === uid) },
 );
 
 /**

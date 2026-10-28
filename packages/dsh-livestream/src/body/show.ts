@@ -84,6 +84,8 @@ export interface ShowOptions {
   pace?: () => OwnerPace;
   /** 告示板上写的（开场时告诉她，观众看得到什么） */
   board?: () => string;
+  /** 这场直播的标题（开场时告诉她今天做什么） */
+  title?: () => string;
   /** 她在玩游戏时，两次把直播间的事推给她至少隔多少毫秒（控制台设置，改了马上生效） */
   gameChatGapMs?: () => number;
   /** 主人拉黑的观众（控制台设置，改了马上生效）：他的进场、弹幕、礼物她都看不到 */
@@ -645,6 +647,7 @@ export class LiveShow {
       lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
       today: topic.kind === 'opening' ? whenNow(d) : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
+      title: topic.kind === 'opening' ? this.options.title?.() : undefined,
       inGame: this.gameOn,
       gameNow: !this.gameSession ? undefined
         : this.resumingGame && !this.gameOn ? GAME_RESTARTING

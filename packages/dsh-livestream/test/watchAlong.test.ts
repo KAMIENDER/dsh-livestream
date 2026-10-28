@@ -125,6 +125,12 @@ describe('board', () => {
     expect(topicText({ kind: 'opening', id: 'o', priority: 200, heat: 'quiet', createdAt: 0 }, { board: '  ' })).not.toContain('告示板');
   });
 
+  it('tells her at the opening what today is about from the live title, before the board', () => {
+    const text = topicText({ kind: 'opening', id: 'o', priority: 200, heat: 'quiet', createdAt: 0 }, { title: '【测试】大肥鱼MC建筑大师、画头像回', board: '这场：MC 测试三件事' });
+    expect(text).toContain('这场直播的标题是「【测试】大肥鱼MC建筑大师、画头像回」');
+    expect(text.indexOf('标题')).toBeLessThan(text.indexOf('<告示板>'));
+  });
+
   it('hands the latest board to a stage page that connects later', async () => {
     const { Stage } = await import('../src/body/stage');
     const stage = new Stage();
