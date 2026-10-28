@@ -529,7 +529,7 @@ export function Console() {
             <h3>看视频</h3>
             <div className="dl-field">
               <label>语音识别用的 Python {host?.asr.available ? <span className="dl-tag dl-ok-tag">能用</span> : <span className="dl-tag">没配好</span>}</label>
-              <input defaultValue={settings?.asrPython ?? ''} placeholder="装了 faster-whisper 的 python.exe 的完整路径" onBlur={(e) => choose({ asrPython: e.target.value })} />
+              <input defaultValue={settings?.asrPython ?? ''} placeholder="装了 faster-whisper 的 Python 可执行文件完整路径" onBlur={(e) => choose({ asrPython: e.target.value })} />
               <div className="dl-row">
                 <input defaultValue={settings?.asrModel ?? 'large-v3-turbo'} title="whisper 模型" onBlur={(e) => choose({ asrModel: e.target.value })} />
                 <span className="dl-meta">模型：有 N 卡用 large-v3-turbo，只有 CPU 用 small</span>

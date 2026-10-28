@@ -65,6 +65,7 @@
 
 ## 需要
 
+- Windows，或 macOS 13+（Apple Silicon / Intel；[Mac 安装与配置](docs/macos.md)）
 - DeepSeek Harness（网页版）
 - OBS Studio 30 以上（开 WebSocket）
 - B 站账号的 cookie（开播需要实名认证过的账号）
@@ -89,6 +90,14 @@ DOUBAO_TTS_ACCESS_KEY=...
 ```
 
 然后在 DSH 侧边栏打开「直播」：填房间号，选「本地彩排」或「推流到 B 站」，开播。
+
+### macOS 适配状态
+
+本分支增加了 macOS 的 OBS 路径发现、应用启动、配置读取、H.264 编码选择和游戏窗口捕获。
+Apple Silicon + 原生 arm64 Node 默认使用 VideoToolbox；Intel / Rosetta 默认使用 x264。
+Windows 默认保留 NVENC 和原有窗口 / WASAPI 音频捕获。
+
+目前完成的是源码适配，尚未编译、运行测试或验证真实推流；安装步骤和待实机确认项见 [macOS 使用说明](docs/macos.md)。
 
 ## 许可
 

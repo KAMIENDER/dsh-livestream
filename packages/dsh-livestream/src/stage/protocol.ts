@@ -116,7 +116,8 @@ export interface StageOrder {
 
 /**
  * 游戏画面从哪来（dsh-game 给的，见 docs/game-live-contract.md）：
- * url 是一个网页，直接放在游戏位上；window 是 OBS 窗口捕获认窗口用的字符串（标题:窗口类:程序），
+ * url 是一个网页，直接放在游戏位上；window 在 Windows 是「标题:窗口类:程序」，
+ * macOS 是 OBS 列表中的「[应用] 窗口标题」、唯一的完整窗口标题，或数字窗口 ID 的字符串（进程重开会变），
  * overlay 是叠在窗口上、一样大的透明网页（Minecraft 的血量、饱食度、快捷栏）
  */
 export type GameSource = { url: string } | { window: string; overlay?: string };

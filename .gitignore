@@ -10,3 +10,4 @@ packages/*/lib/
 packages/*/test/fixtures/
 tools/*.mjs
 /art/
+/.asr-venv/
