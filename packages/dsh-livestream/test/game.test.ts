@@ -313,6 +313,23 @@ describe('game line: the game in its own session', () => {
     expect(to('live').some((t) => t.includes('你在干嘛'))).toBe(true);
     show.dispose();
   });
+
+  it('says goodbye after the game line has finished talking, knowing what it just said', async () => {
+    const { show, to } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    // 游戏线做完最后一单、自己先道了别；这时主人点了下播
+    void show.say('最后几单都做完了，今天就到这儿，谢谢大家', 'happy', new AbortController().signal, 'game');
+    show.endLive();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(to('live').some((t) => t.includes('直播到这里结束'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    const bye = to('live').find((t) => t.includes('直播到这里结束'))!;
+    expect(bye).toContain('「最后几单都做完了，今天就到这儿，谢谢大家」');
+    expect(bye).toContain('上面已经说过的就不用再说一遍');
+    expect(bye).toMatch(/现在是\d+月\d+日/);
+    show.dispose();
+  });
 });
 
 describe('order queue: viewers\' requests the game line works through', () => {

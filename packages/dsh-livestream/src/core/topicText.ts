@@ -30,6 +30,8 @@ export interface TopicContext {
   gameOff?: boolean;
   /** 点单队列一行（有游戏线、有没做完的单时） */
   orders?: string;
+  /** 道别用：她刚才在直播里说的最后几句（两条线都算，观众都听到了） */
+  justSaid?: string[];
 }
 
 /** 玩游戏时回直播间的事最多说多少字（一句 5～6 秒） */
@@ -133,8 +135,12 @@ function body(topic: Topic, ctx: TopicContext): Body {
       };
     case 'ending':
       return {
-        what: ['主人说今天的直播到这里结束。', topic.summary].filter(Boolean),
-        how: '跟大家道别：谢谢今天的陪伴，可以提一两个今天印象深的人或事，约下次见。',
+        what: [
+          '主人说今天的直播到这里结束。',
+          topic.summary,
+          ...(ctx.justSaid?.length ? ['你刚才说的最后几句，观众都听到了：', ...ctx.justSaid.map((l) => `「${cleanText(l)}」`)] : []),
+        ].filter(Boolean),
+        how: `跟大家道别：谢谢今天的陪伴，可以提一两个今天印象深的人或事，约下次见。${ctx.justSaid?.length ? '上面已经说过的就不用再说一遍。' : ''}`,
         maxChars: 80,
       };
     case 'owner':

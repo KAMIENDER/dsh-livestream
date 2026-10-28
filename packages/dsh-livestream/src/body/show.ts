@@ -123,6 +123,9 @@ const TURN_MAX_MS = 3 * 60_000;
 /** 推道别以后最多等多久就收工 */
 const ENDING_GRACE_MS = 90_000;
 const RECENT_LINES = 40;
+/** 道别时给她看刚才说的最后几句：多久以内的、最多几句 */
+const JUST_SAID_MS = 2 * 60_000;
+const JUST_SAID_LINES = 4;
 /** 合成一段语音最多等多久（超时再试一次，还不行就只出字幕） */
 const SYNTH_TIMEOUT_MS = 15_000;
 /** 在播时多久存一次这一场（插件重启后按它算断了多久） */
@@ -636,7 +639,8 @@ export class LiveShow {
     // 她在玩游戏、这一轮还没完（在 game_continue 里等、在做事）：直播间的事照样推给她，插进她这一轮的下一步
     // （有游戏线时游戏在另一个会话里，直播线照平常一件一件来）
     if (this.turnRunning && this.game && !this.gameSession) return this.directGame(now);
-    if (this.queued - this.queuedGame > 0) return;
+    // 道别要等两条线的话都念完：游戏线刚说的（常常就是收尾的话）要写进道别里，她才不会再说一遍
+    if (this.queued - (this.ending && !this.endingPushed ? 0 : this.queuedGame) > 0) return;
     if (this.turnRunning) {
       if (now - this.turnSince < TURN_MAX_MS) return;
       this.hooks.log?.('warn', `她这一轮超过 ${TURN_MAX_MS / 1000} 秒还没结束，接着往下推`);
@@ -689,7 +693,8 @@ export class LiveShow {
     const text = topicText(topic, {
       viewerCard: (u: LiveUser) => this.memory.viewerCard(u, now),
       lastRecap: topic.kind === 'opening' && this.memoryStream ? this.memory.lastRecap() : undefined,
-      today: topic.kind === 'opening' ? whenNow(d) : undefined,
+      today: topic.kind === 'opening' || topic.kind === 'ending' ? whenNow(d) : undefined,
+      justSaid: topic.kind === 'ending' ? this.lines.filter((l) => now - l.at < JUST_SAID_MS).slice(-JUST_SAID_LINES).map((l) => l.text) : undefined,
       board: topic.kind === 'opening' ? this.options.board?.() : undefined,
       title: topic.kind === 'opening' ? this.options.title?.() : undefined,
       inGame: this.gameOn,
@@ -834,7 +839,7 @@ export class LiveShow {
         this.lines = [...this.lines, { text, mood, at: start }].slice(-RECENT_LINES);
         this.herLines.push(text);
         this.spoken += [...text].length;
-        this.record({ type: 'say', text, mood, start, end: Date.now() });
+        this.record({ type: 'say', text, mood, start, end: Date.now(), ...(game ? { line: 'game' } : {}) });
         this.setBrain(!this.onAir ? 'off' : this.turnRunning ? 'thinking' : 'listening');
       }
       return text;
