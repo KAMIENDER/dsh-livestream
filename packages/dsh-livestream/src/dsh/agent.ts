@@ -36,6 +36,24 @@ interface AgentContext {
 /** 已经念过的消息：会话 id + 消息序号 */
 const voiced = new Set<string>();
 
+/**
+ * 直播线这一轮交给游戏线了没有：从调 game_side 的那条消息起，这一轮她写的话都不念（游戏里的她会点名回观众），下一轮重新算。
+ * 只看调工具的那一条的话，她先调工具、下一条才写「交过去了」时会念出来，观众就听到两边各回一遍。
+ */
+export class HandOffs {
+  private sessions = new Set<string>();
+
+  turnStarted(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
+  /** 这条消息不念（这一轮已经交出去了）返回 true */
+  unsaid(sessionId: string, event: any): boolean {
+    if ((event?.data?.message?.content ?? []).some((p: any) => p?.type === 'tool-call' && p.name === 'game_side')) this.sessions.add(sessionId);
+    return this.sessions.has(sessionId);
+  }
+}
+
 const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
   .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
   .map((p: any) => p.text.trim()).filter(Boolean).join('\n');
@@ -45,6 +63,7 @@ const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
  * 有游戏线时两个会话一起盯：游戏线的话也念（嘴里排满了就少念一句），它的时刻里摘出游戏现在怎样，写给直播线
  */
 const cursors = new Map<string, number>();
+const handOffs = new HandOffs();
 let watching = false;
 /** 这场直播（她的会话，有游戏线时两个加起来）累计用掉的 token 和钱：舞台上换算成她吃了多少饭，show_stats 告诉她 */
 const freshUsage = (sessionId: string) => ({ sessionId, tokens: 0, input: 0, cacheRead: 0, output: 0, yuan: 0, priced: true, model: '' });
@@ -99,7 +118,10 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
   const events = session.snapshotEvents(cursors.get(sessionId)) as any[];
   cursors.set(sessionId, Number(session.seq));
   for (const event of events) {
-    if (event?.type === 'turn/start') show.turnStarted(sessionId);
+    if (event?.type === 'turn/start') {
+      handOffs.turnStarted(sessionId);
+      show.turnStarted(sessionId);
+    }
     else if (event?.type === 'turn/end') show.turnEnded(sessionId);
     else if (event?.type === 'tool/result' && line === 'game') {
       const moment = wordsOf(event);
@@ -114,6 +136,7 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
       const key = `${sessionId}:${event.seq}`;
       if (voiced.has(key)) continue;
       voiced.add(key);
+      const handedOff = line === 'live' && handOffs.unsaid(sessionId, event);
       let words = wordsOf(event);
       if (line === 'game') {
         const tagged = orderTags(words);
@@ -121,8 +144,8 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
         words = tagged.text;
       }
       if (!words) continue;
-      // 直播线把这件事交给了游戏线（game_side）：这条不念，由游戏里的她点名回观众
-      if (line === 'live' && (event?.data?.message?.content ?? []).some((p: any) => p?.type === 'tool-call' && p.name === 'game_side')) {
+      // 直播线把这件事交给了游戏线（game_side）：这条和这一轮后面写的都不念，由游戏里的她点名回观众
+      if (handedOff) {
         show.unsaid(words, '交给游戏线回');
         continue;
       }
@@ -801,7 +824,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
   // 游戏线：另一个会话里的她专门玩游戏，这条线把话交给她
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'game_side',
-    description: '观众或主人想让你在游戏里做什么、或者你要答应游戏里的事：写下怎么做，交给游戏里的你。他们的原话会一起交过去，由游戏里的你点名回他、再去做；调这个工具的那条消息里你写的话不会念出来。',
+    description: '观众或主人想让你在游戏里做什么、或者你要答应游戏里的事：写下怎么做，交给游戏里的你。他们的原话会一起交过去，由游戏里的你点名回他、再去做；从调这个工具的那条消息起，这一轮你写的话都不会念出来（调之前写的会念）。',
     parameters: {
       message: { type: 'string', required: true, description: '游戏里接下来怎么做，比如「开 Minecraft 接着玩，目标一身钻石装备」「天黑了，先挖洞躲起来」' },
       who: { type: 'string', description: '这是哪位观众点的单（名字，几位用顿号隔开）：记进点单队列、观众在点单栏里看得到；这件事里只有一位观众时可以不填' },
@@ -812,7 +835,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
       if (!message) return '没写接下来怎么玩。';
       show.toolCall('game_side', message.slice(0, 40));
       if (!show.toGameLine(message, typeof args.who === 'string' ? args.who : '')) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
-      return '交过去了：游戏里的你会回他、去做。';
+      return '交过去了：游戏里的你会回他、去做。这一轮接下来写的话不会念出来。';
     },
   })), 'game_side tool');
 
