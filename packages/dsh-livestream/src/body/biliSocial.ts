@@ -10,6 +10,7 @@
  */
 
 import { createBiliSession, type BiliSession } from '../core/platforms/bilibili/biliApi';
+import { biliImageUrl } from './biliProfile';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const TIMEOUT_MS = 12_000;
@@ -82,12 +83,13 @@ export function plain(text: unknown, max = 300): string {
 }
 
 /** 私信的 content 是 JSON 字符串（文字消息是 {"content":"…"}）；别的类型说一声是什么 */
-function dmText(msgType: unknown, content: unknown): string {
+export function dmText(msgType: unknown, content: unknown): string {
   const type = Number(msgType);
   let parsed: any = null;
   try { parsed = JSON.parse(String(content ?? '')); } catch { /* 不是 JSON */ }
   if (type === 1) return plain(parsed?.content ?? content, 500);
-  if (type === 2) return '[图片]';
+  // 图片带上图床地址：游戏里的 picture 能拿它做像素画
+  if (type === 2) return biliImageUrl(parsed?.url) ? `[图片] ${biliImageUrl(parsed?.url)}` : '[图片]';
   if (type === 6) return '[表情]';
   if (type === 7) return `[分享] ${plain(parsed?.title ?? '', 60)}`;
   if (type === 5) return '[撤回了一条消息]';

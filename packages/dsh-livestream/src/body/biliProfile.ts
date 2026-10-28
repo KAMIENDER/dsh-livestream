@@ -93,13 +93,13 @@ export async function fetchProfile(uid: string, cookie = ''): Promise<BiliProfil
     masterpieces: (master ?? []).map(video).filter((v): v is ProfileVideo => !!v).slice(0, 3),
     notice: cleanText(typeof notice === 'string' ? notice : ''),
     live: room?.roomid ? { roomId: room.roomid, onAir: room.liveStatus === 1, title: cleanText(room.title ?? '') } : null,
-    face: faceUrl(c.face),
+    face: biliImageUrl(c.face),
   };
 }
 
-/** 只认 B 站图床上的头像（https://i0.hdslb.com/bfs/face/…）：别的网址不往下传 */
-export function faceUrl(raw?: string): string {
-  const url = (raw ?? '').trim().replace(/^http:\/\//, 'https://');
+/** 只认 B 站图床上的图（头像、私信里的图、视频封面：https://i0.hdslb.com/bfs/…）：别的网址不往下传 */
+export function biliImageUrl(raw?: string): string {
+  const url = (raw ?? '').trim().replace(/^(?:http:)?\/\//, 'https://');
   return /^https:\/\/i\d\.hdslb\.com\/bfs\/[\w/.-]+\.(?:jpe?g|png|webp|gif)$/i.test(url) ? url : '';
 }
 

@@ -433,7 +433,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
 
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'read_dm',
-    description: '看你和一个人最近的私信往来（他说了什么、你回了什么）。',
+    description: '看你和一个人最近的私信往来（他说了什么、你回了什么）。他发来的图片会带着图片网址，游戏里的 picture 能用。',
     parameters: {
       who: { type: 'string', required: true, description: '名字（check_inbox 里的）或 UID' },
     },
@@ -677,7 +677,7 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
   // 搜 B 站视频
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'search_videos',
-    description: '搜 B 站视频，返回一页候选（BV 号、标题、UP 主、时长、播放量、发布日期、标签、简介）。'
+    description: '搜 B 站视频，返回一页候选（BV 号、标题、UP 主、时长、播放量、发布日期、标签、简介、封面图网址）。封面图网址游戏里的 picture 也能用：观众要画某个角色、某样东西时，可以搜它的视频、挑一张封面就是它的。'
       + '可以只搜某位 UP 主的投稿（up），可以按最新或播放最多排（order），可以翻页（page）。',
     parameters: {
       query: { type: 'string', required: true, description: '关键词（观众说的大概意思就行）；只看某位 UP 主最新的投稿时可以留空' },

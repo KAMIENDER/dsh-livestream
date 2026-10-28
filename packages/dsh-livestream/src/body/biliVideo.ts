@@ -12,6 +12,7 @@
 
 import { inflateRawSync } from 'node:zlib';
 import { createBiliSession, signWbi, type BiliSession } from '../core/platforms/bilibili/biliApi';
+import { biliImageUrl } from './biliProfile';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const TIMEOUT_MS = 10_000;
@@ -33,6 +34,8 @@ export interface VideoHit {
   desc?: string;
   tags?: string[];
   category?: string;
+  /** 封面图（B 站图床）：游戏里的 picture 能拿它做像素画 */
+  cover?: string;
 }
 
 export interface VideoSearch {
@@ -201,6 +204,7 @@ export class BiliVideos {
       ...(clean(v.description) && clean(v.description) !== '-' ? { desc: clean(v.description, 60) } : {}),
       tags: String(v.tag ?? '').split(',').map((t) => clean(t, 16)).filter(Boolean).slice(0, 6),
       ...(v.typename ? { category: clean(v.typename, 12) } : {}),
+      ...(biliImageUrl(v.pic) ? { cover: biliImageUrl(v.pic) } : {}),
     }));
     return { hits };
   }
@@ -230,6 +234,7 @@ export class BiliVideos {
       durationSec: Number(v.duration) || 0,
       views: Number(v.stat?.view) || 0,
       ...(v.pubdate ? { pubdate: Number(v.pubdate) } : {}),
+      ...(biliImageUrl(v.pic) ? { cover: biliImageUrl(v.pic) } : {}),
     }));
     return { hits, up: { mid, name, others } };
   }
@@ -374,6 +379,7 @@ export function searchText(query: string, result: VideoSearch, options: { up?: s
     lines.push(`${i + 1}. ${v.bvid}「${v.title}」${meta}`);
     const more = [v.category ? `分区 ${v.category}` : '', v.tags?.length ? `标签 ${v.tags.join('、')}` : '', v.desc ? `简介 ${v.desc}` : ''].filter(Boolean).join('；');
     if (more) lines.push(`   ${more}`);
+    if (v.cover) lines.push(`   封面 ${v.cover}`);
   });
   lines.push('', '没有想要的：换个说法再搜；up 填 UP 主名字只搜他的投稿；order 换 newest（最新）或 views（播放最多）；page 翻页。');
   return lines.join('\n');

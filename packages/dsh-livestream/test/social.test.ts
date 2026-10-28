@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SocialError, plain } from '../src/body/biliSocial';
+import { SocialError, dmText, plain } from '../src/body/biliSocial';
 import { COMMENT_GAP_MS, FAVORITE_FOLDER, SocialManager, type SocialApi } from '../src/body/social';
 
 function fakeApi(over: Partial<SocialApi> = {}): SocialApi & { posted: Array<unknown[]>; calls: string[] } {
@@ -153,5 +153,14 @@ describe('account', () => {
   it('tells her plainly when Bilibili says no', async () => {
     const social = new SocialManager(fakeApi({ coin: async () => { throw new SocialError(34005, '超过投币上限'); } }));
     expect(await social.coin(42, '猫猫', 1, false)).toContain('投满了');
+  });
+});
+
+describe('dm text', () => {
+  it('gives an image dm its bilibili image url so the game can draw it', () => {
+    const url = 'https://i0.hdslb.com/bfs/im/4f1c2d.png';
+    expect(dmText(2, JSON.stringify({ url, width: 640, height: 640 }))).toBe(`[图片] ${url}`);
+    expect(dmText(2, JSON.stringify({ url: 'https://evil.example.com/x.png' }))).toBe('[图片]');
+    expect(dmText(1, JSON.stringify({ content: '你好' }))).toBe('你好');
   });
 });

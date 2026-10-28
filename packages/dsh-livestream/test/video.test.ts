@@ -31,6 +31,10 @@ describe('search text', () => {
     expect(text).toContain('标签 搞笑、校园');
     expect(text).toContain('page 翻页');
   });
+  it('gives each hit its cover image so she can draw it in the game', () => {
+    const cover = 'https://i2.hdslb.com/bfs/archive/03ecacd5d373baf82d2b32246d17b02d0479a016.jpg';
+    expect(searchText('熊本熊', { hits: [{ ...hit, cover }] }, {})).toContain(`封面 ${cover}`);
+  });
   it('names the uploader it searched and the look-alikes', () => {
     const text = searchText('', { hits: [hit], up: { mid: '546195', name: '老番茄', others: [{ mid: '609013982', name: 'PPOMO老番茄' }] } }, { up: '老番茄' });
     expect(text).toContain('在 老番茄（UID 546195）的投稿里找最新的');
