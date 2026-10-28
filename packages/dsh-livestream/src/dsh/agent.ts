@@ -16,6 +16,7 @@ import { clock, infoText, searchText, subtitleText, type Subtitles, type VideoIn
 import { VideoNotes } from '../body/watchAlong';
 import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
+import { orderTags } from '../core/orders';
 import { ttsYuan, turnYuan } from '../core/cost';
 import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
@@ -113,7 +114,12 @@ function watchSession(ctx: AgentContext, sessionId: string, line: 'live' | 'game
       const key = `${sessionId}:${event.seq}`;
       if (voiced.has(key)) continue;
       voiced.add(key);
-      const words = wordsOf(event);
+      let words = wordsOf(event);
+      if (line === 'game') {
+        const tagged = orderTags(words);
+        if (tagged.marks.length) show.markOrders(tagged.marks);
+        words = tagged.text;
+      }
       if (!words) continue;
       // 直播线把这件事交给了游戏线（game_side）：这条不念，由游戏里的她点名回观众
       if (line === 'live' && (event?.data?.message?.content ?? []).some((p: any) => p?.type === 'tool-call' && p.name === 'game_side')) {
@@ -798,13 +804,14 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
     description: '观众或主人想让你在游戏里做什么、或者你要答应游戏里的事：写下怎么做，交给游戏里的你。他们的原话会一起交过去，由游戏里的你点名回他、再去做；调这个工具的那条消息里你写的话不会念出来。',
     parameters: {
       message: { type: 'string', required: true, description: '游戏里接下来怎么做，比如「开 Minecraft 接着玩，目标一身钻石装备」「天黑了，先挖洞躲起来」' },
+      who: { type: 'string', description: '这是哪位观众点的单（名字，几位用顿号隔开）：记进点单队列、观众在点单栏里看得到；这件事里只有一位观众时可以不填' },
     },
     output: stringOut,
     async execute(args) {
       const message = typeof args.message === 'string' ? args.message.trim() : '';
       if (!message) return '没写接下来怎么玩。';
       show.toolCall('game_side', message.slice(0, 40));
-      if (!show.toGameLine(message)) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
+      if (!show.toGameLine(message, typeof args.who === 'string' ? args.who : '')) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
       return '交过去了：游戏里的你会回他、去做。';
     },
   })), 'game_side tool');

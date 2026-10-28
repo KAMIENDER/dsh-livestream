@@ -3,7 +3,7 @@
  * 唯一往回发的是「这句念完了」（出声的页面才发；预览页静音、不回执）。
  */
 
-import type { BrainState, CharacterManifest, GameSource, GameStatus, StageEvent, StageLiveEvent, StageUser, TemplateManifest } from './protocol';
+import type { BrainState, CharacterManifest, GameSource, GameStatus, StageEvent, StageLiveEvent, StageOrder, StageUser, TemplateManifest } from './protocol';
 import { type FxEvent, giftTier, pick, triggersOf } from './triggers';
 
 export interface ChatRow {
@@ -138,6 +138,8 @@ export interface StageState {
   media: Media | null;
   /** 告示板上写的（空串不显示） */
   board: string;
+  /** 点单栏（玩游戏的布局里放在告示板的位置） */
+  orders: StageOrder[];
   /** 滚动通知（画面最底下），空串不显示 */
   notice: string;
   /** 她在直播里玩的游戏的画面来源：舞台换成 game 布局 */
@@ -205,7 +207,7 @@ function startUpdating(): void {
 let state: StageState = {
   connected: false, character: null, template: null, brain: 'off', brainDetail: '', line: null, lineEndedAt: 0,
   chats: [], alerts: [], focus: new Set(), reply: [], replySeq: 0, onAir: false, needsClick: false,
-  phase: wasUpdating() ? 'updating' : 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', notice: '', game: null, gameStatus: null, fx: [], reaction: null,
+  phase: wasUpdating() ? 'updating' : 'waiting', stats: freshStats(), tokens: 0, model: '', term: [], media: null, board: '', orders: [], notice: '', game: null, gameStatus: null, fx: [], reaction: null,
 };
 const subscribers = new Set<() => void>();
 
@@ -524,6 +526,7 @@ function handle(event: StageEvent): void {
       return update((s) => (s.media?.id === event.id ? { ...s, media: null } : s));
     case 'reload': location.reload(); return;
     case 'board': return update((s) => ({ ...s, board: event.text }));
+    case 'orders': return update((s) => ({ ...s, orders: event.items }));
     case 'notice': return update((s) => ({ ...s, notice: event.text }));
     case 'game': return update((s) => ({ ...s, game: event.source, ...(event.source ? {} : { gameStatus: null }) }));
     case 'gameStatus': return update((s) => ({ ...s, gameStatus: event.status }));

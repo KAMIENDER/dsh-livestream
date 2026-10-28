@@ -9,7 +9,7 @@ import { arrange, type Mode, type Slot } from './layout';
 import type { WidgetType } from './protocol';
 import { assetUrl, connect, preview, unlockAudio } from './store';
 import { Effects } from './effects';
-import { AiLabel, Alerts, Board, Character, Chat, Game, Notice, Reply, Rice, Scene, Status, Subtitle, SUBTITLE_LINGER_MS, Terminal, useLinger, useStage, Video } from './widgets';
+import { AiLabel, Alerts, Board, Character, Chat, Game, Notice, Orders, Reply, Rice, Scene, Status, Subtitle, SUBTITLE_LINGER_MS, Terminal, useLinger, useStage, Video } from './widgets';
 
 const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string, unknown> }>> = {
   character: Character,
@@ -26,6 +26,7 @@ const WIDGETS: Record<WidgetType, React.ComponentType<{ options?: Record<string,
   video: Video,
   board: Board,
   game: Game,
+  orders: Orders,
 };
 
 function useViewport(): { width: number; height: number } {

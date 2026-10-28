@@ -19,6 +19,7 @@ import type { LiveEvent, LiveStatus, LiveUser } from '../core/live';
 import { distillStream, type DistillLlm } from '../core/memory/distill';
 import { LiveMemory } from '../core/memory/memory';
 import { LiveMemoryStore } from '../core/memory/store';
+import { OrderBook, type OrderBookData, type OrderState } from '../core/orders';
 import { cleanName, cleanText } from '../core/safety';
 import { speakable } from '../core/speakable';
 import { topicText } from '../core/topicText';
@@ -71,6 +72,8 @@ export interface LiveSnapshot {
   playing?: boolean;
   /** 游戏线：专门玩游戏的那个会话（和直播线同时跑，见 docs/game-line.md） */
   gameSessionId?: string;
+  /** 点单队列（插件重启后接着排） */
+  orders?: OrderBookData;
 }
 
 export interface ShowOptions {
@@ -205,6 +208,8 @@ export class LiveShow {
   private queuedGame = 0;
   /** 直播线正在回的那件事（交给游戏线时附上里面观众、主人的原话） */
   private lastTopic: Topic | null = null;
+  /** 点单队列：只有这一份（见 core/orders） */
+  private orders = new OrderBook();
   /** 游戏线最近一个时刻的全文（直播线用 game_state 查） */
   private gameMomentFull = '';
   /** 她这一轮还在进行（推了一件事、或者主人在会话里直接跟她说话） */
@@ -352,6 +357,8 @@ export class LiveShow {
     this.priority = [{ kind: 'opening' }];
     this.inbox = [];
     this.lines = [];
+    this.orders = new OrderBook();
+    this.publishOrders(false);
     this.herLines = [];
     this.openLog();
     this.setBrain('listening');
@@ -381,6 +388,8 @@ export class LiveShow {
     if (snapshot.streamId !== null) this.memory.resume(snapshot.streamId);
     this.liveSince = snapshot.startedAt ?? snapshot.at;
     this.spoken = snapshot.spokenChars ?? 0;
+    this.orders = new OrderBook(snapshot.orders);
+    this.publishOrders(false);
     this.priority = [{ kind: 'resumed', gapSec: Math.max(1, Math.round((now - snapshot.at) / 1000)), ...(playing ? { playing: true } : {}) }];
     this.inbox = [];
     this.logFile = snapshot.logFile;
@@ -406,7 +415,7 @@ export class LiveShow {
   private persistLive(now = Date.now()): void {
     if (!this.onAir || !this.brainSession) return;
     this.persistedAt = now;
-    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.gameOn || this.resumingGame ? { playing: true } : {}), ...(this.gameSession ? { gameSessionId: this.gameSession } : {}) });
+    this.hooks.persist?.({ sessionId: this.brainSession, roomId: this.roomId, streamId: this.memoryStream ? this.memory.currentStream : null, logFile: this.logFile, at: now, startedAt: this.liveSince, spokenChars: this.spoken, ...(this.gameOn || this.resumingGame ? { playing: true } : {}), ...(this.gameSession ? { gameSessionId: this.gameSession } : {}), ...(this.orders.open().length || this.orders.shown().length ? { orders: this.orders.toJSON() } : {}) });
   }
 
   private liveSince = 0;
@@ -467,16 +476,51 @@ export class LiveShow {
   }
 
   /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
-  toGameLine(text: string): boolean {
+  toGameLine(text: string, who = '', now = Date.now()): boolean {
     if (!this.onAir || !this.gameSession || !text.trim()) return false;
     // 直播线交接的那条消息不念：由游戏里的她点名回观众（原话由程序附上，不靠直播线转述），再去做
     const said = originalWords(this.lastTopic);
+    // 观众点的单：按原话记进点单队列（同一个人同一句只记一次）
+    const made = this.ordersFrom(who, now);
     this.gameMail.push([
       ...(said ? ['直播间里的原话：', said] : []),
       `你在直播间定下：${text.trim()}`,
+      ...(made.length ? [`记进了点单队列：${made.map((o) => `#${o.id} ${o.who}`).join('、')}。开始做、做完、不做时，在那句话前面写 [开工#单号]、[完成#单号]、[不做#单号]（不念出来，观众在点单栏里看得到）。`] : []),
       said ? '你还没回他：在这里用一句话点名回他，再去做。' : '去做就行，边做边说你在做什么。',
     ].join('\n'));
+    if (made.length) this.publishOrders();
     return true;
+  }
+
+  /** 这次交给游戏线的事是谁点的单：直播线写了名字就按名字找，没写、这件事里又只有一位观众就是他 */
+  private ordersFrom(who: string, now: number) {
+    const picks = this.lastTopic?.kind === 'chat' ? this.lastTopic.picks : [];
+    const names = who.split(/[、,，\s]+/).map((n) => n.trim()).filter(Boolean);
+    const chosen = names.length
+      ? picks.filter((p) => names.some((n) => p.event.user.name === n || p.event.user.name.includes(n) || n.includes(p.event.user.name)))
+      : picks.length === 1 ? picks : [];
+    return chosen.map((p) => this.orders.findOpen(p.event.user.id, p.text) ?? this.orders.add(cleanName(p.event.user.name), cleanText(p.text), now, p.event.user.id || undefined));
+  }
+
+  /** 游戏线说的话里写了单子标记：改状态 */
+  markOrders(marks: Array<{ id: number; state: OrderState }>, now = Date.now()): void {
+    let changed = false;
+    for (const m of marks) changed = this.orders.mark(m.id, m.state, now) || changed;
+    if (changed) this.publishOrders();
+  }
+
+  /** 主人在控制台改点单：改一单的状态，或者清空 */
+  ownerOrders(action: { id?: number; state?: OrderState; clear?: boolean }, now = Date.now()): boolean {
+    if (action.clear) this.orders.clear();
+    else if (!action.id || !action.state || !this.orders.mark(action.id, action.state, now)) return false;
+    this.publishOrders();
+    return true;
+  }
+
+  /** 舞台上的点单栏跟着队列走；改了就存一下（插件重启后接着排） */
+  private publishOrders(persist = true): void {
+    this.stage.broadcast({ type: 'orders', items: this.orders.shown().map(({ id, who, text, state }) => ({ id, who, text, state })) });
+    if (persist) this.persistLive();
   }
 
   /** 直播线交给游戏线回的那条消息：不念，只记在直播记录里 */
@@ -653,6 +697,7 @@ export class LiveShow {
         : this.resumingGame && !this.gameOn ? GAME_RESTARTING
         : this.gameOn ? `${this.gameNow ? `（${Math.max(1, Math.round((now - this.gameMomentAt) / 1000))} 秒前）${this.gameNow}` : '刚开，还没有消息'}` : undefined,
       gameOff: !!this.gameSession && !this.gameOn && !this.resumingGame && topic.kind === 'owner',
+      orders: this.gameSession ? this.orders.summary() || undefined : undefined,
     });
     this.pushing = true;
     this.setBrain('thinking', topicLabel(topic));

@@ -330,6 +330,24 @@ html, body {
 .ls-board-dots i { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--ls-accent) 25%, transparent); transition: background .3s, width .3s; }
 .ls-board-dots i.ls-on { width: 20px; border-radius: 4px; background: var(--ls-accent); }
 
+/* ── 点单栏：玩游戏的布局里放在告示板的位置；一单两行：点了什么，谁点的、做到哪了 ── */
+.ls-orders ol { list-style: none; margin: 0; padding: 2px 22px 14px; display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.ls-orders li { display: flex; flex-direction: column; min-width: 0; }
+.ls-orders li > span {
+  font-size: 28px; font-weight: 800; line-height: 1.15; color: var(--ls-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ls-orders li small { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 22px; line-height: 1.3; }
+.ls-orders li small b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ls-accent); font-weight: 700; }
+.ls-orders li small em {
+  flex: none; font-style: normal; font-weight: 700; padding: 0 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ls-accent-2) 18%, transparent); color: var(--ls-accent-2);
+}
+.ls-orders li[data-state='doing'] small em { background: var(--ls-accent); color: #fff; }
+.ls-orders li[data-state='done'] { opacity: .55; }
+.ls-orders li[data-state='done'] small em { background: transparent; color: var(--ls-text); }
+.ls-orders-empty { padding: 10px 26px; font-size: 30px; font-weight: 700; line-height: 1.35; color: var(--ls-text); }
+
 /* ── 弹幕：一整块面板，里面是聊天气泡 ── */
 .ls-chat {
   height: 100%; box-sizing: border-box; display: flex; flex-direction: column;

@@ -104,7 +104,15 @@ export type EffectSpec = string | { name: string; ms?: number; [option: string]:
  * game：她在玩的游戏的画面位（她在直播里玩游戏时才有）：网页画面直接放这里；游戏窗口由 OBS 抓来叠在这一块上
  * effects：整屏特效层：进场、礼物、上舰时放的彩带、横幅……（放在画布 0,0，宽高和画布一样，排在 scene 前面）
  */
-export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects' | 'board' | 'game';
+export type WidgetType = 'character' | 'subtitle' | 'chat' | 'alerts' | 'status' | 'ai-label' | 'reply' | 'rice' | 'terminal' | 'scene' | 'video' | 'effects' | 'board' | 'game' | 'orders';
+
+/** 点单栏的一行（见 core/orders） */
+export interface StageOrder {
+  id: number;
+  who: string;
+  text: string;
+  state: 'queued' | 'doing' | 'done' | 'dropped';
+}
 
 /**
  * 游戏画面从哪来（dsh-game 给的，见 docs/game-live-contract.md）：
@@ -170,6 +178,7 @@ export type StageEvent =
   | { v: 1; type: 'note'; tag: string; text: string; at: number }
   /** 告示板：主人想让观众知道的（空行分页，每页第一行是标题）；空串不显示 */
   | { v: 1; type: 'board'; text: string; at: number }
+  | { v: 1; type: 'orders'; items: StageOrder[]; at: number }
   /** 滚动通知（主人在控制台写的，出状况时告诉观众）；空串收起 */
   | { v: 1; type: 'notice'; text: string; at: number }
   /** isUpdate：同 id 再来一次（礼物连击累加） */

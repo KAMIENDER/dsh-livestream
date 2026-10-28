@@ -28,6 +28,8 @@ export interface TopicContext {
   gameNow?: string;
   /** 有游戏线、但游戏现在没开（主人的话里常常是「开游戏」：她得知道现在没在玩） */
   gameOff?: boolean;
+  /** 点单队列一行（有游戏线、有没做完的单时） */
+  orders?: string;
 }
 
 /** 玩游戏时回直播间的事最多说多少字（一句 5～6 秒） */
@@ -219,7 +221,7 @@ export function topicText(topic: Topic, ctx: TopicContext): string {
   const maxChars = ctx.inGame && !['opening', 'ending', 'game'].includes(topic.kind) ? Math.min(b.maxChars, IN_GAME_MAX_CHARS) : b.maxChars;
   const playing = ctx.inGame && maxChars < b.maxChars ? '你正在玩游戏，' : '';
   const game = ctx.gameNow
-    ? ['', `你在游戏里：${ctx.gameNow}`, '直播间这边看不到游戏画面：没写的就是不知道（要细节用 game_state 查）；刚交代、上面还没出现的事，就是还没做成。']
+    ? ['', `你在游戏里：${ctx.gameNow}`, ...(ctx.orders ? [ctx.orders] : []), '直播间这边看不到游戏画面：没写的就是不知道（要细节用 game_state 查）；刚交代、上面还没出现的事，就是还没做成。']
     : ctx.gameOff ? ['', '游戏现在没开。'] : [];
   return [...(head ? [head, ''] : []), ...b.what, ...game, '', `${playing}${b.how}不超过 ${maxChars} 字。`].join('\n');
 }

@@ -314,3 +314,79 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 });
+
+describe('order queue: viewers\' requests the game line works through', () => {
+  afterEach(() => vi.useRealTimers());
+
+  function start(saved?: Parameters<LiveShow['resumeLive']>[0]) {
+    vi.useFakeTimers();
+    const pushed: { session: string; text: string }[] = [];
+    const snaps: Array<Parameters<LiveShow['resumeLive']>[0]> = [];
+    const show = new LiveShow(
+      { push: async (session, text) => { pushed.push({ session, text }); return true; }, synthesize: async () => null, persist: (s) => { snaps.push(s); } },
+      { dataDir: mkdtempSync(join(tmpdir(), 'dsh-orders-')), names: ['大肥鱼'] },
+    );
+    const shown: unknown[] = [];
+    const broadcast = show.stage.broadcast.bind(show.stage);
+    show.stage.broadcast = (e: any) => { if (e.type === 'orders') shown.push(e.items); broadcast(e); };
+    if (saved) show.resumeLive(saved); else show.goLive('live', 'game');
+    const to = (session: string) => pushed.filter((p) => p.session === session).map((p) => p.text);
+    return { show, to, shown, snaps };
+  }
+
+  it('queues the one viewer a hand-off is for, numbers it for the game line, and follows its tags', async () => {
+    const { show, to, shown, snaps } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    show.toGameLine('开 Minecraft');
+    show.setGameNow('主世界 (1, 64, 2)', true);
+    show.inject(chat('1', '画我的头像'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    show.toGameLine('把观众1的头像画成像素墙');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(to('game').at(-1)).toContain('记进了点单队列：#1 观众1');
+    expect(shown.at(-1)).toEqual([{ id: 1, who: '观众1', text: '画我的头像', state: 'queued' }]);
+    // 同一件事交两次：不重复记
+    show.toGameLine('头像画大一点');
+    expect((shown.at(-1) as unknown[]).length).toBe(1);
+    show.markOrders([{ id: 1, state: 'doing' }]);
+    expect((shown.at(-1) as any[])[0].state).toBe('doing');
+    show.markOrders([{ id: 1, state: 'done' }]);
+    expect((shown.at(-1) as any[])[0].state).toBe('done');
+    expect(snaps.at(-1)?.orders?.items[0].state).toBe('done');
+    show.dispose();
+  });
+
+  it('with several viewers in one batch, queues only the ones the live line names', async () => {
+    const { show, shown } = start();
+    await vi.advanceTimersByTimeAsync(500);
+    show.turnEnded('live');
+    show.toGameLine('开 Minecraft');
+    show.setGameNow('主世界 (1, 64, 2)', true);
+    show.inject(chat('1', '晚上好'));
+    show.inject(chat('2', '盖个光棱塔'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    show.toGameLine('盖光棱塔', '观众2');
+    expect(shown.at(-1)).toEqual([{ id: 1, who: '观众2', text: '盖个光棱塔', state: 'queued' }]);
+    // 没写是谁的、这件事里又有好几位：不乱记
+    show.toGameLine('大家都欢迎');
+    expect((shown.at(-1) as unknown[]).length).toBe(1);
+    show.dispose();
+  });
+
+  it('keeps the queue across a plugin restart', async () => {
+    const first = start();
+    await vi.advanceTimersByTimeAsync(500);
+    first.show.turnEnded('live');
+    first.show.toGameLine('开 Minecraft');
+    first.show.setGameNow('主世界 (1, 64, 2)', true);
+    first.show.inject(chat('1', '画我的头像'));
+    await vi.advanceTimersByTimeAsync(3_000);
+    first.show.toGameLine('画头像');
+    const snap = first.snaps.at(-1)!;
+    first.show.dispose();
+    const again = start(snap);
+    expect(again.shown.at(-1)).toEqual([{ id: 1, who: '观众1', text: '画我的头像', state: 'queued' }]);
+    again.show.dispose();
+  });
+});

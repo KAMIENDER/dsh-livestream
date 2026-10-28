@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { CharacterManifest, StageLiveEvent, StageUser } from './protocol';
+import type { CharacterManifest, StageLiveEvent, StageOrder, StageUser } from './protocol';
 import { assetUrl, dropAlert, energy, riceOf, getState, litChars, mediaUrl, preview, reportMedia, subscribe, type Alert, type ReplyItem, type StageState } from './store';
 import { giftTier } from './triggers';
 
@@ -541,6 +541,32 @@ export function Board({ options }: { options?: Record<string, unknown> }) {
         <ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul>
       </div>
       {pages.length > 1 && <div className="ls-board-dots">{pages.map((_, i) => <i key={i} className={i === page % pages.length ? 'ls-on' : ''} />)}</div>}
+    </div>
+  );
+}
+
+// ── 点单栏 ───────────────────────────────────────────
+
+const ORDER_MARK: Record<StageOrder['state'], string> = { doing: '在做', queued: '排队', done: '做好了', dropped: '不做了' };
+
+/** 观众点的单：在做的、排着的，加最近做好的两条；没有单时教大家怎么点 */
+export function Orders({ options }: { options?: Record<string, unknown> }) {
+  const { orders } = useStage();
+  const title = String(options?.title ?? '点单');
+  const how = String(options?.how ?? '弹幕说「盖个……」「画我的头像」就排上');
+  return (
+    <div className="ls-board ls-orders">
+      <div className="ls-board-head"><span>{title}</span></div>
+      {orders.length ? (
+        <ol>
+          {orders.map((o) => (
+            <li key={o.id} data-state={o.state}>
+              <span>{o.text}</span>
+              <small><b>{o.who}</b><em>{ORDER_MARK[o.state]}</em></small>
+            </li>
+          ))}
+        </ol>
+      ) : <div className="ls-orders-empty">{how}</div>}
     </div>
   );
 }

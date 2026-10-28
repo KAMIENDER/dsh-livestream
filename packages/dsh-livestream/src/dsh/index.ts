@@ -325,6 +325,13 @@ export function apply(ctx: HostContext): void {
     }
   }, 'login poll');
 
+  // 点单队列：主人改一单的状态（{ id, state: queued|doing|done|dropped }），或者清空（{ clear: true }）
+  route('/api/dsh-livestream/orders', ['POST'], async (request) => {
+    const { id, state: to, clear } = await body<{ id?: number; state?: string; clear?: boolean }>(request);
+    const ok = (['queued', 'doing', 'done', 'dropped'] as const).find((s) => s === to);
+    return show.ownerOrders({ id: Number(id) || undefined, state: ok, clear: !!clear }) ? json(state()) : fail('没有这一单，或者状态不对');
+  }, 'orders');
+
   route('/api/dsh-livestream/owner', ['POST'], async (request) => {
     const { text, who, line } = await body<{ text?: string; who?: string; line?: string }>(request);
     if (!text?.trim()) return fail('说点什么');
