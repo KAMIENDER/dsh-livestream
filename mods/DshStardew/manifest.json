@@ -1,0 +1,10 @@
+{
+  "Name": "DSH Stardew Extension",
+  "Author": "KAMIENDER",
+  "Version": "0.3.0",
+  "Description": "Local observation, native controls and bounded realtime controllers for DSH.",
+  "UniqueID": "KAMIENDER.DshStardew",
+  "EntryDll": "DshStardew.dll",
+  "MinimumApiVersion": "4.5.2",
+  "UpdateKeys": []
+}

@@ -30,6 +30,7 @@ import type { CharacterManifest, GameSource } from '../stage/protocol';
 import { gameRect } from '../stage/layout';
 import { connectObs, showGameSources } from '../body/obs';
 import type { OwnerPace } from '../core/attention/attention';
+import { LiveAccess } from '../core/access';
 
 export interface Settings {
   roomId: number | null;
@@ -45,6 +46,8 @@ export interface Settings {
   idleAfterSec: number;
   /** 她在玩游戏时，弹幕至少隔多少秒推给她一次（越大回得越少、玩得越多） */
   gameChatGapSec: number;
+  /** 下次开播创建游戏会话时使用的预设 */
+  gamePreset: 'dsh-livestream-game' | 'dsh-stardew';
   /** 主人说是自己的直播间（记住常来的观众）；别的房间只旁观、不建档 */
   ownRooms: number[];
   /** 开播时真的推流到 B 站（默认关：只在本地彩排） */
@@ -129,6 +132,7 @@ export const SECRETS = {
 export const PRESET_ID = 'dsh-livestream';
 
 export const dataDir = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-livestream');
+export const access = new LiveAccess(join(dataDir, 'access'));
 
 /** 插件包目录（构建产物在 lib/ 或 lib/chunks/，往上找 package.json） */
 export function packageDir(): string {
@@ -160,6 +164,7 @@ function loadSettings(): Settings {
     distillModel: 'deepseek-official/deepseek-flash',
     idleAfterSec: 45,
     gameChatGapSec: 15,
+    gamePreset: 'dsh-livestream-game',
     ownRooms: [],
     broadcast: false,
     areaId: null,
@@ -203,12 +208,14 @@ export const hooks: {
   push: (sessionId: string, text: string, now?: boolean) => Promise<boolean>;
   complete: ((model: string, system: string, user: string) => Promise<string>) | null;
   log: (level: 'info' | 'warn', message: string) => void;
+  onViewerForget: (uid: string) => boolean;
 } = {
   secret: async (name) => process.env[name] ?? '',
   setSecret: async () => { throw new Error('这个 DSH 没有凭据服务，存不了'); },
   push: async () => false,
   complete: null,
   log: (level, message) => (level === 'warn' ? console.warn : console.log)(`[dsh-livestream] ${message}`),
+  onViewerForget: () => false,
 };
 
 async function ttsAuth(voice: string): Promise<TtsAuth | null> {
@@ -255,6 +262,7 @@ export const show = new LiveShow(
     log: (level, message) => hooks.log(level, message),
     persist: (snapshot) => saveLive(snapshot),
     onGame: (source) => placeGame(source),
+    onViewerForget: (uid) => hooks.onViewerForget(uid),
   },
   { dataDir, names: currentCharacter()?.names ?? [], idleAfterMs: () => settings.idleAfterSec * 1000, pace: () => ownerPace(settings.pace), board: () => settings.boardText, title: () => settings.liveTitle, gameChatGapMs: () => (settings.gameChatGapSec ?? 15) * 1000, blocked: (uid) => settings.blocked.some((b) => b.uid === uid) },
 );
@@ -394,12 +402,8 @@ export function takeLive(): (LiveSnapshot & { broadcasting: boolean }) | null {
 /** 她点赞、看评论、发评论、看收件箱（开播账号） */
 export const social = new SocialManager(new BiliSocial(cookie));
 
-/** 直播时每隔一会儿看一眼收件箱：开播以后新来的私信、回复、@，没别的事时告诉她 */
-const INBOX_EVERY_MS = 90_000;
-setInterval(() => {
-  if (!show.isOnAir) return;
-  void social.newSince().then((lines) => { if (lines.length) show.notifyInbox(lines); }).catch(() => {});
-}, INBOX_EVERY_MS).unref?.();
+// Private inboxes are never polled into a public model automatically. A tool guard
+// cannot protect privacy if a background callback bypasses the registry and injects DM text.
 
 /** 她搜视频、看视频、在舞台上放视频（开播账号的 Cookie：AI 字幕要登录才给） */
 export const videos = new BiliVideos(cookie);

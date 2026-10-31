@@ -53,6 +53,8 @@ export interface ShowHooks {
   persist?(snapshot: LiveSnapshot | null): void;
   /** 游戏画面上舞台、撤下（OBS 抓游戏窗口、叠 HUD） */
   onGame?(source: GameSource | null): void;
+  /** Actual platform self-forget, propagated to optional character storage; true only if persisted. */
+  onViewerForget?(uid: string): boolean;
 }
 
 /** 正在播的一场：插件重启后接着播要的东西 */
@@ -146,14 +148,6 @@ const GAME_WELCOME_GAP_MS = 90_000;
 const GAME_CHAT_PICKS = 3;
 /** 游戏线这么久没有游戏里的时刻，就当游戏没在玩了（不再叫她） */
 const GAME_MOMENT_FRESH_MS = 5 * 60_000;
-/** 一件事里观众、主人的原话（交给游戏线时附上）；不是弹幕和主人的话返回 '' */
-function originalWords(topic: Topic | null): string {
-  if (!topic) return '';
-  if (topic.kind === 'chat') return topic.picks.map((p) => `${p.event.user.name}：${p.text}`).join('\n');
-  if (topic.kind === 'owner') return `${topic.who ?? '主人'}：${topic.text}`;
-  return '';
-}
-
 /** 插件重启、游戏线还在把游戏开回来时，给直播线看的游戏情况 */
 const GAME_RESTARTING = '插件刚重启了一下，游戏也跟着断了，正在重新开（还没回到游戏里）';
 const GAME_LINE_RESUMED = '直播插件刚重启了一下，游戏那局也跟着断了：用 game_start 重新开，存档还在，接着玩。';
@@ -194,8 +188,9 @@ export class LiveShow {
   private gameTurnRunning = false;
   private gameTurnEndedAt = 0;
   private gamePushing = false;
-  /** 要交给游戏线的话（直播线定下的事、续播），导演一条一条送 */
+  /** 要交给游戏线的话（主人控制台选中的目标、续播），导演一条一条送 */
   private gameMail: string[] = [];
+  private viewerForgetSynced = new Set<string>();
   /** 游戏那边现在怎样（游戏线最近一个时刻的进度和身体在干什么）：写进给直播线的每件事里 */
   private gameNow = '';
   /**
@@ -209,7 +204,7 @@ export class LiveShow {
   private gameMomentAt = 0;
   /** 嘴里排着的话里有几句是游戏线的（直播线推下一件事时不等这些） */
   private queuedGame = 0;
-  /** 直播线正在回的那件事（交给游戏线时附上里面观众、主人的原话） */
+  /** 直播线正在回的那件事 */
   private lastTopic: Topic | null = null;
   /** 点单队列：只有这一份（见 core/orders） */
   private orders = new OrderBook();
@@ -299,11 +294,26 @@ export class LiveShow {
   }
 
   private observe(event: LiveEvent, isUpdate: boolean): void {
-    if (this.isBlocked(event.user.id)) return;
     const now = Date.now();
+    const uid = event.user.id;
+    const realViewer = !uid.startsWith(SIMULATED_PREFIX) && !event.user.masked && /^\d{1,20}$/.test(uid) && uid !== '0';
+    // Self-forget is a privacy operation, not permission to control the game. It must work
+    // for blocked viewers and when ordinary audience recording is switched off too.
+    let forgot = false;
+    if (realViewer) {
+      try { forgot = this.memory.forgetFrom(event, isUpdate, now); }
+      catch { forgot = true; this.hooks.log?.('warn', '观众遗忘写入失败，当前进程仍阻止对该UID建立或检索记忆。'); }
+    }
+    if (realViewer && event.platform === 'bilibili' && this.optedOut(uid) && !this.viewerForgetSynced.has(uid)) {
+      try { if (this.hooks.onViewerForget?.(uid)) this.viewerForgetSynced.add(uid); }
+      catch { this.hooks.log?.('warn', '观众遗忘尚未同步到人物记忆；该UID的模型检索仍被拒绝。'); }
+    }
+    if (this.isBlocked(uid)) return;
     this.attention.observe(event, isUpdate, now);
     // 只记自己直播间的观众（主人在控制台勾了的）；模拟观众（控制台彩排）不记
-    if (this.onAir && this.memoryStream && !event.user.id.startsWith(SIMULATED_PREFIX)) this.memory.observe(event, isUpdate, now);
+    if (!forgot && this.onAir && this.memoryStream && !event.user.id.startsWith(SIMULATED_PREFIX)) {
+      this.memory.observe(event, isUpdate, now);
+    }
     const shown = toStage(event);
     if (shown) this.stage.broadcast({ type: 'live', event: shown, isUpdate });
     if (this.onAir) this.recordViewer(event, isUpdate);
@@ -474,35 +484,15 @@ export class LiveShow {
   ownerSay(text: string, who?: string): void {
     const said = text.trim();
     if (!said) return;
-    // 主人的话只给直播线（回一次）；里面要游戏里做的事，她用 game_side 定下来
+    // 此入口只给直播线；游戏目标由主人控制台单独选中，game_side只提交待审建议。
     this.priority.push({ kind: 'owner', text: said, ...(who?.trim() ? { who: who.trim() } : {}) });
   }
 
-  /** 直播线把话交给游戏线（开游戏、观众给游戏出的主意、让它收手）；没开游戏线返回 false */
-  toGameLine(text: string, who = '', now = Date.now()): boolean {
-    if (!this.onAir || !this.gameSession || !text.trim()) return false;
-    // 直播线交接的那条消息不念：由游戏里的她点名回观众（原话由程序附上，不靠直播线转述），再去做
-    const said = originalWords(this.lastTopic);
-    // 观众点的单：按原话记进点单队列（同一个人同一句只记一次）
-    const made = this.ordersFrom(who, now);
-    this.gameMail.push([
-      ...(said ? ['直播间里的原话：', said] : []),
-      `你在直播间定下：${text.trim()}`,
-      ...(made.length ? [`记进了点单队列：${made.map((o) => `#${o.id} ${o.who}`).join('、')}。开始做、做完、不做时，在那句话前面写 [开工#单号]、[完成#单号]、[不做#单号]（不念出来，观众在点单栏里看得到）。`] : []),
-      said ? '你还没回他：在这里用一句话点名回他，再去做。' : '去做就行，边做边说你在做什么。',
-    ].join('\n'));
-    if (made.length) this.publishOrders();
-    return true;
-  }
-
-  /** 这次交给游戏线的事是谁点的单：直播线写了名字就按名字找，没写、这件事里又只有一位观众就是他 */
-  private ordersFrom(who: string, now: number) {
-    const picks = this.lastTopic?.kind === 'chat' ? this.lastTopic.picks : [];
-    const names = who.split(/[、,，\s]+/).map((n) => n.trim()).filter(Boolean);
-    const chosen = names.length
-      ? picks.filter((p) => names.some((n) => p.event.user.name === n || p.event.user.name.includes(n) || n.includes(p.event.user.name)))
-      : picks.length === 1 ? picks : [];
-    return chosen.map((p) => this.orders.findOpen(p.event.user.id, p.text) ?? this.orders.add(cleanName(p.event.user.name), cleanText(p.text), now, p.event.user.id || undefined));
+  /** Compatibility boundary: model-originated handoffs never carry owner authority. */
+  toGameLine(_text: string, _who = '', _now = Date.now()): boolean {
+    // A model reading public chat must not become a command bridge to the game controller.
+    // Reviewed owner requests use ownerToGame; audience suggestions are queued by the agent tool.
+    return false;
   }
 
   /** 游戏线说的话里写了单子标记：改状态 */
@@ -546,6 +536,15 @@ export class LiveShow {
     if (!this.onAir || !this.gameSession || !text.trim()) return false;
     this.gameMail.push(`主人跟你说（游戏上的事）：\n${text.trim()}`);
     return true;
+  }
+
+  /** Host-only owner review path; accepting an idea never expands the game's tool permissions. */
+  ownerGameSuggestion(text: string, who: string): boolean {
+    if (!this.onAir || !this.gameSession || !text.trim()) return false;
+    const words = cleanText(text), name = cleanName(who) || '观众建议';
+    const order = this.orders.add(name, words, Date.now());
+    this.publishOrders();
+    return this.ownerToGame(`主人在控制台选中了游戏建议 #${order.id}（${name}）。这是待核对的目标，不扩大预算或工具权限，敏感动作仍须具体批准：\n${text.trim()}\n可用 [开工#${order.id}]、[完成#${order.id}]、[不做#${order.id}] 标注模型报告的订单状态；完成状态必须依据实际结果。`);
   }
 
   get currentGameSession(): string | null {
@@ -933,7 +932,7 @@ export class LiveShow {
 
   /** 这位观众说过「忘了我」：不看、不记 */
   optedOut(uid: string): boolean {
-    return this.memory.store.isOptedOut('bilibili', uid);
+    return this.memory.isOptedOut('bilibili', uid);
   }
 
   /** 主人拉黑了这位观众：不欢迎、不回、不记、不看主页、不私信 */

@@ -159,10 +159,10 @@ describe('game line: the game in its own session', () => {
     const { show, pushed, to } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
-    // 直播线把开游戏交给游戏线
-    expect(show.toGameLine('开 Minecraft 接着玩')).toBe(true);
+    // 主人控制台直接选择目标；模型 handoff 不具有这个入口。
+    expect(show.ownerToGame('开 Minecraft 接着玩')).toBe(true);
     await vi.advanceTimersByTimeAsync(500);
-    expect(to('game')).toEqual(['你在直播间定下：开 Minecraft 接着玩\n去做就行，边做边说你在做什么。']);
+    expect(to('game')).toEqual(['主人跟你说（游戏上的事）：\n开 Minecraft 接着玩']);
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
     show.setGameNow('主世界 (1, 64, 2) · 白天 · 血量 20/20；身体正在：采集 oak_log');
     // 弹幕只给直播线，不插进游戏线这一轮，也不叫醒 game_continue
@@ -197,23 +197,21 @@ describe('game line: the game in its own session', () => {
     show.dispose();
   });
 
-  it('hands a viewer\'s request to the game line with the viewer\'s own words, for the game line to answer', async () => {
+  it('does not let a model turn viewer chat into a game command', async () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
-    show.toGameLine('开 Minecraft');
+    show.ownerToGame('开 Minecraft');
     await vi.advanceTimersByTimeAsync(500);
     show.turnStarted('game');
     show.setGameNow('主世界 (1, 64, 2)', true);
     show.inject(chat('1', '塔太小了，再加高'));
     await vi.advanceTimersByTimeAsync(3_000);
-    // 直播线回这条弹幕时把它交给游戏线
-    show.toGameLine('塔加高加大，重来一遍');
+    // 模型复述观众建议不构成主人批准。
+    expect(show.toGameLine('塔加高加大，重来一遍')).toBe(false);
     await vi.advanceTimersByTimeAsync(1_000);
-    const mail = to('game')[to('game').length - 1];
-    expect(mail).toContain('观众1：塔太小了，再加高');
-    expect(mail).toContain('你在直播间定下：塔加高加大，重来一遍');
-    expect(mail).toContain('点名回他');
+    expect(to('game')).toHaveLength(1);
+    expect(to('game')[0]).not.toContain('塔太小了');
     show.dispose();
   });
 
@@ -247,7 +245,7 @@ describe('game line: the game in its own session', () => {
     const { show, to } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
-    show.toGameLine('开 Minecraft');
+    show.ownerToGame('开 Minecraft');
     await vi.advanceTimersByTimeAsync(500);
     show.turnStarted('game');
     show.showGame({ window: 'Minecraft:GLFW30:javaw.exe' });
@@ -258,10 +256,10 @@ describe('game line: the game in its own session', () => {
     expect(to('live').some((t) => t.includes('死掉的东西别回去捡'))).toBe(true);
     expect(to('game')).toHaveLength(1);
     expect(woke).toBe(false);
-    // 她在直播线上把这件事定下来，插进游戏线这一轮并叫醒 game_continue
-    show.toGameLine('掉的东西不回去捡了，就地重新采集');
+    // 主人在控制台明确发给游戏线，才能叫醒它。
+    show.ownerToGame('掉的东西不回去捡了，就地重新采集');
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(to('game')[1]).toContain('你在直播间定下：掉的东西不回去捡了，就地重新采集');
+    expect(to('game')[1]).toContain('主人跟你说（游戏上的事）：\n掉的东西不回去捡了，就地重新采集');
     expect(woke).toBe(true);
     show.dispose();
   });
@@ -351,20 +349,21 @@ describe('order queue: viewers\' requests the game line works through', () => {
     return { show, to, shown, snaps };
   }
 
-  it('queues the one viewer a hand-off is for, numbers it for the game line, and follows its tags', async () => {
+  it('queues only a host-reviewed suggestion and follows its reported tags', async () => {
     const { show, to, shown, snaps } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
-    show.toGameLine('开 Minecraft');
+    show.ownerToGame('开 Minecraft');
     show.setGameNow('主世界 (1, 64, 2)', true);
     show.inject(chat('1', '画我的头像'));
     await vi.advanceTimersByTimeAsync(3_000);
-    show.toGameLine('把观众1的头像画成像素墙');
+    expect(show.toGameLine('把观众1的头像画成像素墙')).toBe(false);
+    expect(show.ownerGameSuggestion('画我的头像', '观众1')).toBe(true);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(to('game').at(-1)).toContain('记进了点单队列：#1 观众1');
+    expect(to('game').at(-1)).toContain('游戏建议 #1（观众1）');
     expect(shown.at(-1)).toEqual([{ id: 1, who: '观众1', text: '画我的头像', state: 'queued' }]);
-    // 同一件事交两次：不重复记
-    show.toGameLine('头像画大一点');
+    // 模型追加建议不会自动增加已审核的订单。
+    expect(show.toGameLine('头像画大一点')).toBe(false);
     expect((shown.at(-1) as unknown[]).length).toBe(1);
     show.markOrders([{ id: 1, state: 'doing' }]);
     expect((shown.at(-1) as any[])[0].state).toBe('doing');
@@ -374,16 +373,17 @@ describe('order queue: viewers\' requests the game line works through', () => {
     show.dispose();
   });
 
-  it('with several viewers in one batch, queues only the ones the live line names', async () => {
+  it('does not authorize a suggestion by a model-supplied viewer name', async () => {
     const { show, shown } = start();
     await vi.advanceTimersByTimeAsync(500);
     show.turnEnded('live');
-    show.toGameLine('开 Minecraft');
+    show.ownerToGame('开 Minecraft');
     show.setGameNow('主世界 (1, 64, 2)', true);
     show.inject(chat('1', '晚上好'));
     show.inject(chat('2', '盖个光棱塔'));
     await vi.advanceTimersByTimeAsync(3_000);
-    show.toGameLine('盖光棱塔', '观众2');
+    expect(show.toGameLine('盖光棱塔', '观众2')).toBe(false);
+    expect(show.ownerGameSuggestion('盖个光棱塔', '观众2')).toBe(true);
     expect(shown.at(-1)).toEqual([{ id: 1, who: '观众2', text: '盖个光棱塔', state: 'queued' }]);
     // 没写是谁的、这件事里又有好几位：不乱记
     show.toGameLine('大家都欢迎');
@@ -395,11 +395,11 @@ describe('order queue: viewers\' requests the game line works through', () => {
     const first = start();
     await vi.advanceTimersByTimeAsync(500);
     first.show.turnEnded('live');
-    first.show.toGameLine('开 Minecraft');
+    first.show.ownerToGame('开 Minecraft');
     first.show.setGameNow('主世界 (1, 64, 2)', true);
     first.show.inject(chat('1', '画我的头像'));
     await vi.advanceTimersByTimeAsync(3_000);
-    first.show.toGameLine('画头像');
+    first.show.ownerGameSuggestion('画我的头像', '观众1');
     const snap = first.snaps.at(-1)!;
     first.show.dispose();
     const again = start(snap);

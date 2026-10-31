@@ -129,8 +129,6 @@ export class LiveAttention {
   private smallGifts = new Map<string, LiveGiftEvent>();
   private enters: Array<{ user: LiveUser; at: number }> = [];
   private follows: Array<{ user: LiveUser; at: number }> = [];
-  /** 主人用主播号发的弹幕（搭档说话，走 owner 话题） */
-  private ownerChats: string[] = [];
   private trendHits = new Map<string, Array<{ uid: string; text: string; at: number }>>();
   private trendCooldown = new Map<string, number>();
 
@@ -245,9 +243,6 @@ export class LiveAttention {
     const sc = this.superchats[0];
     if (sc) candidates.push({ priority: 100, build: () => ({ kind: 'superchat', event: this.superchats.shift()! }) });
 
-    if (this.ownerChats.length) {
-      candidates.push({ priority: 95, build: () => ({ kind: 'owner', text: this.ownerChats.splice(0).join(' ') }) });
-    }
 
     const thanks = [...this.bigThanks.values()].filter((e) => this.settled(e, now));
     if (thanks.length) {
@@ -312,11 +307,8 @@ export class LiveAttention {
   private observeChat(event: LiveChatEvent, now: number): void {
     const clean = sanitizeChat(event);
     const uid = clean.uid;
-    // 主人用主播号发弹幕：是搭档在跟她说话，不是观众
-    if (this.isOwner(event.user)) {
-      if (clean.text && !event.emoteOnly) this.ownerChats.push(clean.text);
-      return;
-    }
+    // Public chat remains audience data even when the account is the broadcaster.
+    // Owner authority comes only from the local owner console, never a platform role or display name.
     this.chatTimes.push({ at: now, uid });
     const memory = this.remember(uid, now);
     memory.chats += 1;

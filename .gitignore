@@ -4,6 +4,8 @@ tools/node/
 .runtime/
 node_modules/
 packages/*/lib/
+mods/*/bin/
+mods/*/obj/
 *.log
 .env
 .dev.env

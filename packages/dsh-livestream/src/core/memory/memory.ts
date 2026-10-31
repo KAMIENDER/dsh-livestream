@@ -33,6 +33,7 @@ export class LiveMemory {
   private previous = new Map<string, Previous>();
   /** 本场说了「忘了我」的人：卡片提醒她答应一声 */
   private forgotten = new Set<string>();
+  private pendingOptOut = new Set<string>();
 
   constructor(readonly store: LiveMemoryStore) {}
 
@@ -62,21 +63,33 @@ export class LiveMemory {
     return id;
   }
 
+  /** Honor the actual sender's self-forget even when ordinary room recording is disabled. */
+  forgetFrom(event: LiveEvent, isUpdate: boolean, now: number): boolean {
+    const uid = event.user.id;
+    if (!uid || event.user.masked || uid === '0' || isUpdate || event.kind !== 'chat' || !FORGET_ME.test(event.text)) return false;
+    const platform = event.platform;
+    const key = `${platform}:${uid}`;
+    this.pendingOptOut.add(key);
+    this.forgotten.add(key);
+    this.previous.delete(key);
+    this.store.forgetViewer(platform, uid, now);
+    this.pendingOptOut.delete(key);
+    return true;
+  }
+
+  isOptedOut(platform: LivePlatform, uid: string): boolean {
+    return this.pendingOptOut.has(`${platform}:${uid}`) || this.store.isOptedOut(platform, uid);
+  }
+
   /** 直播事件进来：只做便宜的记录 */
   observe(event: LiveEvent, isUpdate: boolean, now: number): void {
+    if (this.forgetFrom(event, isUpdate, now)) return;
     const id = this.streamId;
     const uid = event.user.id;
     if (id === null || !uid || event.user.masked || uid === '0') return;
     const platform = event.platform;
     const key = `${platform}:${uid}`;
-
-    if (event.kind === 'chat' && !isUpdate && FORGET_ME.test(event.text)) {
-      this.store.forgetViewer(platform, uid, now);
-      this.forgotten.add(key);
-      this.previous.delete(key);
-      return;
-    }
-    if (this.store.isOptedOut(platform, uid)) return;
+    if (this.isOptedOut(platform, uid)) return;
     if (isUpdate && event.kind !== 'gift') return;
 
     if (!this.previous.has(key)) {
@@ -101,6 +114,7 @@ export class LiveMemory {
   viewerCard(user: LiveUser, now: number, platform: LivePlatform = 'bilibili'): string | null {
     if (!user.id || user.masked) return null;
     const key = `${platform}:${user.id}`;
+    if (this.pendingOptOut.has(key)) return '他刚要求遗忘；持久删除尚未确认，当前不引用旧记录或建立新档案。';
     if (this.forgotten.has(key)) return '他刚说不想被记住，关于他的记录已经删掉了：简单答应一声就好，别再提他以前的事';
     const prev = this.previous.get(key);
     const viewer = this.store.getViewer(platform, user.id);

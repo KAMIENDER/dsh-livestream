@@ -1,0 +1,23 @@
+{
+  "name": "dsh-game-director",
+  "version": "0.0.1",
+  "description": "Let DSH choose games and delegate missing game adapters to a dedicated development preset.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./agent": "./lib/agent.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "cordis.patch.yml", "README.md", "LICENSE"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@types/node": "24.10.1",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}

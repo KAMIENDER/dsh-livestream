@@ -89,19 +89,25 @@ interface HostState {
   ok: boolean;
   show: ShowStatus;
   broadcast: BroadcastStatus;
-  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string; pace?: { welcomeSec?: number | 'off'; thanksSec?: number; followSec?: number; chatPicks?: number }; blocked?: BlockedViewer[] };
+  settings: { roomId: number | null; character: string; template: string; voice: string; stagePort: number; idleAfterSec: number; gameChatGapSec?: number; gamePreset?: 'dsh-livestream-game' | 'dsh-stardew'; distillModel: string; ownRooms: number[]; broadcast: boolean; areaId: number | null; liveTitle: string; pushProtocol: 'srt' | 'rtmp'; streamKbps: number; asrPython: string; asrModel: string; boardText: string; noticeText?: string; pace?: { welcomeSec?: number | 'off'; thanksSec?: number; followSec?: number; chatPicks?: number }; blocked?: BlockedViewer[] };
   stageUrl: string;
   characters: PackEntry[];
   templates: PackEntry[];
   asr: { available: boolean };
   defaultBoard: string;
+  characterReady?: boolean;
 }
 
+let ownerControlKey = '';
 async function api<T = HostState>(path: string, body?: unknown): Promise<T> {
+  if (path !== 'state' && !ownerControlKey) await api('state');
   const res = await fetch(`/api/dsh-livestream/${path}`, body === undefined
-    ? { cache: 'no-store' }
-    : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    ? { cache: 'no-store', headers: ownerControlKey ? { 'x-dsh-live-control': ownerControlKey } : {} }
+    : { method: 'POST', headers: { 'content-type': 'application/json', 'x-dsh-live-control': ownerControlKey }, body: JSON.stringify(body) });
+  const control = res.headers.get('x-dsh-live-control');
+  if (control) ownerControlKey = control;
   const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+  if (res.status === 403) ownerControlKey = ''; // Next explicit attempt reboots the nonce; never replay this mutation.
   if (!res.ok || data.ok === false) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data as T;
 }
@@ -166,11 +172,11 @@ function useLive(): Live {
 // ── 开播：会话 ────────────────────────────────────────
 
 /** 开一个用「大肥鱼直播」预设的会话（她直播用） */
-async function createBrainSession(svc: ConsoleServices, line: 'live' | 'game' = 'live'): Promise<string> {
+async function createBrainSession(svc: ConsoleServices, line: 'live' | 'game' = 'live', gamePreset = GAME_PRESET_ID, livePreset = PRESET_ID): Promise<string> {
   const workspace = svc.workspaces.list.getSnapshot().items[0];
   if (!workspace) throw new Error('先在 DSH 里打开一个工作区。');
   const sessionId = await svc.sessions.create({ workspaceId: workspace.workspaceId });
-  const selected = await svc.remote.agentPresets.select(sessionId, line === 'game' ? GAME_PRESET_ID : PRESET_ID);
+  const selected = await svc.remote.agentPresets.select(sessionId, line === 'game' ? gamePreset : livePreset);
   if (!selected.ok) throw new Error(selected.error?.message ?? `没能用上「${line === 'game' ? '大肥鱼直播·游戏线' : '大肥鱼直播'}」预设。`);
   // 让会话就绪（agent 起来），身体才能往里推
   // 会话列表里一眼认得出是哪一场（不然叫「未命名」）
@@ -287,14 +293,17 @@ export function Console() {
 
   const goLive = () => run(async () => {
     if (!svc) throw new Error('插件还没准备好，刷新一下页面再试。');
+    // 显式选择星露谷时先确认预设可用，避免推流开始后才发现还没有安装插件。
+    const stardew = settings?.gamePreset === 'dsh-stardew';
+    let gameSessionId = stardew ? await createBrainSession(svc, 'game', host?.characterReady ? 'dsh-character-stardew' : 'dsh-stardew') : undefined;
     // 推流到 B 站：先开播拿推流码、OBS 推上流（可能要扫码人脸认证），推上了她再开口
     if (settings?.broadcast) {
       await api('broadcast/start', {});
       await waitBroadcast();
     }
-    const sessionId = await createBrainSession(svc);
+    const sessionId = await createBrainSession(svc, 'live', GAME_PRESET_ID, host?.characterReady ? 'dsh-character-live' : PRESET_ID);
     // 游戏线：没装 dsh-game（预设里没有游戏工具）也开得出来，只是用不上
-    const gameSessionId = await createBrainSession(svc, 'game').catch(() => undefined);
+    if (!stardew) gameSessionId = await createBrainSession(svc, 'game').catch(() => undefined);
     await api('onair', { sessionId, gameSessionId });
     await refresh();
   });
@@ -469,6 +478,15 @@ export function Console() {
               {show?.live.state === 'connected' && !show.live.loggedIn && <p className="dl-hint">匿名连接：部分观众的名字会被 B 站打码。填上 Cookie 就能看到完整名字。</p>}
               {show?.live.lastError && <p className="dl-error">{show.live.lastError}</p>}
             </div>
+            <h3>游戏</h3>
+            <div className="dl-field">
+              <label>下次开播时玩的游戏</label>
+              <select value={settings?.gamePreset ?? GAME_PRESET_ID} disabled={!!show?.onAir} onChange={(e) => choose({ gamePreset: e.target.value })}>
+                <option value="dsh-livestream-game">原有游戏库（dsh-game）</option>
+                <option value="dsh-stardew">星露谷 · 自主经营一天</option>
+              </select>
+              <p className="dl-hint">星露谷需要启用 dsh-stardew，并先通过 SMAPI 进入单人存档。</p>
+            </div>
             <h3>推流到 B 站</h3>
             <ObsCheck />
             <div className="dl-field">
@@ -520,6 +538,8 @@ export function Console() {
               </div>
               <p className="dl-hint">都是改了马上生效，不用重启。留空就按直播间热闹程度自动（人少时回得勤、人多时攒一攒）；现场不合适就直接填：间隔填秒数，「欢迎」填 off 就不欢迎新进来的观众。大礼物、醒目留言、上舰不受这些间隔限制。</p>
             </div>
+            <LivePermissions />
+            <CharacterPanel />
             <h3>黑名单</h3>
             <div className="dl-field">
               <textarea key={blockedText(settings?.blocked)} defaultValue={blockedText(settings?.blocked)} rows={3} placeholder="一行一位：UID 名字 原因"
@@ -718,6 +738,161 @@ function OwnerSay({ onAir }: { onAir: boolean }) {
       {error && <p className="dl-error">{error}</p>}
     </div>
   );
+}
+
+interface PermissionState {
+  ready: boolean; error: string; protectedCount: number; note: string;
+  approvals: { id: string; tool: string; args: unknown; sessionId: string; expiresAt: number; approved: boolean }[];
+  proposals: { id: string; text: string; who: string; at: number }[];
+  farmScopes: { id: string; sessionId: string; state: string; remainingCalls: number; totalCalls: number; startBefore: number;
+    description: string; binding: { runId: string; saveId: string; gameBuildId: string }; scope: unknown }[];
+}
+
+interface CharacterView {
+  active: { profile: { id: string; name: string; [key: string]: unknown }; revision: number };
+  profiles: { id: string; name: string; revision: number }[];
+  history: { revision: number; created_at: number }[];
+  bindings: { items: { sessionId: string; characterId: string; name: string; revision: number; publicOnly: boolean; boundAt: number; parentSession: string | null }[]; offset: number; nextOffset: number | null };
+  memories: { id: string; scope: string; subject: string; kind: string; text: string; source: string; source_ref: string; state: string; visibility: 'public' | 'private'; confidence: number; created_at: number; expires_at: number | null; supersedes: string | null }[];
+}
+
+function CharacterPanel() {
+  const [view, setView] = useState<CharacterView | null>(null);
+  const [problem, setProblem] = useState('');
+  const [profile, setProfile] = useState('');
+  const [memory, setMemory] = useState('');
+  const [editId, setEditId] = useState('');
+  const [phase, setPhase] = useState('pending');
+  const [offset, setOffset] = useState(0);
+  const [bindingOffset, setBindingOffset] = useState(0);
+  const [busy, error, run] = useBusy();
+  const load = async (reloadProfile = false, state = phase, page = offset, bindingPage = bindingOffset) => {
+    const result = await api<CharacterView>(`character?state=${state}&offset=${page}&bindingOffset=${bindingPage}`);
+    setView(result); setProblem('');
+    if (reloadProfile) {
+      setProfile(JSON.stringify(result.active.profile, null, 2));
+      setMemory(JSON.stringify({ scope: 'character', subject: result.active.profile.id, kind: 'preference', text: '', visibility: 'private' }, null, 2));
+      setEditId('');
+    }
+  };
+  useEffect(() => { void load(true, 'pending', 0).catch(error => setProblem(error.message)); }, []);
+  const change = (payload: unknown, reloadProfile = false) => run(async () => { await api('character', payload); await load(reloadProfile); });
+  return <div className="dl-field">
+    <h3>人物与长期记忆</h3>
+    {problem && <p className="dl-hint">{problem}</p>}
+    {error && <p className="dl-error">{error}</p>}
+    {view && <>
+      <label>新会话默认人物（独立于外观包）</label>
+      <select value={view.active.profile.id} disabled={busy} onChange={event => change({ action: 'activate', id: event.target.value }, true)}>
+        {view.profiles.map(item => <option key={item.id} value={item.id}>{item.name} · v{item.revision}</option>)}
+      </select>
+      <p className="dl-hint">切换、编辑或恢复人物只影响之后的新会话。已有会话固定人物及档案版本，记忆仍可被纠错/遗忘；要换人物请新建会话。允许私密回忆的会话不能转换成直播会话。</p>
+      <details><summary>会话固定人物与版本</summary>
+        {view.bindings.items.length === 0 && <p className="dl-hint">尚无人物绑定。新人物会话在留存对话前固定人物；旧的无绑定历史不会自动迁入。</p>}
+        {view.bindings.items.map(binding => <p key={binding.sessionId}>
+          {binding.name} · v{binding.revision} · {binding.publicOnly ? '仅公开记忆' : '可检索私密记忆'}<br />
+          <code>{binding.sessionId}</code> · {new Date(binding.boundAt).toLocaleString()}
+          {binding.parentSession && <> · 继承自 <code>{binding.parentSession}</code></>}
+        </p>)}
+        <div className="dl-row">
+          <button disabled={busy || bindingOffset === 0} onClick={() => { const next = Math.max(0, bindingOffset - 20); setBindingOffset(next); void run(() => load(false, phase, offset, next)); }}>上一页会话</button>
+          <button disabled={busy || view.bindings.nextOffset === null} onClick={() => { const next = view.bindings.nextOffset; if (next !== null) { setBindingOffset(next); void run(() => load(false, phase, offset, next)); } }}>下一页会话</button>
+        </div>
+        <p className="dl-hint">绑定不授予工具权限，不迁移旧会话上下文，不能用公开标记擦除历史私密内容。</p>
+      </details>
+      <details><summary>编辑身份、背景、动机、矛盾、口吻和关系边界</summary>
+        <p className="dl-hint">修改 ID 可另存为新人物。fictional 标记虚构背景；人物档案不会授予账号、文件或游戏权限。</p>
+        <textarea rows={14} value={profile} onChange={event => setProfile(event.target.value)} spellCheck={false} />
+        <button disabled={busy} onClick={() => run(async () => { await api('character', { action: 'save_profile', profile: JSON.parse(profile) }); await load(true); })}>保存为新版本</button>
+        <div className="dl-row">
+          <select defaultValue="" onChange={event => { if (event.target.value) change({ action: 'restore_profile', id: view.active.profile.id, revision: Number(event.target.value) }, true); }}>
+            <option value="">恢复历史设定为新版本…</option>
+            {view.history.filter(item => item.revision !== view.active.revision).map(item => <option key={item.revision} value={item.revision}>v{item.revision} · {new Date(item.created_at).toLocaleString()}</option>)}
+          </select>
+        </div>
+      </details>
+      <details><summary>记忆审核、纠错与遗忘</summary>
+        <p className="dl-hint">核心人设、主人记录、后端游戏观察与模型提议分开。批准回忆不把模型提议变成已验证事实。直播只检索公开记录。</p>
+        <select value={phase} onChange={event => { const value = event.target.value; setPhase(value); setOffset(0); void run(() => load(false, value, 0)); }}>
+          <option value="pending">待审提议</option><option value="accepted">可检索记忆</option><option value="rejected">已拒绝</option><option value="superseded">已被纠正</option>
+        </select>
+        {view.memories.map(item => <div key={item.id} className="dl-field">
+          <b>{item.scope} / {item.subject} · {item.kind}</b>
+          <p>{item.text}</p>
+          <p className="dl-hint">来源 {item.source}；可信度标记 {item.confidence}；{item.visibility === 'private' ? '私密' : '可公开'}；{new Date(item.created_at).toLocaleString()}{item.expires_at ? `，${new Date(item.expires_at).toLocaleString()} 过期` : ''}。{item.source_ref}</p>
+          <div className="dl-row">
+            {item.state === 'pending' && <><button disabled={busy} onClick={() => change({ action: 'review_memory', id: item.id, accept: true, visibility: item.visibility })}>按原公开范围接受</button>
+              <button disabled={busy} onClick={() => change({ action: 'review_memory', id: item.id, accept: true, visibility: 'public' })}>允许直播回忆</button>
+              <button disabled={busy} onClick={() => change({ action: 'review_memory', id: item.id, accept: false })}>拒绝</button></>}
+            <button disabled={busy} onClick={() => { setEditId(item.id); setMemory(JSON.stringify({ scope: item.scope, subject: item.subject, kind: item.kind, text: item.text, visibility: item.visibility }, null, 2)); }}>编辑纠正</button>
+            <button disabled={busy} onClick={() => change({ action: 'forget_memory', id: item.id })}>遗忘这条</button>
+            <button disabled={busy} onClick={() => change({ action: 'forget_subject', scope: item.scope, subject: item.subject })}>遗忘并停止记录该主体</button>
+          </div>
+        </div>)}
+        <div className="dl-row"><button disabled={busy || offset === 0} onClick={() => { const next = Math.max(0, offset - 20); setOffset(next); void run(() => load(false, phase, next)); }}>上一页</button>
+          <button disabled={busy || view.memories.length < 20} onClick={() => { const next = offset + 20; setOffset(next); void run(() => load(false, phase, next)); }}>下一页</button></div>
+        <label>{editId ? `主人纠正 ${editId}` : '主人添加记忆'}</label>
+        <textarea rows={6} value={memory} onChange={event => setMemory(event.target.value)} spellCheck={false} />
+        <button disabled={busy} onClick={() => run(async () => { await api('character', { action: editId ? 'correct_memory' : 'add_memory', id: editId, memory: JSON.parse(memory) }); setEditId(''); await load(); })}>{editId ? '保存纠正并替代旧条目' : '保存主人记录'}</button>
+        <p className="dl-hint">遗忘作用于该插件数据库和检索；已发送的会话消息、其他插件记忆和备份需要分别处理。</p>
+      </details>
+    </>}
+  </div>;
+}
+
+/** This owner-only panel is never part of the OBS stage or model context. */
+function LivePermissions() {
+  const [state, setState] = useState<PermissionState | null>(null);
+  const [calls, setCalls] = useState(8);
+  const [minutes, setMinutes] = useState(120);
+  const [busy, error, run] = useBusy();
+  const refresh = async () => setState((await api<{ access: PermissionState }>('access')).access);
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => { try { const result = await api<{ access: PermissionState }>('access'); if (!disposed) setState(result.access); } catch { /* Owner actions surface their errors below. */ } };
+    void poll(); const timer = setInterval(() => void poll(), 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, []);
+  const act = (path: string, body: unknown) => run(async () => { await api(path, body); await refresh(); });
+  return <div className="dl-field">
+    <h3>直播权限与观众建议</h3>
+    <p className="dl-hint">{state?.ready ? '执行权限检查已接入' : state?.error || '正在读取权限状态'}。观众、管理员和主播账号的公屏消息均不能授权工具；账号操作和通用游戏输入需要你核对参数后批准一次。种地、动物照料、饲料槽备草、地上产物、普通机器生产及固定钓点可从具体待审请求授予有限范围。</p>
+    <button className="dl-link" disabled={busy} onClick={() => act('access/revoke', {})}>锁住 AI 工具并停止星露谷控制</button>
+    <div className="dl-row">
+      <label>范围授权最多调用 <input type="number" min={1} max={128} value={calls} onChange={e => setCalls(Number(e.target.value))} /> 次</label>
+      <label>允许在 <input type="number" min={1} max={1440} value={minutes} onChange={e => setMinutes(Number(e.target.value))} /> 分钟内开始</label>
+    </div>
+    <p className="dl-hint">范围来自下面那条请求：限定种子和地块、动物ID和照料方式、饲料槽与干草品质、地面物品位置/ID/原始品质、机器位置和材料，或钓点/方向/钓竿及饵与鱼钩身份和耗损上限。每次资源上限×调用次数是累计预留；缩小目标可用，增加目标、换耗材或扩大预算需重新审核。失败、跳过和等待均占一次，不退款；到期不再开始新流程，已开始的有限流程可继续。撤销会停止当前游戏控制。</p>
+    {error && <p className="dl-error">{error}</p>}
+    {state?.approvals.map(item => <div key={item.id} className="dl-field">
+      <b>{item.tool}{item.approved ? ' · 已批准，等待相同调用' : ' · 待批准'}</b>
+      <p className="dl-hint">会话 {item.sessionId}；{new Date(item.expiresAt).toLocaleTimeString()} 过期。批准不会自动执行。</p>
+      <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 180, overflow: 'auto' }}>{JSON.stringify(item.args, null, 2)}</pre>
+      <div className="dl-row">
+        <button disabled={busy || item.approved} onClick={() => act('access/review', { id: item.id, allow: true })}>批准相同参数一次</button>
+        {item.tool === 'game_act' && !!item.args && typeof item.args === 'object' && 'action' in item.args && item.args.action === 'workflow'
+          && 'name' in item.args && ['plant', 'animal_care', 'machine_cycle', 'fishing_cast', 'animal_feed_prepare', 'ground_collect', 'consume_food'].includes(String(item.args.name)) && <button
+            disabled={busy || item.approved || !Number.isInteger(calls) || calls < 1 || calls > 128 || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440}
+            onClick={() => act('access/farm/grant', { id: item.id, calls, minutes })}>授予此范围 · 最多{calls}次</button>}
+        <button disabled={busy} onClick={() => act('access/review', { id: item.id, allow: false })}>拒绝</button>
+      </div>
+    </div>)}
+    {state?.farmScopes?.map(scope => <div key={scope.id} className="dl-field">
+      <b>经营范围 · {scope.state === 'active' ? '有效' : scope.state === 'expired' ? '已到启动期限' : scope.state === 'exhausted' ? '次数已用完' : '已撤销'}</b>
+      <p>{scope.description}</p>
+      <p className="dl-hint">剩余{scope.remainingCalls}/{scope.totalCalls}次；最晚启动 {new Date(scope.startBefore).toLocaleString()}。不增加游戏天数或每日动作额度。</p>
+      <details><summary>查看绑定任务与明确目标</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 180, overflow: 'auto' }}>{JSON.stringify({ sessionId: scope.sessionId, binding: scope.binding, scope: scope.scope }, null, 2)}</pre></details>
+      <button disabled={busy || scope.state === 'revoked'} onClick={() => act('access/farm/revoke', { id: scope.id })}>撤销此范围并停止当前控制</button>
+    </div>)}
+    {state?.proposals.map(item => <div key={item.id} className="dl-field">
+      <b>{item.who || '观众'}的建议</b><p>{item.text}</p>
+      <div className="dl-row">
+        <button disabled={busy} onClick={() => act('access/proposal', { id: item.id, allow: true })}>交给游戏线考虑</button>
+        <button disabled={busy} onClick={() => act('access/proposal', { id: item.id, allow: false })}>忽略</button>
+      </div>
+    </div>)}
+    <p className="dl-hint">{state?.note}</p>
+  </div>;
 }
 
 function BroadcastGlyph() {

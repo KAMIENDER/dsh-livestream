@@ -20,10 +20,11 @@ import type { GameSource, StageEvent } from '../stage/protocol';
 import { splitByMood } from '../core/moodText';
 import { speakable } from '../core/speakable';
 import { GUEST_VOICE } from '../body/voices';
-import { agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type BlockedViewer, type Pace, type Settings } from './runtime';
+import { FarmGrantStorageError } from '../core/farm-access';
+import { access, agentReady, asr, broadcast, cookie, DEFAULT_BOARD, hooks, placeGame, publishBoard, publishNotice, SECRETS, social, takeLive, currentCharacter, currentMoods, dm, packs, prepareSpeech, server, settings, show, updateSettings, type BlockedViewer, type Pace, type Settings } from './runtime';
 
 export const name = 'dsh-livestream';
-export const inject = ['connection'];
+export const inject = ['connection', 'tools'];
 
 interface HostContext {
   effect(effect: () => () => void, label?: string): unknown;
@@ -32,6 +33,54 @@ interface HostContext {
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 const fail = (message: string, status = 400) => json({ ok: false, error: message }, status);
+
+const scopedAgents = new WeakSet<object>();
+let hasCharacters = () => false;
+function bindProtectedAgent(ctx: HostContext, id: string): boolean {
+  const found = ctx.get?.('agents')?.get?.(id);
+  const agent = found?.agent ?? found;
+  if (!agent?.ctx?.tools?.guard) return false;
+  if (scopedAgents.has(agent)) return true;
+  // Register via the ACTUAL agent context. SDK scope ancestry then carries this monotonic guard
+  // to descendants; importing a separately bundled dsh-scope WeakMap would not share ancestry.
+  // Owned by the actual agent context, not by this host plugin's lifetime. If the owner
+  // disables the host while an agent survives, access.ready=false must still stop that
+  // tainted agent; removing its last scoped guard here would silently elevate it.
+  agent.ctx.tools.guard((exec: any) => {
+    try {
+      if (exec.agent?.id && exec.agent.id !== id) access.inherit(exec.agent.id, id);
+      return access.guard(exec);
+    } catch { return '无法继承直播权限，已拒绝子会话工具。'; }
+  });
+  scopedAgents.add(agent); return true;
+}
+
+function verifyLiveAgents(ctx: HostContext, sessionId: string, gameId?: string): void {
+  const expected: Array<[string, string[]]> = [[sessionId, ['dsh-livestream', 'dsh-character-live']]];
+  if (gameId) expected.push([gameId, settings.gamePreset === 'dsh-stardew' ? ['dsh-stardew', 'dsh-character-stardew'] : ['dsh-livestream-game']]);
+  let selected: { profile: { id: string }; revision: number } | undefined;
+  for (const [id, presets] of expected) {
+    const found = ctx.get?.('agents')?.get?.(id);
+    const agent = found?.agent ?? found;
+    if (!presets.includes(agent?.session?.header?.agentPreset) || !bindProtectedAgent(ctx, id)) {
+      throw new Error('只能使用匹配直播/游戏预设且具有执行 guard 的专用会话；不能把普通开发会话直接拿来接收弹幕。');
+    }
+    if (agent.session.header.agentPreset.startsWith('dsh-character-')) {
+      const service = ctx.get?.('characterMemory');
+      if (typeof service?.bindSession !== 'function') throw new Error('人物服务缺少会话绑定接口，请更新人物插件并新建会话。');
+      const binding = service.bindSession(agent, true);
+      if (selected && (selected.profile.id !== binding.profile.id || selected.revision !== binding.revision)) throw new Error('直播线和游戏线绑定的人物/版本不同，不能混播；请用同一默认人物新建本场会话。');
+      selected = binding;
+    }
+  }
+}
+
+function syncCharacterNames(ctx: HostContext, sessionId = show.status().brainSession): void {
+  const found = sessionId ? ctx.get?.('agents')?.get?.(sessionId) : undefined;
+  const agent = found?.agent ?? found;
+  const profile = agent?.session?.header?.agentPreset === 'dsh-character-live' ? ctx.get?.('characterMemory')?.bindingFor?.(sessionId)?.profile : undefined;
+  show.setNames(profile ? [profile.name, ...profile.aliases] : currentCharacter()?.names ?? []);
+}
 
 async function body<T>(request: Request): Promise<T> {
   try {
@@ -52,6 +101,7 @@ function state() {
     templates: packs.list('templates'),
     asr: { available: asr.available },
     defaultBoard: DEFAULT_BOARD,
+    characterReady: hasCharacters(),
   };
 }
 
@@ -126,6 +176,8 @@ async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<voi
     show.closeStale(saved);
     return;
   }
+  // Register persisted session identities before resolveAgent can resume any model/tool execution.
+  access.protect(saved.sessionId, saved.gameSessionId);
   // DSH 的服务和她的 agent 要一会儿才起来：最多等一分钟
   const deadline = Date.now() + 60_000;
   let resumed = false;
@@ -156,6 +208,8 @@ async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<voi
   // 等 agent 子插件把推消息的钩子装上
   while (!stopped() && Date.now() < deadline && !agentReady()) await new Promise((r) => setTimeout(r, 500));
   if (saved.roomId) show.connect(saved.roomId, await cookie(), settings.ownRooms.includes(saved.roomId));
+  verifyLiveAgents(ctx, saved.sessionId, saved.gameSessionId);
+  syncCharacterNames(ctx, saved.sessionId);
   show.resumeLive(saved);
   if (saved.broadcasting && saved.roomId) await broadcast.adopt(saved.roomId);
   const pushing = saved.broadcasting ? `，推流${broadcast.streaming ? '接上了' : '没接上（OBS 已经不在推了）'}` : '（彩排，没在推流）';
@@ -163,6 +217,43 @@ async function resumeLive(ctx: HostContext, stopped: () => boolean): Promise<voi
 }
 
 export function apply(ctx: HostContext): void {
+  hasCharacters = () => typeof ctx.get?.('characterMemory')?.bindSession === 'function';
+  ctx.effect(() => access.bindFarmResolver((id, workflow, text) => {
+    // Resolve identity in the actual game host. Parameters and viewer text cannot choose
+    // a session, save, build or a production job's original material budget.
+    if (!show.isOnAir || show.currentGameSession !== id) return undefined;
+    return ctx.get?.('stardewControl')?.autonomyFor?.(id, workflow, text);
+  }), 'owner bounded farm authorization identity');
+  ctx.effect(() => {
+    const syncForget = (uid: string) => {
+      const memory = ctx.get?.('characterMemory');
+      if (!memory?.forgetViewer) return false;
+      memory.forgetViewer(uid); return true;
+    };
+    hooks.onViewerForget = syncForget;
+    return () => { if (hooks.onViewerForget === syncForget) hooks.onViewerForget = () => false; };
+  }, 'platform self-forget propagation');
+  ctx.effect(() => {
+    if (typeof ctx.tools?.guard !== 'function') return () => {};
+    const dispose = ctx.tools.guard((exec: any) => {
+      try {
+        const parent = exec.agent?.session?.header?.parentSession;
+        if (parent && exec.agent?.id) access.inherit(exec.agent.id, parent);
+        if (exec.agent?.id && access.protected(exec.agent.id)) bindProtectedAgent(ctx, exec.agent.id);
+        return access.guard(exec);
+      }
+      catch { return '直播权限校验异常，已拒绝本次工具；不能绕过校验执行。'; }
+    });
+    access.ready = true;
+    return () => { access.ready = false; dispose(); };
+  }, 'dsh-livestream monotonic execution guard');
+  ctx.effect(() => ctx.on('agent/created', ({ agent }: any) => {
+    const parent = ctx.get?.('agents')?.currentInitiator?.();
+    if (parent?.id && agent?.id && parent.id !== agent.id) access.inherit(agent.id, parent.id);
+    if (agent?.id && access.protected(agent.id)) bindProtectedAgent(ctx, agent.id);
+  }), 'dsh-livestream child authority inheritance');
+  // Consumers receive inspection only; no model-facing service can grant itself owner rights.
+  ctx.provide('liveAccess', Object.freeze({ protected: (id: string) => access.protected(id), farmPermissionsFor: (id: string) => access.farmPermissionsFor(id) }));
   ctx.effect(() => {
     server.start().catch((err) => console.warn(`[dsh-livestream] 舞台服务器起不来（端口 ${settings.stagePort}）：${(err as Error).message}`));
     return () => server.stop();
@@ -178,15 +269,112 @@ export function apply(ctx: HostContext): void {
   // 直播身体：给 dsh-game 用（约定见 docs/game-live-contract.md）。在播时她的话由这里念、游戏画面由这里放上舞台
   ctx.provide('liveBody', {
     get onAir() { return show.isOnAir; },
+    get gameSessionId() { return show.currentGameSession; },
     attention: (signal: AbortSignal) => show.waitAttention(signal),
+    canRememberViewer: (uid: string) => !show.optedOut(uid) && !show.isBlocked(uid),
     showGame: (source: unknown) => show.showGame(gameSource(source)),
   });
   ctx.effect(() => () => show.showGame(null), 'dsh-livestream game screen');
 
   const route = (path: string, methods: string[], fetch: (request: Request) => Response | Promise<Response>, label: string) =>
-    ctx.effect(() => ctx.connection.fetch.register({ path, methods, requestBody: 'buffered', fetch }), label);
+    ctx.effect(() => ctx.connection.fetch.register({ path, methods, requestBody: 'buffered', fetch: (request: Request) => {
+      if (request.method !== 'GET' && !access.ownerRequest(request)) return fail('仅主人控制台可以修改直播状态或权限。', 403);
+      return fetch(request);
+    } }), label);
 
-  route('/api/dsh-livestream/state', ['GET'], () => json(state()), 'state');
+  route('/api/dsh-livestream/state', ['GET'], () => {
+    // Native connection.fetch exact routes are owner-only. This nonce supplements that
+    // authenticated boundary and is never served from the separately bound stage server.
+    const response = json(state());
+    response.headers.set('x-dsh-live-control', access.controlHeader());
+    return response;
+  }, 'state');
+
+  route('/api/dsh-livestream/access', ['GET'], request => access.ownerRequest(request)
+    ? json({ ok: true, access: access.status() }) : fail('只有主人控制台可查看待审操作。', 403), 'live permissions');
+  route('/api/dsh-livestream/access/review', ['POST'], async request => {
+    const input = await body<{ id?: string; allow?: boolean }>(request);
+    try { access.review(String(input.id ?? ''), input.allow === true); return json({ ok: true, access: access.status() }); }
+    catch (error) { return fail((error as Error).message); }
+  }, 'review live tool');
+  route('/api/dsh-livestream/access/farm/grant', ['POST'], async request => {
+    const input = await body<{ id?: string; calls?: number; minutes?: number }>(request);
+    try {
+      const session = show.currentGameSession;
+      if (!show.isOnAir || !session) return fail('当前没有在播游戏线，未创建经营授权。');
+      access.grantFarm(String(input.id ?? ''), session, input.calls ?? 1, input.minutes ?? 60);
+      return json({ ok: true, access: access.status() });
+    } catch (error) { return fail((error as Error).message); }
+  }, 'grant bounded farm autonomy');
+  route('/api/dsh-livestream/access/farm/revoke', ['POST'], async request => {
+    const input = await body<{ id?: string }>(request);
+    let failure: Error | undefined;
+    try { access.revokeFarm(String(input.id ?? '')); }
+    catch (error) {
+      if (!(error instanceof FarmGrantStorageError)) return fail((error as Error).message);
+      failure = error;
+    }
+    // A semantic workflow has already reserved its whole envelope. Cancelling the real
+    // driver prevents subsequent internal substeps; changing a UI badge alone would not.
+    const session = show.currentGameSession;
+    if (session) await ctx.get?.('stardewControl')?.stopSession?.(session);
+    if (failure) return fail(failure.message);
+    return json({ ok: true, access: access.status() });
+  }, 'revoke farm autonomy and stop active control');
+  route('/api/dsh-livestream/access/proposal', ['POST'], async request => {
+    const input = await body<{ id?: string; allow?: boolean }>(request);
+    try {
+      const id = String(input.id ?? '');
+      const proposal = access.proposal(id);
+      if (input.allow === true && !show.ownerGameSuggestion(proposal.text, proposal.who)) return fail('游戏线不在线；建议未执行。');
+      access.takeProposal(id);
+      return json({ ok: true, access: access.status() });
+    } catch (error) { return fail((error as Error).message); }
+  }, 'review audience suggestion');
+  route('/api/dsh-livestream/access/revoke', ['POST'], async () => {
+    access.revoke();
+    const game = show.currentGameSession;
+    const control = ctx.get?.('stardewControl');
+    if (game && control?.stopSession) await control.stopSession(game);
+    return json({ ok: true, access: access.status() });
+  }, 'revoke live tools');
+
+  const character = () => {
+    const service = ctx.get?.('characterMemory');
+    if (!service) throw new Error('请先安装并启用 dsh-character 人物与长期记忆插件。');
+    return service;
+  };
+  const characterState = (service: any, state = 'pending', offset = 0, bindingOffset = 0) => ({
+    ok: true, active: service.active(), profiles: service.listProfiles(),
+    history: service.history(service.active().profile.id), memories: service.list(state, offset, 20), memoryState: state, offset,
+    bindings: service.listBindings(bindingOffset, 20),
+  });
+  route('/api/dsh-livestream/character', ['GET'], request => {
+    if (!access.ownerRequest(request)) return fail('仅主人控制台可以查看完整人物和私密记忆。', 403);
+    try {
+      const url = new URL(request.url);
+      return json(characterState(character(), url.searchParams.get('state') ?? 'pending', Number(url.searchParams.get('offset') ?? 0), Number(url.searchParams.get('bindingOffset') ?? 0)));
+    } catch (error) { return fail((error as Error).message, 409); }
+  }, 'character and memory inspection');
+  route('/api/dsh-livestream/character', ['POST'], async request => {
+    const input = await body<Record<string, any>>(request);
+    try {
+      const service = character();
+      switch (input.action) {
+        case 'save_profile': service.saveProfile(input.profile); break;
+        case 'activate': service.activate(String(input.id ?? '')); break;
+        case 'restore_profile': service.restore(String(input.id ?? ''), Number(input.revision)); break;
+        case 'add_memory': service.ownerAdd(input.memory); break;
+        case 'review_memory': service.review(String(input.id ?? ''), input.accept === true, input.visibility); break;
+        case 'correct_memory': service.correct(String(input.id ?? ''), input.memory); break;
+        case 'forget_memory': service.forget(String(input.id ?? '')); break;
+        case 'forget_subject': service.forgetSubject(String(input.scope ?? ''), String(input.subject ?? '')); break;
+        default: return fail('未知人物或记忆操作。');
+      }
+      syncCharacterNames(ctx);
+      return json(characterState(service));
+    } catch (error) { return fail((error as Error).message); }
+  }, 'owner-managed character and memory changes');
 
   route('/api/dsh-livestream/settings', ['POST'], async (request) => {
     const patch = await body<Partial<Settings>>(request);
@@ -207,6 +395,10 @@ export function apply(ctx: HostContext): void {
     if (patch.voice !== undefined) next.voice = String(patch.voice).trim();
     if (patch.idleAfterSec !== undefined) next.idleAfterSec = Math.max(10, Math.min(600, Number(patch.idleAfterSec) || 45));
     if (patch.gameChatGapSec !== undefined) next.gameChatGapSec = Math.max(5, Math.min(120, Number(patch.gameChatGapSec) || 15));
+    if (patch.gamePreset !== undefined) {
+      if (!['dsh-livestream-game', 'dsh-stardew'].includes(patch.gamePreset)) return fail('没有这个游戏预设');
+      next.gamePreset = patch.gamePreset;
+    }
     if (patch.pace !== undefined) next.pace = cleanPace({ ...settings.pace, ...patch.pace });
     if (patch.distillModel !== undefined) next.distillModel = String(patch.distillModel).trim() || settings.distillModel;
     if (patch.broadcast !== undefined) next.broadcast = !!patch.broadcast;
@@ -233,7 +425,7 @@ export function apply(ctx: HostContext): void {
     updateSettings(next);
     if (next.boardText !== undefined) publishBoard();
     if (next.noticeText !== undefined) publishNotice();
-    if (next.character) show.setNames(currentCharacter()?.names ?? []);
+    if (next.character) syncCharacterNames(ctx);
     if (repaint) show.stage.broadcast({ type: 'reload' });
     // 换了主题，游戏位可能挪了：OBS 里的游戏画面跟着挪
     if (next.template && show.gameSource) placeGame(show.gameSource);
@@ -254,7 +446,13 @@ export function apply(ctx: HostContext): void {
   route('/api/dsh-livestream/onair', ['POST'], async (request) => {
     const { sessionId, gameSessionId } = await body<{ sessionId?: string; gameSessionId?: string }>(request);
     if (!sessionId) return fail('缺她直播用的会话');
+    try { access.protect(sessionId, gameSessionId); verifyLiveAgents(ctx, sessionId, gameSessionId); }
+    catch (error) { return fail((error as Error).message, 409); }
+    syncCharacterNames(ctx, sessionId);
     show.goLive(sessionId, gameSessionId || undefined);
+    if (settings.gamePreset === 'dsh-stardew' && gameSessionId) {
+      show.ownerToGame('开始星露谷今天的自主经营：用 game_start 的 stardew 接管主角，先观察农场并安排今天，正常睡眠进入次日后总结并停止。');
+    }
     // 先推上流、后开播的：这一场一开始就不是彩排
     if (broadcast.streaming) show.markBroadcast();
     dm.newShow();

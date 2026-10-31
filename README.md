@@ -73,6 +73,10 @@
 
 ## 安装（开发方式）
 
+星露谷自主经营预览版见 [dsh-stardew](packages/dsh-stardew/README.md)，自主选游戏和派发接入开发见 [dsh-game-director](packages/dsh-game-director/README.md)。早期插件已在本机 DSH NEXT 加载，原桥接仅实机确认存档读取和转向还原。后续连续经营、信息读取、原生控制、限时钓鱼/近战、存档记忆和检查点均只更新源码；新增 [DSHStardew 游戏端扩展](mods/DshStardew/README.md) 未构建安装，客户端仍使用旧产物。尚未验证完整玩法、DSH 自主整天或推流，见[本机记录](docs/local-installation.md)、[开发记录](docs/stardew-gameplay.md)与[扩展设计](docs/game-adapter-design.md)。
+
+持续开发范围还包括可选的 [dsh-character 人物与长期记忆插件](packages/dsh-character/README.md)、[直播执行权限管控](docs/live-permissions.md)，以及逐步核对实际结果的游戏工作流。敏感账号/游戏操作改为主人控制台按参数批准，观众建议不自动执行。上述新增部分也仅有源码，未构建部署。完整范围与缺口见[持续目标](docs/autonomous-stardew-goal.md)。
+
 ```bash
 pnpm install
 pnpm -C packages/dsh-livestream build
@@ -97,7 +101,7 @@ DOUBAO_TTS_ACCESS_KEY=...
 Apple Silicon + 原生 arm64 Node 默认使用 VideoToolbox；Intel / Rosetta 默认使用 x264。
 Windows 默认保留 NVENC 和原有窗口 / WASAPI 音频捕获。
 
-目前完成的是源码适配，尚未编译、运行测试或验证真实推流；安装步骤和待实机确认项见 [macOS 使用说明](docs/macos.md)。
+早期 macOS 适配版本曾完成构建和本机 DSH 客户端加载；本次自主游戏、人物记忆和权限扩展仍是未编译测试、未安装验收的源码预览，真实推流也未验证。安装步骤和待确认项见 [macOS 使用说明](docs/macos.md)。
 
 ## 许可
 

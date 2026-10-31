@@ -5,25 +5,25 @@ const message = (...content: Array<{ type: string; text?: string; name?: string 
 const text = (t: string) => ({ type: 'text', text: t });
 const handOff = { type: 'tool-call', name: 'game_side' };
 
-describe('live line handing a request to the game line', () => {
-  it('keeps the words written with the hand-off unsaid', () => {
+describe('live line submitting a suggestion', () => {
+  it('keeps proposal speech audible while owner review is pending', () => {
     const h = new HandOffs();
-    expect(h.unsaid('live', message(text('彩排观众乙，交给游戏里的我'), handOff))).toBe(true);
+    expect(h.unsaid('live', message(text('彩排观众乙，交给游戏里的我'), handOff))).toBe(false);
   });
 
-  it('keeps the rest of that turn unsaid when she calls the tool first and talks after', () => {
-    // 10-28：163 次交接里，每次她都在调完 game_side 之后又写了一句「交过去了……」，念了出来
+  it('does not transfer authority or mute the next message after a proposal', () => {
+    // game_side现在只提议，不代表游戏线已经接受或开始执行。
     const h = new HandOffs();
     h.turnStarted('live');
-    expect(h.unsaid('live', message(handOff))).toBe(true);
-    expect(h.unsaid('live', message(text('交过去了，游戏里的我已经动工')))).toBe(true);
+    expect(h.unsaid('live', message(handOff))).toBe(false);
+    expect(h.unsaid('live', message(text('已提交建议，等主人审核')))).toBe(false);
   });
 
   it('speaks what she wrote before the hand-off, and every turn starts fresh', () => {
     const h = new HandOffs();
     h.turnStarted('live');
     expect(h.unsaid('live', message(text('小灯塔？好主意')))).toBe(false);
-    expect(h.unsaid('live', message(handOff))).toBe(true);
+    expect(h.unsaid('live', message(handOff))).toBe(false);
     h.turnStarted('live');
     expect(h.unsaid('live', message(text('欢迎新来的')))).toBe(false);
   });

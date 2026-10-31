@@ -18,7 +18,7 @@ import { lookupProblem } from '../core/viewerLookup';
 import { splitByMood } from '../core/moodText';
 import { orderTags } from '../core/orders';
 import { ttsYuan, turnYuan } from '../core/cost';
-import { asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
+import { access, asr, cookie, currentMoods, dm, hooks, library, markAgentReady, settings, show, social, videos } from './runtime';
 import { BiliRoom } from '../body/biliRoom';
 import { screenshot } from '../body/obs';
 import { whoIs } from '../body/biliLogin';
@@ -36,22 +36,11 @@ interface AgentContext {
 /** 已经念过的消息：会话 id + 消息序号 */
 const voiced = new Set<string>();
 
-/**
- * 直播线这一轮交给游戏线了没有：从调 game_side 的那条消息起，这一轮她写的话都不念（游戏里的她会点名回观众），下一轮重新算。
- * 只看调工具的那一条的话，她先调工具、下一条才写「交过去了」时会念出来，观众就听到两边各回一遍。
- */
+/** Compatibility export: proposing an audience idea no longer transfers authority or mutes speech. */
 export class HandOffs {
-  private sessions = new Set<string>();
+  turnStarted(_sessionId: string): void {}
 
-  turnStarted(sessionId: string): void {
-    this.sessions.delete(sessionId);
-  }
-
-  /** 这条消息不念（这一轮已经交出去了）返回 true */
-  unsaid(sessionId: string, event: any): boolean {
-    if ((event?.data?.message?.content ?? []).some((p: any) => p?.type === 'tool-call' && p.name === 'game_side')) this.sessions.add(sessionId);
-    return this.sessions.has(sessionId);
-  }
+  unsaid(_sessionId: string, _event: any): boolean { return false; }
 }
 
 const wordsOf = (event: any): string => (event?.data?.message?.content ?? [])
@@ -297,6 +286,16 @@ async function completeWithDsh(ctx: AgentContext, model: string, system: string,
 }
 
 export function apply(ctx: AgentContext): void {
+  ctx.effect(() => {
+    if (typeof ctx.tools?.guard !== 'function') throw new Error('当前 DSH 缺少工具 guard，不能为直播模型注册账号操作。');
+    return ctx.tools.guard((exec: any) => {
+      try {
+        if (!exec.agent?.id) return '直播工具缺少真实会话身份。';
+        access.ensureCommentator(exec.agent.id);
+        return access.guard(exec);
+      } catch { return '直播会话的权限初始化失败，未执行工具。'; }
+    });
+  }, 'commentator permissions before and after live sessions');
   hooks.secret = async (name) => {
     const credentials = ctx.get?.('credentials');
     const hit = credentials ? await credentials.resolve(name).catch(() => undefined) : undefined;
@@ -824,18 +823,18 @@ ${profileText(profile)}` : '没打开自己的主页（B 站没返回，可能�
   // 游戏线：另一个会话里的她专门玩游戏，这条线把话交给她
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'game_side',
-    description: '观众或主人想让你在游戏里做什么、或者你要答应游戏里的事：写下怎么做，交给游戏里的你。他们的原话会一起交过去，由游戏里的你点名回他、再去做；从调这个工具的那条消息起，这一轮你写的话都不会念出来（调之前写的会念）。',
+    description: '把观众的游戏建议提交给主人审核；只创建待审提议，不发送给游戏、不执行，也不授予权限。不能声称已经照做，继续用简短中文告诉观众建议已提交。',
     parameters: {
       message: { type: 'string', required: true, description: '游戏里接下来怎么做，比如「开 Minecraft 接着玩，目标一身钻石装备」「天黑了，先挖洞躲起来」' },
       who: { type: 'string', description: '这是哪位观众点的单（名字，几位用顿号隔开）：记进点单队列、观众在点单栏里看得到；这件事里只有一位观众时可以不填' },
     },
     output: stringOut,
-    async execute(args) {
+    async execute(args, exec) {
       const message = typeof args.message === 'string' ? args.message.trim() : '';
       if (!message) return '没写接下来怎么玩。';
-      show.toolCall('game_side', message.slice(0, 40));
-      if (!show.toGameLine(message, typeof args.who === 'string' ? args.who : '')) return '这场直播没开游戏（开播时没准备游戏），玩不了。';
-      return '交过去了：游戏里的你会回他、去做。这一轮接下来写的话不会念出来。';
+      if (!exec.agent?.id) return '没有可验证的会话身份，未提交建议。';
+      const proposal = access.propose(exec.agent.id, message, typeof args.who === 'string' ? args.who : '');
+      return `已记录待审建议 ${proposal.id}。尚未发送给游戏；只有主人控制台批准后才成为本次建议，敏感工具仍需独立批准。`;
     },
   })), 'game_side tool');
 

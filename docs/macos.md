@@ -1,6 +1,6 @@
 # macOS 使用说明
 
-本分支为 `luckui/dsh-livestream` 增加 macOS 适配。当前仅完成源码修改与静态审阅，尚未编译、运行测试或验证真实直播。
+本仓库为 `luckui/dsh-livestream` 增加 macOS 适配。早期适配版本曾在 Apple Silicon 本机构建并加载到 DSH NEXT 2.0.20-next；本次游戏、人物记忆与权限扩展仍是未编译测试、未安装验收的源码预览，真实直播也未验证，详见[本机安装记录](local-installation.md)。
 
 ## 环境
 
@@ -12,10 +12,10 @@
 
 ## 安装和首次设置
 
-从本 fork 的适配分支获取源码：
+从本 fork 的主分支获取源码预览：
 
 ```bash
-git clone --branch feat/macos-support https://github.com/KAMIENDER/dsh-livestream.git
+git clone --branch main https://github.com/KAMIENDER/dsh-livestream.git
 cd dsh-livestream
 pnpm install
 pnpm -C packages/dsh-livestream build
