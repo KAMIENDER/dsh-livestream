@@ -10,7 +10,6 @@ namespace DshStardew;
 internal static class FishingActions
 {
     internal sealed record Attachment(int Index, string? ItemId, int Quality, int Stack, int? Uses);
-    internal sealed record Total(string ItemId, int Quality, long Amount);
     public static Attachment[] Attachments(FishingRod rod) => Enumerable.Range(0, rod.attachments.Length).Select(index => {
         var item = rod.attachments[index];
         return new Attachment(index, item?.QualifiedItemId, item?.Quality ?? 0, item?.Stack ?? 0, item is null ? null : (int?)item.uses.Value);
@@ -22,24 +21,6 @@ internal static class FishingActions
         var rod = (FishingRod)Game1.player.Items[slot];
         InventoryActions.Require(rod.QualifiedItemId == expected, "Rod item identity changed");
         return rod;
-    }
-    private static Total[] Totals()
-    {
-        var items = Game1.player.Items.Where(item => item is not null).ToList();
-        foreach (var tool in Game1.player.Items.OfType<Tool>())
-            for (var i = 0; i < tool.attachments.Length; i++) if (tool.attachments[i] is { } attached) items.Add(attached);
-        return items.GroupBy(item => (item.QualifiedItemId, item.Quality)).Select(group => new Total(group.Key.QualifiedItemId, group.Key.Quality, group.Sum(item => (long)item.Stack)))
-            .OrderBy(total => total.ItemId, StringComparer.Ordinal).ThenBy(total => total.Quality).ToArray();
-    }
-    private static bool Conserved(Total[] before) => JsonSerializer.Serialize(before, LocalServer.Json) == JsonSerializer.Serialize(Totals(), LocalServer.Json);
-    private static bool Owned(Item candidate) => Game1.player.Items.Any(item => ReferenceEquals(item, candidate))
-        || Game1.player.Items.OfType<Tool>().Any(tool => Enumerable.Range(0, tool.attachments.Length).Any(index => ReferenceEquals(tool.attachments[index], candidate)));
-    private static void ReturnUnowned(Item? item, int preferredSlot)
-    {
-        if (item is null || item.Stack <= 0 || Owned(item)) return;
-        var slot = Game1.player.Items[preferredSlot] is null ? preferredSlot : Enumerable.Range(0, Game1.player.Items.Count).Where(index => Game1.player.Items[index] is null).DefaultIfEmpty(-1).First();
-        if (slot < 0) throw new InvalidOperationException("Native attachment transfer has an unowned item and no reserved recovery slot");
-        Game1.player.Items[slot] = item;
     }
     public static object Query(JsonElement args)
     {
@@ -113,7 +94,7 @@ internal static class FishingActions
                 && rod.attachments[first].Quality == R.Int(args, "expectedQuality", -1, 0, 4)
                 && rod.attachments[first].Stack <= R.Int(args, "maxCount", 0, 1, 10000), "Native detach removes the first occupied whole stack; requested attachment identity or quantity budget changed");
         }
-        var before = Attachments(rod); var totals = Totals(); var old = rod.attachments[expectedIndex];
+        var before = Attachments(rod); var totals = AttachmentInventory.Totals(); var old = rod.attachments[expectedIndex];
         var beforeReferences = Enumerable.Range(0, rod.attachments.Length).Select(index => rod.attachments[index]).ToArray();
         InventoryActions.Require(operation != "attach" || beforeReferences.All(item => item is null) || Game1.player.Items.Any(item => item is null), "Attaching beside existing gear needs one spare recovery slot");
         // Match native inventory ownership: the source is held outside the bag while attach
@@ -123,22 +104,22 @@ internal static class FishingActions
         Game1.player.Items[inventorySlot] = null;
         try {
             returned = rod.attach(source);
-            if (returned is not null && Owned(returned)) throw new InvalidOperationException("Native attach returned an already-owned item reference");
-            ReturnUnowned(returned, inventorySlot);
+            if (returned is not null && AttachmentInventory.Owned(returned)) throw new InvalidOperationException("Native attach returned an already-owned item reference");
+            AttachmentInventory.ReturnUnowned(returned, inventorySlot);
         }
         catch {
             // Preserve existing unowned references, never clone items or restore old stack
             // quantities. This does not undo the attachment; the overall result stays unknown.
-            ReturnUnowned(returned, inventorySlot); ReturnUnowned(source, inventorySlot);
-            foreach (var previous in beforeReferences) ReturnUnowned(previous, inventorySlot);
+            AttachmentInventory.ReturnUnowned(returned, inventorySlot); AttachmentInventory.ReturnUnowned(source, inventorySlot);
+            foreach (var previous in beforeReferences) AttachmentInventory.ReturnUnowned(previous, inventorySlot);
             throw;
         }
         var after = Attachments(rod);
         var changed = before.Where((fact, index) => fact != after[index]).Select(fact => fact.Index).ToArray();
-        var confirmed = Conserved(totals) && changed.Length == 1 && changed[0] == expectedIndex
+        var confirmed = AttachmentInventory.Conserved(totals) && changed.Length == 1 && changed[0] == expectedIndex
             && (operation == "detach_first" ? ReferenceEquals(returned, old) && rod.attachments[expectedIndex] is null
                 : rod.attachments[expectedIndex]?.QualifiedItemId == R.Arg(args, "expectedItemId"));
-        var unchanged = changed.Length == 0 && ReferenceEquals(returned, source) && R.Arg(args, "inventoryDigest") == InventoryActions.Digest() && Conserved(totals);
+        var unchanged = changed.Length == 0 && ReferenceEquals(returned, source) && R.Arg(args, "inventoryDigest") == InventoryActions.Digest() && AttachmentInventory.Conserved(totals);
         return new { completedWorkflow = confirmed, completionUncertain = !confirmed && !unchanged, operation, rodSlot = slot, attachmentIndex = expectedIndex, inventorySlot,
             beforeAttachments = before, afterAttachments = after, inventoryDigest = InventoryActions.Digest(), gearDigest = GearDigest(rod), conservedQuantity = confirmed };
     }

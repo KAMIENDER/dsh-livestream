@@ -406,6 +406,14 @@ export class StardewRun implements GameDriver {
       || (name === 'dsh_storage_ui' && args.operation === 'close' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
       || (name === 'dsh_shop_ui' && args.operation === 'close' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
       || (name === 'dsh_shipping' && args.operation === 'close' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
+      || (name === 'dsh_construction' && ['cancel', 'close'].includes(String(args.operation)) && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
+      || (name === 'dsh_construction_entry' && args.operation === 'leave' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
+      || (name === 'dsh_construction_paint' && args.operation === 'done' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
+      || (name === 'dsh_construction_skin' && args.operation === 'done' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
+      // Native Prepare additionally proves an already held exact GUID and its
+      // original tile. Recovery consumes this day's remaining budget too.
+      || (name === 'dsh_construction_move' && (['cancel', 'close'].includes(String(args.operation))
+        || args.returnToOrigin === true && ['pan', 'place'].includes(String(args.operation))) && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
       || (name === 'dsh_mine_travel' && (args.operation === 'leave' || args.operation === 'elevator' && args.destinationLevel === 0) && this.writes < ACTIONS_PER_DAY)
       || (name === 'stardew_transfer_inventory_item' && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)
       || (name === 'dsh_dialogue' && ['advance', 'reveal'].includes(String(args.operation)) && s.ui.menuOpen && this.writes < ACTIONS_PER_DAY)

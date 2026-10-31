@@ -31,6 +31,11 @@ interface Capability {
 
 const CAPABILITIES: readonly Capability[] = [
   {
+    id: 'native_construction', title: '原生木匠菜单建造/升级与持久建筑复查', scope: 'workflow',
+    tools: ['dsh_query_construction', 'dsh_construction', 'stardew_query_inventory', 'dsh_query_dialogue', 'dsh_dialogue', 'dsh_construction_entry', 'dsh_construction_move', 'dsh_construction_paint', 'dsh_construction_skin', 'stardew_navigate'],
+    guidance: 'workflows查building_construct：entry=current复用真实Robin/Wizard菜单；entry=counter给当前地点已查询入口entryPosition，正常导航到Robin柜台南侧或WizardBook相邻格，原生一次操作键及Construct/准确地点分页打开菜单，保留营业/施工/墨水解锁校验，不回答其他问题。counter条件接口缺失单列，不影响current分支。明确图纸/皮肤、新建格或准确升级GUID、金币和逐ID/品质预算；正常目录/放置/有限镜头、一次原生扣款/施工和独立收据，未知不重放。开始施工waiting并存持久GUID，跨天/重载building_followup查真实0计时/目标类型，就绪观察不证明复查造成建造。原日预算和具体主人审核，无可复用建造授权。搬移另见building_move：准确GUID/原格/目标，显式groundPolicy及onBlocked，正常拿起/放置、有限镜头、内部物品/住户保护摘要、实际占地地面逐格收据；拿起后不能直接取消，批准原位放回与目标成功分开，未知不补偿。涂色另见building_paint：真实分区ID/滑条范围及精确可达值、默认色或完整H/S/L、即时生效的部分进度、非白色旧式tint重置需明确许可，关闭不是撤销。换皮另见building_skin：实际直接/嵌套可用外观，null基础外观，明确允许涂色Default重置/缺失旧ID回退/旧式tint变白及maxConstructionDays，模拟全部中间项施工后正常点击；关闭按原生重建的调色父菜单收尾，未知不回滚。拆除当前只有building_demolition_preflight只读查询：内部/帮手背包装备/地下室/失物招领/排队锁回调，未解析不当空，executionReady/lossModelComplete=false；不执行拆除或宣称完整损失预测。完整拆除许可/回收/角色删除与收据、跨地图入口路线、全部房屋设施、持续规划/持久中断续接和实机验收仍缺。',
+  },
+  {
     id: 'observe', title: '观察世界与角色', scope: 'primitives', tools: [...READ_TOOLS],
     guidance: '先查运行状态、背包与附近地图。扩展提供任务、好感度、日程、动物、建筑、机器、矿层、资源百科与部分事件状态，均有分页或已加载地点限制。没有列出不代表不存在；null 表示未知。Ref 与 Revision 必须来自最新查询。',
   },
@@ -107,8 +112,20 @@ const CAPABILITIES: readonly Capability[] = [
     guidance: 'workflows查mine_route：已在原生矿层中，完整扫描真实图块出口，普通矿梯优先；下行最多8次，电梯只选已解锁实际按钮，返地面核对Mine/SkullCave。竖井明确允许且每次预留15层/45点原生掉血。绑定地点实例/出口/原日预算，正常导航与单次原生输入/明确原生UI，核对实际新层/金币/背包/生命；未知不重做，缺梯waiting。不造梯、传送或改血，不冒充开采、杀怪/全矿探索；入口大厅/火山、无梯找梯、采矿战斗整合、晚间/低资源完整返家及持久恢复仍缺，只有源码未验收。',
   },
   {
+    id: 'slingshot_ammunition', title: '弹弓信息与原生装卸弹', scope: 'workflow', tools: ['dsh_query_slingshot', 'dsh_slingshot_ammo', 'stardew_query_inventory'],
+    guidance: 'workflows查slingshot_ammo：绑定实际原生弹弓实例、明确原弹药ID/品质/数量与来源/空目的槽。装入整堆不超过上限，合并、余量、替换或整堆卸下由Native attach执行，新MCP背包+全工具附件总量守恒、其他附件/金币不变。爆炸弹装入明确许可，原始工具/流程仍具体主人审核，无可复用战斗范围。真实旧式选项、蓄力和有界完整弹丸只读；基本伤害不是实际伤害，装弹不等于射击，射击另用slingshot_shoot。全部源码未验收。',
+  },
+  {
+    id: 'slingshot_shooting', title: '固定目标有限弹弓射击', scope: 'workflow', tools: ['dsh_query_slingshot', 'dsh_query_mine', 'dsh_slingshot_shot', 'stardew_query_inventory', 'stardew_equip'],
+    guidance: 'workflows查slingshot_shoot：固定当前怪物实例/生命周期、原生弹弓和准确已有弹药，明确1–16发、射程/位移与生命预算，保持实际旧式/新版瞄准设置。每发原生蓄力、公开释放、同步真实新弹丸/所有者、弹药-1和弹丸结束，独立全背包/资源/其他附件核对。爆炸弹发射另须明确许可；原生explode字段不代表爆炸弹回调已生效。默认shots只完成有限射击，defeat_target另须原生终态死亡证据；倒地/阶段改变、两发无血量进展或预算不足waiting。不自动装弹/追击/换目标，未知不重发，无可复用战斗授权。未证明碰撞、命中/爆炸、伤害/掉落因果、动态避障、全弹弓战术或安全返家，全部源码未验收。',
+  },
+  {
+    id: 'melee_actions', title: '固定目标有限近战与明确退点', scope: 'workflow', tools: ['dsh_query_mine', 'dsh_melee', 'stardew_query_inventory', 'stardew_equip', 'stardew_navigate'],
+    guidance: 'workflows查melee_engage：绑定当前怪物实例/完整类型及expectedDeathAnimationCounter、实际原生剑/匕首/锤，明确有限动作/接近/特殊/半径和生命预算。objective=defeat_target须同实例的原生死亡事件计数+1/非正血量/移除/击杀统计，或木乃伊准确最终移除规则；额度用完仍活着waiting。木乃伊普通倒地恢复血量并待复活，不能记死亡或续用旧阶段批准。默认actions仍仅有限动作批次。原生冷却/8帧空闲、全背包/资源独立核对；可指定退点，仅确认到达。死亡观察不证明伤害/拾取因果或清层，未知不补打。弹弓、其他未识别生命周期、全怪物战术、完整返家/持久恢复及实机验收仍缺，具体主人审核。',
+  },
+  {
     id: 'combat', title: '武器战斗与矿洞', scope: 'primitives', tools: ['dsh_query_mine', 'dsh_combat', 'dsh_input', 'stardew_navigate'],
-    guidance: '扩展提供当前怪物/矿层、附近地图动作与完整原生出口扫描，以及最多10秒近战、特殊招式或反向撤退。已有矿梯/电梯/明确竖井转层用mine_route，缺梯不能当完成探索。攻击只作用于附近目标，不自动追怪；矿石采集、找梯、武器完整控制与返程仍需接入并组合，不能保证通层或安全撤离。尚未实机验收。',
+    guidance: '旧dsh_combat逐帧选择最近怪物，只有基础动作，提交后没有完整收据则返回未知，不能作为可靠持续战斗。固定目标近战及原生死亡/木乃伊倒地观察使用melee_engage/dsh_melee，有限弹弓使用slingshot_shoot；范围攻击也可能影响周围目标/地形。普通敲石找梯用mine_excavate，已有出口用mine_route。实际碰撞/命中归因、其他特殊生命周期、群怪战术、全矿探索与完整返家仍缺，不能保证通层或安全撤离。全部源码未实机验收。',
   },
   {
     id: 'special_menus', title: '建造、献祭、节日与其他原生界面', scope: 'primitives', tools: ['dsh_query_ui', 'dsh_ui_action', 'dsh_query_event', 'dsh_input'],

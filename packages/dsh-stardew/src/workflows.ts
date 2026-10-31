@@ -13,6 +13,14 @@ import { SHOP_WORKFLOW, shopTrade } from './workflows/shop.js';
 import { SHIPPING_WORKFLOW, shippingBatch } from './workflows/shipping.js';
 import { MINE_WORKFLOW, mineRoute } from './workflows/mine.js';
 import { MINING_WORKFLOW, mineExcavate } from './workflows/mining.js';
+import { MELEE_WORKFLOW, meleeEngage } from './workflows/melee.js';
+import { SLINGSHOT_AMMO_WORKFLOW, slingshotAmmo } from './workflows/slingshot.js';
+import { SLINGSHOT_SHOOT_WORKFLOW, slingshotShoot } from './workflows/slingshot-shoot.js';
+import { BUILDING_DEMOLITION_PREFLIGHT, buildingDemolitionPreflight } from './workflows/building-demolition.js';
+import { BUILDING_SKIN_WORKFLOW, buildingSkin } from './workflows/building-skin.js';
+import { BUILDING_PAINT_WORKFLOW, buildingPaint } from './workflows/building-paint.js';
+import { BUILDING_MOVE_WORKFLOW, buildingMove } from './workflows/building-move.js';
+import { CONSTRUCTION_WORKFLOW, CONSTRUCTION_FOLLOWUP, buildingConstruct, buildingFollowup } from './workflows/construction.js';
 import { PersistenceError } from './persistence.js';
 export type { WorkflowReport } from './workflow-context.js';
 const PLANT_TOOLS = ['dsh_query_catalog', 'stardew_query_inventory', 'stardew_query_world', 'stardew_navigate', 'stardew_equip', 'stardew_interact', 'stardew_use_tool'];
@@ -26,6 +34,14 @@ const parameters = {
   },
 };
 
+function conditionalMissingTools(workflow: ObjectValue, available: (name: string) => boolean): Record<string, string[]> {
+  if (!object(workflow.conditionalTools)) return {};
+  return Object.fromEntries(Object.entries(workflow.conditionalTools).map(([branch, names]) => {
+    requireFact(Array.isArray(names) && names.every(name => typeof name === 'string'), '内部流程条件接口目录无效。');
+    return [branch, names.filter(name => !available(name))];
+  }));
+}
+
 export function workflowCatalog(available: (name: string) => boolean): unknown {
   return { evidence: '以下为源码实现状态；没有实机验收记录。每次返回 completed 只表示该次观察满足已列出的后置条件。',
     workflows: [{ name: 'plant', title: '小规模翻地、播种、浇水', sourceStatus: 'implemented_unverified',
@@ -33,7 +49,7 @@ export function workflowCatalog(available: (name: string) => boolean): unknown {
       scope: '当前已加载地点、最多8格、当前cropData可识别的物体种子；不清理障碍，不处理果树/树种/肥料/巨型作物/收获或生长等待。季节与地点限制交由游戏真实校验。',
       postconditions: ['空格翻地后查询到空耕地', '播种后同格cropId等于种子原始ID且总种子数恰好少1', '要求浇水时，同格同种作物watered为true'],
       failure: '缺前置条件、阻挡、事件菜单、低资源、预算耗尽、接口失败或观察不符立即停止；保留部分进度，无自动补偿、回滚或重放。',
-    }, ...[ANIMAL_WORKFLOW, MACHINE_WORKFLOW, MACHINE_STOP_WORKFLOW, FISHING_SETUP_WORKFLOW, FISHING_CAST_WORKFLOW, ANIMAL_FEED_WORKFLOW, GROUND_COLLECT_WORKFLOW, FOOD_WORKFLOW, CRAFTING_WORKFLOW, STORAGE_WORKFLOW, SHOP_WORKFLOW, SHIPPING_WORKFLOW, MINE_WORKFLOW, MINING_WORKFLOW, ...SOCIAL_WORKFLOWS, ...QUEST_WORKFLOWS].map(workflow => ({ ...workflow, missingTools: workflow.requiredTools.filter(name => !available(name)) }))],
+    }, ...[ANIMAL_WORKFLOW, MACHINE_WORKFLOW, MACHINE_STOP_WORKFLOW, FISHING_SETUP_WORKFLOW, FISHING_CAST_WORKFLOW, ANIMAL_FEED_WORKFLOW, GROUND_COLLECT_WORKFLOW, FOOD_WORKFLOW, CRAFTING_WORKFLOW, STORAGE_WORKFLOW, SHOP_WORKFLOW, SHIPPING_WORKFLOW, MINE_WORKFLOW, MINING_WORKFLOW, MELEE_WORKFLOW, SLINGSHOT_AMMO_WORKFLOW, SLINGSHOT_SHOOT_WORKFLOW, CONSTRUCTION_WORKFLOW, CONSTRUCTION_FOLLOWUP, BUILDING_MOVE_WORKFLOW, BUILDING_PAINT_WORKFLOW, BUILDING_SKIN_WORKFLOW, BUILDING_DEMOLITION_PREFLIGHT, ...SOCIAL_WORKFLOWS, ...QUEST_WORKFLOWS].map(workflow => ({ ...workflow, missingTools: workflow.requiredTools.filter(name => !available(name)), conditionalMissingTools: conditionalMissingTools(workflow, available) }))],
   };
 }
 
@@ -49,6 +65,31 @@ export async function runWorkflow(name: string, text: string, port: WorkflowPort
   try {
     requireFact(text.length <= 8000, '流程参数过长。');
     const args: unknown = JSON.parse(text);
+    if (name === BUILDING_DEMOLITION_PREFLIGHT.name) {
+      report.status = await buildingDemolitionPreflight(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === BUILDING_SKIN_WORKFLOW.name) {
+      report.status = await buildingSkin(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === BUILDING_PAINT_WORKFLOW.name) {
+      report.status = await buildingPaint(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === BUILDING_MOVE_WORKFLOW.name) {
+      report.status = await buildingMove(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === CONSTRUCTION_WORKFLOW.name || name === CONSTRUCTION_FOLLOWUP.name) {
+      const io = new WorkflowIO(port, report);
+      report.status = name === CONSTRUCTION_WORKFLOW.name ? await buildingConstruct(args, io) : await buildingFollowup(args, io); return report;
+    }
+    if (name === SLINGSHOT_SHOOT_WORKFLOW.name) {
+      report.status = await slingshotShoot(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === SLINGSHOT_AMMO_WORKFLOW.name) {
+      report.status = await slingshotAmmo(args, new WorkflowIO(port, report)); return report;
+    }
+    if (name === MELEE_WORKFLOW.name) {
+      report.status = await meleeEngage(args, new WorkflowIO(port, report)); return report;
+    }
     if (name === MINING_WORKFLOW.name) {
       report.status = await mineExcavate(args, new WorkflowIO(port, report)); return report;
     }

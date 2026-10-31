@@ -193,6 +193,7 @@ internal sealed class GameFacts
             nearbyMapActions = exits,
             travel = MineActions.Query(),
             mining = MiningFacts.Query(args),
+            combat = MeleeActions.Query(),
             warning = "Map actions are reported literally; no ladder creation, warping, invulnerability or guaranteed safe path.",
         };
     }

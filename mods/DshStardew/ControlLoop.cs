@@ -52,6 +52,13 @@ internal sealed partial class ControlLoop
         public ShopActions.Attempt? Shop;
         public ShippingActions.Attempt? Shipping;
         public MineActions.Attempt? Mine;
+        public MeleeActions.Attempt? Melee;
+        public SlingshotActions.Shot? Shot;
+        public ConstructionActions.Attempt? Construction;
+        public ConstructionActions.EntryAttempt? ConstructionEntry;
+        public ConstructionActions.MoveAttempt? ConstructionMove;
+        public ConstructionActions.PaintAttempt? ConstructionPaint;
+        public ConstructionActions.SkinAttempt? ConstructionSkin;
         public TaskCompletionSource<object> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -61,6 +68,13 @@ internal sealed partial class ControlLoop
     {
         if (job is not null) throw new InvalidOperationException("Another realtime controller is running");
         var duration = kind == "dsh_mine_travel" ? R.Int(args, "durationMs", 30000, 3000, 45000)
+            : kind == "dsh_melee" ? R.Int(args, "durationMs", 6000, 1000, 10000)
+            : kind == "dsh_slingshot_shot" ? R.Int(args, "durationMs", 15000, 3000, 20000)
+            : kind == "dsh_construction" ? 15000
+            : kind == "dsh_construction_entry" ? 15000
+            : kind == "dsh_construction_move" ? 15000
+            : kind == "dsh_construction_paint" ? 15000
+            : kind == "dsh_construction_skin" ? 15000
             : kind == "dsh_shipping" ? (R.Arg(args, "operation") is "deposit" or "withdraw" ? 24000 : 3000)
             : kind == "dsh_shop_ui" ? (R.Arg(args, "operation") == "sell" ? 24000 : 3000)
             : kind == "dsh_consume" ? R.Int(args, "durationMs", 15000, 1000, 20000) : kind is "dsh_dialogue" or "dsh_quest_ui" or "dsh_craft" or "dsh_storage_ui" ? 3000 : kind == "dsh_ui_action" ? 1500 : kind == "dsh_fish" ? R.Int(args, "durationMs", 45000, 1000, 90000)
@@ -75,6 +89,16 @@ internal sealed partial class ControlLoop
         };
         if (created.Deadline > requestDeadline) created.Deadline = requestDeadline;
         if (kind == "dsh_mine_travel") created.Mine = MineActions.Prepare(args);
+        else if (kind == "dsh_melee") created.Melee = MeleeActions.Prepare(args);
+        else if (kind == "dsh_slingshot_shot") { created.Shot = SlingshotActions.PrepareShot(args); ResolveButton("use_tool"); }
+        else if (kind == "dsh_construction") created.Construction = ConstructionActions.Prepare(args);
+        else if (kind == "dsh_construction_skin") created.ConstructionSkin = ConstructionActions.PrepareSkin(args);
+        else if (kind == "dsh_construction_paint") created.ConstructionPaint = ConstructionActions.PreparePaint(args);
+        else if (kind == "dsh_construction_move") created.ConstructionMove = ConstructionActions.PrepareMove(args);
+        else if (kind == "dsh_construction_entry") {
+            created.ConstructionEntry = ConstructionActions.PrepareEntry(args);
+            if (created.ConstructionEntry.Operation == "open") ResolveButton("action");
+        }
         else if (kind == "dsh_shipping") created.Shipping = ShippingActions.Prepare(args);
         else if (kind == "dsh_shop_ui") created.Shop = ShopActions.Prepare(args);
         else if (kind == "dsh_storage_ui") created.Storage = StorageActions.Prepare(args);
@@ -165,6 +189,13 @@ internal sealed partial class ControlLoop
             // A mine transition intentionally changes location. Its controller
             // validates the exact native destination instead of following a stale floor.
             if (current.Kind == "dsh_mine_travel") { TickMineTravel(current); return; }
+            if (current.Kind == "dsh_melee") { TickMelee(current); return; }
+            if (current.Kind == "dsh_slingshot_shot") { TickSlingshot(current); return; }
+            if (current.Kind == "dsh_construction") { TickConstruction(current); return; }
+            if (current.Kind == "dsh_construction_entry") { TickConstructionEntry(current); return; }
+            if (current.Kind == "dsh_construction_move") { TickConstructionMove(current); return; }
+            if (current.Kind == "dsh_construction_paint") { TickConstructionPaint(current); return; }
+            if (current.Kind == "dsh_construction_skin") { TickConstructionSkin(current); return; }
             if (!Context.IsWorldReady || !Context.IsMainPlayer || Context.IsMultiplayer) { Finish("world_unavailable"); return; }
             if (GameFacts.SaveId() != current.Save || GameFacts.DayKey() != current.Day || !ReferenceEquals(Game1.currentLocation, current.Location)) { Finish("context_changed"); return; }
             if (Game1.player.health <= 0 || ((current.Kind is "dsh_fish" or "dsh_combat" or "dsh_animal") && current.Mode != "retreat" && Game1.player.health < current.HealthFloor)) { Finish("health_limit"); return; }
@@ -303,22 +334,27 @@ internal sealed partial class ControlLoop
         var direction = Math.Abs(delta.X) > Math.Abs(delta.Y) ? (delta.X > 0 ? 1 : 3) : (delta.Y > 0 ? 2 : 0);
         if (current.Mode == "retreat")
         {
+            current.Submitted = true;
             Press(new[] { "move_down", "move_left", "move_up", "move_right" }[direction]);
             return;
         }
         if (Vector2.Distance(monster.Tile, player.Tile) > 2.5f) { Finish("target_out_of_range"); return; }
+        if (!MeleeActions.PoseReady() || current.Tool?.GetType() != typeof(MeleeWeapon) || monster.GetType().Assembly != typeof(Game1).Assembly)
+        { Finish("unsupported_native_combat_pose_or_type"); return; }
         if (player.UsingTool || !player.CanMove) return;
         player.faceDirection(direction);
         if (current.Mode == "special")
         {
-            // beginSpecialMove/specialCooldown are not public in the inspected build.
-            // Native action input applies the game's cooldown and interaction rules instead.
-            Press("action");
+            // Public input-dispatch entry, not the private beginSpecialMove or
+            // a generic action key which could interact with the world instead.
+            current.Submitted = true;
+            ((MeleeWeapon)current.Tool!).animateSpecialMove(player);
             Finish("special_input_submitted");
             return;
         }
         player.lastClick = monster.Tile * 64 + new Vector2(32, 32);
-        player.BeginUsingTool();
+        current.Submitted = true;
+        ((MeleeWeapon)current.Tool!).leftClick(player);
     }
 
     private SButton ResolveButton(string semantic)
@@ -348,13 +384,20 @@ internal sealed partial class ControlLoop
 
     private void Press(string semantic) => helper.Input.Press(ResolveButton(semantic));
 
+    private static bool PointerSnapshotsReady(Point p) => Math.Abs(Game1.getMouseX(true) - p.X) <= 2 && Math.Abs(Game1.getMouseY(true) - p.Y) <= 2
+        && Math.Abs(Game1.getOldMouseX(true) - p.X) <= 2 && Math.Abs(Game1.getOldMouseY(true) - p.Y) <= 2;
+
     public void Cancel(string reason) { if (job is not null) Finish(reason); }
     private void Finish(string reason)
     {
         var current = job;
         if (current is null) return;
-        object? after = null; object? fishing = null;
+        object? after = null; object? fishing = null; bool? nativeChargeCancelled = null;
         try {
+            if (current.Shot is not null) nativeChargeCancelled = SlingshotActions.CancelCharging(current.Shot);
+            if (current.Construction is not null) ConstructionActions.StopPan(current.Construction);
+            if (current.ConstructionMove is not null) ConstructionActions.StopMovePan(current.ConstructionMove);
+            if (current.ConstructionPaint is not null) ConstructionActions.ReleasePaint(current.ConstructionPaint);
             after = Context.IsWorldReady ? GameFacts.ControlState() : null;
             fishing = current.Fishing is null ? null : FishingEvidence(current);
         }
@@ -366,7 +409,8 @@ internal sealed partial class ControlLoop
             before = current.Before, after,
             completedWorkflow = false,
             nativeActionSubmitted = current.Submitted,
-            completionUncertain = (current.Kind is "dsh_animal" or "dsh_fish" or "dsh_dialogue" or "dsh_quest_ui" or "dsh_consume" or "dsh_craft" or "dsh_storage_ui" or "dsh_shop_ui" or "dsh_shipping" or "dsh_mine_travel") && current.Submitted,
+            completionUncertain = (current.Kind is "dsh_animal" or "dsh_fish" or "dsh_dialogue" or "dsh_quest_ui" or "dsh_consume" or "dsh_craft" or "dsh_storage_ui" or "dsh_shop_ui" or "dsh_shipping" or "dsh_mine_travel" or "dsh_combat" or "dsh_melee" or "dsh_slingshot_shot" or "dsh_construction" or "dsh_construction_entry" or "dsh_construction_move" or "dsh_construction_paint" or "dsh_construction_skin") && current.Submitted,
+            nativeChargeCancelled, nativeReleaseSubmitted = current.Shot?.ReleaseSubmitted,
             fishing,
             note = "Controller stopped. Compare inventory/progress to confirm outcomes; no automatic replay on cancellation or timeout.",
         });

@@ -23,6 +23,8 @@ const character = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-
 const plainText = (v: unknown, limit = 128): string | null => typeof v === 'string' && v.length <= limit && !/[\x00-\x1f]/.test(v) ? v : null;
 const scalar = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const point = (v: any) => object(v) ? { locationId: plainText(v.locationId), x: scalar(v.x), y: scalar(v.y) } : null;
+const lifecycle = (v: any) => object(v) ? { deathAnimationCounter: scalar(v.deathAnimationCounter), mummyReviveTimerMs: scalar(v.mummyReviveTimerMs) } : null;
+const ammunition = (v: any) => object(v) ? { itemId: plainText(v.itemId), quality: scalar(v.quality), stack: scalar(v.stack), explosive: v.explosive === true } : null;
 const gains = (v: any): ObjectValue => {
   const rows = Array.isArray(v) ? v : [];
   return { totalRows: rows.length, detailsLimited: rows.length > 4,
@@ -56,6 +58,70 @@ export function workflowExperiences(report: WorkflowReport): Fact[] {
     if (!object(d)) return;
     const source = `workflow:${report.id}:step:${index}`;
     switch (entry.step) {
+      case 'building_skin_verified': add(source, 'building_skin_observed', { buildingGuid: plainText(d.buildingGuid), position: point(d.position), skinId: plainText(d.skinId),
+        baseSkin: d.skinId === null, previousSkinId: plainText(d.previousSkinId), changedDuringWorkflow: d.changedDuringWorkflow === true, observationOnly: d.observationOnly === true,
+        constructionDays: scalar(d.constructionDays), upgradeDays: scalar(d.upgradeDays), constructionReady: d.constructionReady === true,
+        defaultFlags: Array.isArray(d.defaultFlags) && d.defaultFlags.length === 3 && d.defaultFlags.every((v: unknown) => typeof v === 'boolean') ? d.defaultFlags : null,
+        preservationVerified: d.preservationVerified === true, constructionCauseVerified: false }); break;
+      case 'building_paint_region_verified': add(source, 'building_color_region_observed', { buildingGuid: plainText(d.buildingGuid), position: point(d.position),
+        regionId: plainText(d.regionId), regionIndex: scalar(d.index), default: d.default === true, hue: scalar(d.hue), saturation: scalar(d.saturation), lightness: scalar(d.lightness),
+        changedDuringWorkflow: d.changedDuringWorkflow === true, preservationVerified: d.preservationVerified === true, immediateEffect: true }); break;
+      case 'building_legacy_tint_reset_verified': add(source, 'building_legacy_tint_reset', { buildingGuid: plainText(d.buildingGuid), position: point(d.position),
+        before: scalar(d.before), after: scalar(d.after), nativePaintOpening: true }); break;
+      case 'building_move_verified':
+      case 'building_returned_to_origin_verified': add(source, entry.step === 'building_move_verified' ? 'building_moved' : 'building_returned_to_origin', {
+        buildingGuid: plainText(d.buildingGuid), locationId: plainText(d.locationId), builder: plainText(d.builder), type: plainText(d.type), skinId: plainText(d.skinId),
+        origin: point(d.origin), position: point(d.position ?? d.origin), targetMoveCompleted: d.targetMoveCompleted === true,
+        preservationVerified: d.preservationVerified === true, preservationScope: 'listed_building_interior_item_and_resident_fields',
+        exitUpdatesVerified: d.exitUpdatesVerified === true, trackedExitCount: scalar(d.trackedExitCount), exitTraversalVerified: false,
+        // Keep permanent facts compact and free of temporary reference keys;
+        // the workflow report retains every approved ground cell before/after.
+        groundPolicy: plainText(d.groundPolicy), affectedGroundCells: Array.isArray(d.groundBefore) ? d.groundBefore.length : null,
+        changedGroundCells: Array.isArray(d.groundBefore) && Array.isArray(d.groundAfter)
+          ? d.groundBefore.filter((row: unknown, i: number) => JSON.stringify(row) !== JSON.stringify(d.groundAfter[i])).length : null,
+      }); break;
+      case 'building_construction_verified': add(source, 'building_construction_started', { mode: plainText(d.mode), builder: plainText(d.builder),
+        locationId: plainText(d.locationId), buildingGuid: plainText(d.buildingGuid), blueprintId: plainText(d.blueprintId), type: plainText(d.type), skinId: plainText(d.skinId),
+        upgradeName: plainText(d.upgradeName), x: scalar(d.x), y: scalar(d.y), width: scalar(d.width), height: scalar(d.height),
+        constructionDays: scalar(d.constructionDays), upgradeDays: scalar(d.upgradeDays), goldSpent: scalar(d.goldSpent), materialsConsumed: gains(d.materialsConsumed),
+        readyAtConfirmation: d.ready === true, constructionCauseVerified: false }); break;
+      case 'building_status_verified': add(source, d.ready === true ? 'building_ready_observed' : 'building_under_construction_observed', {
+        locationId: plainText(d.locationId), buildingGuid: plainText(d.buildingGuid), type: plainText(d.type), skinId: plainText(d.skinId), upgradeName: plainText(d.upgradeName),
+        x: scalar(d.x), y: scalar(d.y), width: scalar(d.width), height: scalar(d.height), constructionDays: scalar(d.constructionDays), upgradeDays: scalar(d.upgradeDays),
+        observationOnly: true, constructionCauseVerified: false }); break;
+      case 'slingshot_target_defeated': add(source, 'monster_terminal_death_observed', { targetType: plainText(d.targetType, 256),
+        weaponItemId: plainText(d.slingshotItemId), family: 'slingshot', proofRule: plainText(d.proofRule), lifecycleBefore: lifecycle(d.lifeBefore), lifecycleAfter: lifecycle(d.lifeAfter),
+        targetHealthAfter: scalar(d.targetHealthAfter), monstersKilledDelta: scalar(d.monstersKilledDelta), shots: scalar(d.shots),
+        healthObservedLossUsed: scalar(d.healthUsed), targetDamageCauseVerified: false, encounterCleared: false, explorationCompleted: false }); break;
+      case 'slingshot_shot_verified': add(source, 'slingshot_shot_observed', { targetType: plainText(d.targetType, 256), slingshotItemId: plainText(d.slingshotItemId),
+        beforeAmmo: ammunition(d.beforeAmmo), afterAmmo: ammunition(d.afterAmmo), ammunitionSpent: scalar(d.ammunitionSpent), legacyFiring: d.legacyFiring === true,
+        chargeAtRelease: scalar(d.chargeAtRelease), projectileEnded: d.projectileEnded === true,
+        targetHealthBefore: scalar(d.targetHealthBefore), targetHealthAfter: scalar(d.targetHealthAfter), targetPresent: d.targetPresent === true,
+        observedHealthDecrease: scalar(d.observedHealthDecrease), targetDeathVerified: d.targetDeathVerified === true, targetDeathProofRule: plainText(d.targetDeathProofRule),
+        targetCollapsedForRevival: d.targetCollapsedForRevival === true, lifecycleBefore: lifecycle(d.targetLifeBefore), lifecycleAfter: lifecycle(d.targetLifeAfter),
+        monstersKilledDelta: scalar(d.monstersKilledDelta), healthBefore: scalar(d.healthBefore), healthAfter: scalar(d.healthAfter), healthObservedLossUsed: scalar(d.healthUsed),
+        inventoryGains: gains(d.inventoryGains), goldGain: scalar(d.goldGain), hitVerified: false, explosionVerified: false,
+        targetDamageCauseVerified: false, pickupAttributionVerified: false, explorationCompleted: false }); break;
+      case 'slingshot_ammo_verified': add(source, 'slingshot_ammo_moved', { operation: plainText(d.operation), slingshotItemId: plainText(d.slingshotItemId),
+        itemId: plainText(d.itemId), quality: scalar(d.quality), loadedCount: scalar(d.loadedCount), detachedCount: scalar(d.detachedCount),
+        beforeAmmo: ammunition(d.beforeAmmo), afterAmmo: ammunition(d.afterAmmo), conservedQuantity: d.conservedQuantity === true,
+        ammunitionFired: false, hitOrKillProven: false }); break;
+      case 'melee_action_verified': add(source, 'melee_action_observed', { mode: plainText(d.mode), targetType: plainText(d.targetType, 256),
+        weaponItemId: plainText(d.weaponItemId), family: plainText(d.family), targetHealthBefore: scalar(d.targetHealthBefore), targetHealthAfter: scalar(d.targetHealthAfter),
+        targetPresent: d.targetPresent === true, observedDamage: scalar(d.observedDamage), targetRemovedWithKillEvidence: d.targetRemovedWithKillEvidence === true,
+        targetDeathVerified: d.targetDeathVerified === true, targetDeathProofRule: plainText(d.targetDeathProofRule), targetCollapsedForRevival: d.targetCollapsedForRevival === true,
+        lifecycleBefore: lifecycle(d.targetLifeBefore), lifecycleAfter: lifecycle(d.targetLifeAfter),
+        targetDamageCauseVerified: false, monstersKilledDelta: scalar(d.monstersKilledDelta), affectedMonsterCount: scalar(d.affectedMonsterCount),
+        healthBefore: scalar(d.healthBefore), healthAfter: scalar(d.healthAfter), healthObservedLossUsed: scalar(d.healthUsed),
+        inventoryGains: gains(d.inventoryGains), goldGain: scalar(d.goldGain), pickupAttributionVerified: false, explorationCompleted: false }); break;
+      case 'melee_target_defeated': add(source, 'monster_terminal_death_observed', { targetType: plainText(d.targetType, 256), weaponItemId: plainText(d.weaponItemId),
+        family: plainText(d.family), proofRule: plainText(d.proofRule), lifecycleBefore: lifecycle(d.lifeBefore), lifecycleAfter: lifecycle(d.lifeAfter),
+        targetHealthAfter: scalar(d.targetHealthAfter), monstersKilledDelta: scalar(d.monstersKilledDelta),
+        actions: scalar(d.actions), specials: scalar(d.specials), healthObservedLossUsed: scalar(d.healthUsed),
+        targetDamageCauseVerified: false, encounterCleared: false, explorationCompleted: false }); break;
+      case 'melee_retreat_observed': add(source, 'melee_retreat_destination_observed', { destination: point(d.destination), healthBefore: scalar(d.healthBefore),
+        healthAfter: scalar(d.healthAfter), healthObservedLossUsed: scalar(d.healthUsed), targetStillPresent: d.targetStillPresent === true, safeEscapeVerified: false,
+        inventoryGains: gains(d.inventoryGains), goldGain: scalar(d.goldGain), pickupAttributionVerified: false }); break;
       case 'mining_strike_verified': add(source, d.crushed === true ? 'mine_rock_broken' : 'mine_rock_damaged', { position: point(d.position), itemId: plainText(d.itemId), quality: scalar(d.quality),
         beforeDurability: scalar(d.beforeDurability), afterDurability: scalar(d.afterDurability), miningExperienceBefore: scalar(d.miningExperienceBefore), miningExperienceAfter: scalar(d.miningExperienceAfter),
         inventoryGains: gains(d.inventoryGains), goldGain: scalar(d.goldGain), pickupAttributionVerified: false, healthObservedLossUsed: scalar(d.healthUsed), energyObservedLossUsed: scalar(d.energyUsed) }); break;

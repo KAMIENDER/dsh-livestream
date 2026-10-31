@@ -41,8 +41,8 @@ internal sealed class LocalServer : IDisposable
     private int queued;
     private bool? previousPauseWhenUnfocused;
 
-    internal static readonly string[] ReadTools = { "dsh_get_identity", "dsh_query_progress", "dsh_query_social", "dsh_query_farm", "dsh_query_catalog", "dsh_query_mine", "dsh_query_event", "dsh_query_ui", "dsh_query_inventory", "dsh_query_machine", "dsh_query_fishing", "dsh_query_husbandry", "dsh_query_npc", "dsh_query_quests", "dsh_query_dialogue", "dsh_query_quest_ui", "dsh_query_orders", "dsh_query_food", "dsh_query_crafting", "dsh_query_storage", "dsh_query_shop", "dsh_query_shipping", "dsh_query_night" };
-    internal static readonly string[] WriteTools = { "dsh_ui_action", "dsh_input", "dsh_fish", "dsh_combat", "dsh_animal", "dsh_split_stack", "dsh_machine", "dsh_fishing_gear", "dsh_husbandry", "dsh_npc_action", "dsh_dialogue", "dsh_quest_ui", "dsh_consume", "dsh_craft", "dsh_storage_ui", "dsh_shop_ui", "dsh_shipping", "dsh_mine_travel" };
+    internal static readonly string[] ReadTools = { "dsh_get_identity", "dsh_query_progress", "dsh_query_social", "dsh_query_farm", "dsh_query_catalog", "dsh_query_mine", "dsh_query_event", "dsh_query_ui", "dsh_query_inventory", "dsh_query_machine", "dsh_query_fishing", "dsh_query_husbandry", "dsh_query_npc", "dsh_query_quests", "dsh_query_dialogue", "dsh_query_quest_ui", "dsh_query_orders", "dsh_query_food", "dsh_query_crafting", "dsh_query_storage", "dsh_query_shop", "dsh_query_shipping", "dsh_query_night", "dsh_query_slingshot", "dsh_query_construction" };
+    internal static readonly string[] WriteTools = { "dsh_ui_action", "dsh_input", "dsh_fish", "dsh_combat", "dsh_animal", "dsh_split_stack", "dsh_machine", "dsh_fishing_gear", "dsh_husbandry", "dsh_npc_action", "dsh_dialogue", "dsh_quest_ui", "dsh_consume", "dsh_craft", "dsh_storage_ui", "dsh_shop_ui", "dsh_shipping", "dsh_mine_travel", "dsh_melee", "dsh_slingshot_ammo", "dsh_slingshot_shot", "dsh_construction", "dsh_construction_entry", "dsh_construction_move", "dsh_construction_paint", "dsh_construction_skin" };
 
     public LocalServer(LocalConfig config, IModHelper helper)
     {
@@ -226,6 +226,7 @@ internal sealed class LocalServer : IDisposable
                 "dsh_query_ui" => menus.Capture(),
                 "dsh_query_inventory" => InventoryActions.Capture(),
                 "dsh_query_fishing" => FishingActions.Query(request.Args),
+                "dsh_query_slingshot" => SlingshotActions.Query(request.Args),
                 "dsh_query_husbandry" => HusbandryActions.Query(request.Args),
                 "dsh_query_npc" => SocialActions.Query(request.Args),
                 "dsh_query_quests" => SocialActions.Quests(request.Args),
@@ -238,16 +239,18 @@ internal sealed class LocalServer : IDisposable
                 "dsh_query_shop" => ShopActions.Query(request.Args),
                 "dsh_query_shipping" => ShippingActions.Query(request.Args),
                 "dsh_query_night" => nights.Query(request.Args, request.RunId, request.ClientId),
+                "dsh_query_construction" => ConstructionActions.Query(request.Args),
                 "dsh_quest_ui" => R.Arg(request.Args, "operation") == "open_log" ? QuestActions.Open(request.Args)
                     : R.Arg(request.Args, "operation") == "close" ? QuestActions.Close(request.Args) : controls.Start(request.Tool, request.Args, request.Deadline),
                 "dsh_npc_action" => SocialActions.Act(request.Args),
                 "dsh_husbandry" => HusbandryActions.Act(request.Args),
                 "dsh_fishing_gear" => FishingActions.Gear(request.Args),
+                "dsh_slingshot_ammo" => SlingshotActions.Gear(request.Args),
                 "dsh_query_machine" => MachineActions.Query(request.Args),
                 "dsh_split_stack" => InventoryActions.Split(request.Args),
                 "dsh_machine" => MachineActions.Act(request.Args),
                 "dsh_ui_action" => R.Arg(request.Args, "operation", "click") is "click" or "right_click" ? controls.Start(request.Tool, request.Args, request.Deadline) : menus.Act(request.Args),
-                "dsh_input" or "dsh_fish" or "dsh_combat" or "dsh_animal" or "dsh_dialogue" or "dsh_consume" or "dsh_craft" or "dsh_storage_ui" or "dsh_shop_ui" or "dsh_shipping" or "dsh_mine_travel" => controls.Start(request.Tool, request.Args, request.Deadline),
+                "dsh_input" or "dsh_fish" or "dsh_combat" or "dsh_animal" or "dsh_dialogue" or "dsh_consume" or "dsh_craft" or "dsh_storage_ui" or "dsh_shop_ui" or "dsh_shipping" or "dsh_mine_travel" or "dsh_melee" or "dsh_slingshot_shot" or "dsh_construction" or "dsh_construction_entry" or "dsh_construction_move" or "dsh_construction_paint" or "dsh_construction_skin" => controls.Start(request.Tool, request.Args, request.Deadline),
                 _ => throw new ArgumentException("Unknown extension tool"),
             };
         }

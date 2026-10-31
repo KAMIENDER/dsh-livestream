@@ -24,6 +24,58 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 
 /** Explicit local contract for companion 0.3.0, not dynamically enabled tool-name prefixes. */
 export const EXTENSION_TOOLS: readonly Tool[] = [
+  tool('dsh_construction_skin', '准确建筑原生换皮单步：open/next/previous/done。支持画笔模式世界格、直接或调色内嵌外观子菜单。读取真实已过滤选项并正常点击；下一项必须明确expectedNextSkinId（null为基础外观）。换皮即时生效并重置三组Default，可能按原生规则改变施工天数；须满足maxConstructionDays及涂色重置/旧式tint/旧ID缺失打开回退的明确许可。原生关闭可能重建调色父菜单；不直接写皮肤、颜色、天数或调用setter/回调，不回滚/重放。', {
+    operation: section('open', 'next', 'previous', 'done'), locationId: text, buildingGuid: { type: 'string', format: 'uuid' }, position,
+    menuKey: text, revision: text, skinRevision: text, preservationDigest: text, structureDigest: text, inventoryDigest: text,
+    expectedGold: { type: 'integer', minimum: 0, maximum: 2147483647 }, expectedNextSkinId: { type: ['string', 'null'] },
+    maxConstructionDays: { type: 'integer', minimum: 0, maximum: 10000 }, allowTintReset: { type: 'boolean', default: false },
+    allowColorReset: { type: 'boolean', default: false }, allowOpeningFallback: { type: 'boolean', default: false },
+  }, ['operation', 'locationId', 'buildingGuid', 'position', 'menuKey', 'revision', 'skinRevision', 'preservationDigest', 'structureDigest', 'inventoryDigest', 'expectedGold', 'maxConstructionDays']),
+  tool('dsh_construction_paint', '真实建筑调色单步：open/next/previous/default/slider/done。正常画笔模式打开准确GUID的原生子菜单，按真实分区ID操作默认色或有界H/S/L滑条；仅菜单接收点击和实际update驱动回调，终值必须精确可达，不直接设色/调用滑条setter。修改即时生效，关闭不撤销；旧式tint非白色时open需明确allowTintReset。绑定完整建筑/库存/金币及颜色/内部保护摘要；全分区/其他建筑/共享色板/资源收据，未知不重放。', {
+    operation: section('open', 'next', 'previous', 'default', 'slider', 'done'), locationId: text, buildingGuid: { type: 'string', format: 'uuid' }, position,
+    menuKey: text, revision: text, paintRevision: text, preservationDigest: text, structureDigest: text, inventoryDigest: text,
+    expectedGold: { type: 'integer', minimum: 0, maximum: 2147483647 }, regionId: text, channel: section('hue', 'saturation', 'lightness'), value: { type: 'integer', minimum: -10000, maximum: 10000 },
+    allowTintReset: { type: 'boolean', default: false },
+  }, ['operation', 'locationId', 'buildingGuid', 'position', 'menuKey', 'revision', 'paintRevision', 'preservationDigest', 'structureDigest', 'inventoryDigest', 'expectedGold']),
+  tool('dsh_construction_move', '一次原生建筑搬移菜单步骤：enter/pick/place/pan/cancel/close。绑定持久GUID、原格、目标格、全建筑/库存/金币、内部物品/住户保护摘要及目标实际占地地面摘要。preserve只允许空地，native_clear明确允许原生处理器在该占地删除地面对象/地形并逐格回报。拿起后原生取消无效；returnToOrigin只允许同一已拿起建筑正常放回原格，不能用于继续目标搬移。保留原生日预算与主人具体审核，结果未知不补偿/重放。', {
+    operation: section('enter', 'pick', 'place', 'pan', 'cancel', 'close'), locationId: text, revision: text, menuKey: text,
+    buildingGuid: { type: 'string', format: 'uuid' }, origin: position, position, structureDigest: text, inventoryDigest: text,
+    expectedGold: { type: 'integer', minimum: 0, maximum: 2147483647 }, preservationDigest: text, groundDigest: text, exitDigest: text,
+    groundPolicy: section('preserve', 'native_clear'), direction: section('up', 'down', 'left', 'right'),
+    panPixels: { type: 'integer', minimum: 8, maximum: 512, default: 128 }, returnToOrigin: { type: 'boolean', default: false },
+  }, ['operation', 'locationId', 'revision', 'menuKey', 'buildingGuid', 'origin', 'position', 'structureDigest', 'inventoryDigest', 'expectedGold', 'preservationDigest', 'groundDigest', 'exitDigest', 'groundPolicy']),
+  tool('dsh_query_construction', '只读已加载地点的真实建筑GUID/实例、类型/皮肤、占地/计时、已打开CarpenterMenu图纸/原生材料/报价，以及当前地点真实Carpenter/WizardBook入口、原生服务问题和已核对构造回调的地点分页。查询不创建菜单/预览、不求值条件RNG、不加载地点或建造/扣款/完工。持久buildingGuid与临时实例key分开。', { locationId: text, entryPosition: position, moveBuildingGuid: { type: 'string', format: 'uuid' }, movePosition: position, paintBuildingGuid: { type: 'string', format: 'uuid' }, skinBuildingGuid: { type: 'string', format: 'uuid' }, demolishBuildingGuid: { type: 'string', format: 'uuid' } }),
+  tool('dsh_construction_entry', '一次原生建造入口操作：实际已相邻的Carpenter/WizardBook正常操作键，或真实carpenter服务/原生ShowConstructOptions地点问题的揭示、Construct、准确地点、翻页或离开。绑定菜单语义版本/全文/准确可见响应、建造者、目标地点、全背包/建筑/金币。检查真实私有分页回调来源但不调用它；不新建菜单、改解锁、选收费升级/商店或答未知问题。已输入后未知不重放，入口可用与构造成功分开。', {
+    operation: section('open', 'reveal', 'choose_construct', 'choose_location', 'next_page', 'previous_page', 'leave'), builder: section('Robin', 'Wizard'), targetLocationId: text,
+    revision: text, position, stationDigest: text, expectedText: text, responseKey: text, responseText: text,
+    inventoryDigest: text, structureDigest: text, expectedGold: { type: 'integer', minimum: 0, maximum: 2147483647 },
+  }, ['operation', 'builder', 'targetLocationId', 'revision', 'inventoryDigest', 'structureDigest', 'expectedGold']),
+  tool('dsh_construction', '准确原生木匠菜单单步：前后图纸、进入放置/画笔模式、正常鼠标边缘平移镜头、明确格建造/准确建筑GUID升级、取消或关闭。绑定实际菜单/图纸/地点、完整建筑/背包摘要和金币，commit必须显式金币与逐ID/品质材料预算。原生处理锁/建造/扣款/计时/返回，不调用建造或完工助手，不改金币物品和计时。等待完整收据，施工开始不代表建成；未知不重放。', {
+    operation: section('next', 'previous', 'enter_placement', 'enter_paint', 'commit', 'cancel', 'close', 'pan'), locationId: text, revision: text, menuKey: text, blueprintKey: text,
+    planDigest: text, structureDigest: text, inventoryDigest: text, expectedGold: { type: 'integer', minimum: 0, maximum: 2147483647 },
+    position, buildingGuid: { type: 'string', format: 'uuid', description: '升级必须是当前实际建筑的持久GUID，新建不能提供' },
+    maxGold: { type: 'integer', minimum: 0, maximum: 1000000000 }, materialBudget: { type: 'array', maxItems: 128, items: { type: 'object', additionalProperties: false,
+      required: ['itemId', 'quality', 'maxCount'], properties: { itemId: text, quality: { type: 'integer', minimum: 0, maximum: 4 }, maxCount: { type: 'integer', minimum: 1, maximum: 10000 } } } },
+    direction: section('up', 'down', 'left', 'right'), panPixels: { type: 'integer', minimum: 8, maximum: 512, default: 128 },
+  }, ['operation', 'locationId', 'revision', 'menuKey', 'blueprintKey', 'planDigest', 'structureDigest', 'inventoryDigest', 'expectedGold']),
+  tool('dsh_query_slingshot', '完整读取实际拥有的原生弹弓、单个弹药槽/数量/实例及gearDigest、原生弹药候选、全工具附件/摘要和全背包数量。读取真实旧式瞄准设置、当前蓄力和有界完整弹丸列表/实际所有者，不改变设置。基础伤害不是最终随机伤害，弹丸消失不证明命中；射击使用slingshot_shoot/dsh_slingshot_shot。'),
+  tool('dsh_slingshot_shot', '固定当前原生怪物/生命周期与已装备弹弓、现有弹药实例/数量/全附件/背包；地点内存在非怪物角色时不发射，未授权友伤。沿实际旧式/新版瞄准方式原生蓄力并一次公开释放，同步观察唯一新弹丸的真实所有者/弹药与消耗1份，等飞行结束及8帧空闲，完整资源/怪物收据。爆炸弹发射须明确许可。取消先原生结束蓄力；未知不重发。弹丸消失、血量变化、终态死亡和伤害归因分开，不保证命中、爆炸效果或清层。', {
+    locationKey: text, targetKey: text, expectedTargetType: text, expectedDeathAnimationCounter: { type: 'integer', minimum: 0, maximum: 2147483647 },
+    expectedMummyCollapsed: { type: 'boolean', description: '准确Mummy当前复活计时>0，其他怪物false；计数相同但阶段改变也不沿用批准' },
+    slingshotSlot: { type: 'integer', minimum: 0, maximum: 255 }, expectedSlingshotItemId: text, toolKey: text, gearDigest: text, inventoryDigest: text, attachmentSetDigest: text,
+    expectedAmmoItemId: text, expectedAmmoQuality: { type: 'integer', minimum: 0, maximum: 4 }, expectedAmmoStack: { type: 'integer', minimum: 1, maximum: 10000 }, ammoItemKey: text,
+    expectedLegacyFiring: { type: 'boolean' }, expectedHealth: { type: 'integer', minimum: 1, maximum: 1000 }, expectedMoney: { type: 'integer', minimum: 0, maximum: 2147483647 },
+    healthFloor: { type: 'integer', minimum: 1, maximum: 1000 }, maxHealthLoss: { type: 'integer', minimum: 0, maximum: 1000 }, allowExplosive: { type: 'boolean' },
+    maxRangeTiles: { type: 'number', minimum: 1, maximum: 20, default: 12 }, maxDisplacementTiles: { type: 'number', minimum: 0, maximum: 8, default: 2 },
+    durationMs: { type: 'integer', minimum: 3000, maximum: 20000, default: 15000 },
+  }, ['locationKey', 'targetKey', 'expectedTargetType', 'expectedDeathAnimationCounter', 'expectedMummyCollapsed', 'slingshotSlot', 'expectedSlingshotItemId', 'toolKey', 'gearDigest', 'inventoryDigest', 'attachmentSetDigest',
+    'expectedAmmoItemId', 'expectedAmmoQuality', 'expectedAmmoStack', 'ammoItemKey', 'expectedLegacyFiring', 'expectedHealth', 'expectedMoney', 'healthFloor', 'maxHealthLoss', 'allowExplosive']),
+  tool('dsh_slingshot_ammo', '对实际原生弹弓执行一次原生attach或整堆detach，绑定工具/弹药/全背包和其他附件。源整堆不超过maxCount，过大先分拆；原生可合并、留余量或替换，真实返回物入袋，核对全工具附件+背包总量守恒。爆炸弹装入须allowExplosive=true；不发射，不生成弹药，未知不重做。', {
+    operation: section('attach', 'detach'), slingshotSlot: { type: 'integer', minimum: 0, maximum: 255 }, expectedSlingshotItemId: text,
+    toolKey: text, gearDigest: text, inventoryDigest: text, attachmentSetDigest: text, inventorySlot: { type: 'integer', minimum: 0, maximum: 255 },
+    sourceItemKey: { type: 'string', description: 'attach必须为当前候选的实际原生物品实例key，不是MCP OpaqueRef' },
+    expectedItemId: text, expectedQuality: { type: 'integer', minimum: 0, maximum: 4 }, maxCount: { type: 'integer', minimum: 1, maximum: 10000 }, allowExplosive: { type: 'boolean', default: false },
+  }, ['operation', 'slingshotSlot', 'expectedSlingshotItemId', 'toolKey', 'gearDigest', 'inventoryDigest', 'attachmentSetDigest', 'inventorySlot', 'expectedItemId', 'expectedQuality', 'maxCount']),
   tool('dsh_mine_travel', '在已相邻的真实矿层出口上提交一次原生操作键，并按明确模式处理原生返地面/竖井问题或已解锁电梯按钮。绑定地点实例、楼层、出口类型/摘要；等待真实新地点/楼层稳定及背包/金币/生命收据。不直接传送/造梯/改血；竖井须预留15层和45点原生掉血，未知不重做。', {
     operation: section('descend', 'leave', 'shaft', 'elevator'), position, locationKey: text, targetKey: text, targetDigest: text,
     expectedFromLevel: { type: 'integer', minimum: 1, maximum: 1000000 }, destinationLevel: { type: 'integer', minimum: 0, maximum: 120 },
@@ -107,7 +159,7 @@ export const EXTENSION_TOOLS: readonly Tool[] = [
   tool('dsh_query_catalog', '分页查询当前游戏资源中的物品、价格字段、作物、鱼、动物、建筑、NPC、礼物偏好、配方、任务和献祭等原始资料，含内容 Mod；条件字符串需解释，实际售价仍查商店。', {
     ...page, section: section('objects', 'big_craftables', 'crops', 'fruit_trees', 'weapons', 'tools', 'buildings', 'animals', 'machines', 'characters', 'locations', 'fish', 'quests', 'bundles', 'gift_tastes', 'achievements', 'festivals', 'crafting', 'cooking'), search: text,
   }),
-  tool('dsh_query_mine', '读取矿层/怪物、附近Action；travel完整扫描原生矿层出口。mining另读当前普通Stone实例/耐久、真实镐/附魔功率、碎石/经验、完整库存和已存在掉落；分页半径内候选或明确position，空目标与已开采分开。只读缓存，不执行破石、造梯、生成掉落/物品或随机条件；未知类/构建/超限显式不可用。', {
+  tool('dsh_query_mine', '读取矿层/怪物、附近Action；travel完整扫描原生矿层出口。mining读普通Stone/镐、统计、库存和已有掉落；combat完整读取当前至多128个怪物实例、生命周期死亡动画计数/木乃伊复活计时与可攻击状态、近战武器/附魔/冷却、全背包及主角资源。怪物key和阶段不能按名字或最近目标替换，生命周期计数随请求固定。只读缓存，不触发事件、伤害、造梯、掉落生成或随机条件；未知构建/超限显式不可用。', {
     radius: { type: 'integer', minimum: 1, maximum: 12 }, miningRadius: { type: 'integer', minimum: 1, maximum: 64 }, ...page, position,
   }),
   tool('dsh_query_event', '读取事件、节日、小游戏、钓竿和钓鱼条的真实状态；仅部分字段，缺失不填猜测值。'),
@@ -147,7 +199,16 @@ export const EXTENSION_TOOLS: readonly Tool[] = [
     castPowerPercent: { type: 'integer', minimum: 10, maximum: 100 }, tryTreasure: { type: 'boolean' },
     maxBaitConsumed: { type: 'integer', minimum: 0, maximum: 1 }, maxTackleWear: { type: 'integer', minimum: 0, maximum: 1, description: '每个已有鱼钩槽的单次磨损上限' },
   }, ['position', 'rodSlot', 'expectedRodItemId', 'inventoryDigest', 'gearDigest', 'direction', 'expectedGear']),
-  tool('dsh_combat', '对附近怪物执行限时近战/特殊招式或反向撤退；攻击需非镰刀近战武器，超出范围即停，不自动追怪。不保证通关或安全撤离。', {
+  tool('dsh_melee', '固定实际怪物/生命周期计数与已装备原生近战武器，提交一次普攻或特殊招式，等待8帧空闲并核对资源/库存/怪物变化。普通死亡须同一实例的原生死亡事件计数恰好+1、非正血量、移除和击杀统计；木乃伊另按核对过的最终移除规则区分倒地/复活。死亡观察不证明此动作或战利品因果，也不是清层。中断或提交后不符为未知，不重打。先查dsh_query_mine.combat。', {
+    mode: section('attack', 'special'), locationKey: text, targetKey: text, expectedTargetType: text,
+    expectedDeathAnimationCounter: { type: 'integer', minimum: 0, maximum: 2147483647 },
+    weaponSlot: { type: 'integer', minimum: 0, maximum: 255 }, weaponKey: text, expectedWeaponItemId: text, gearDigest: text, inventoryDigest: text,
+    expectedHealth: { type: 'integer', minimum: 1, maximum: 1000 }, expectedMoney: { type: 'integer', minimum: 0, maximum: 2147483647 },
+    healthFloor: { type: 'integer', minimum: 1, maximum: 1000 }, maxHealthLoss: { type: 'integer', minimum: 0, maximum: 1000 },
+    maxRangeTiles: { type: 'number', minimum: 0.5, maximum: 4, default: 2.5 },
+    maxDisplacementTiles: { type: 'number', minimum: 0, maximum: 8, default: 3 }, durationMs: { type: 'integer', minimum: 1000, maximum: 10000, default: 6000 },
+  }, ['mode', 'locationKey', 'targetKey', 'expectedTargetType', 'expectedDeathAnimationCounter', 'weaponSlot', 'weaponKey', 'expectedWeaponItemId', 'gearDigest', 'inventoryDigest', 'expectedHealth', 'expectedMoney', 'healthFloor', 'maxHealthLoss']),
+  tool('dsh_combat', '旧基础控制：每帧选择最近怪物，限时普攻/特殊招式或反向移动；不是固定目标流程。不提供已确认战斗效果，提交动作后结束/中断返回未知，不能据此重试。正常近战优先用melee_engage/dsh_melee。', {
     mode: section('attack', 'special', 'retreat'), durationMs: { type: 'integer', minimum: 100, maximum: 10000 }, healthFloor: { type: 'integer', minimum: 1, maximum: 1000 },
   }),
   tool('dsh_animal', '对真实animalId执行单次原生抚摸、挤奶或剪毛。先导航到同地点相邻格；自动选择背包中已有的对应工具，核对原生工具目标与容量，并等待动物/产物数量及原生空闲状态确认。提交后未确认或中断则结果未知，不重放。', {
@@ -168,8 +229,8 @@ export const EXTENSION_TOOLS: readonly Tool[] = [
   }, ['position', 'operation', 'expectedMachineItemId', 'machineDigest', 'inventoryDigest']),
 ];
 
-export const EXTRA_READ: readonly string[] = ['dsh_get_identity', 'dsh_query_progress', 'dsh_query_social', 'dsh_query_farm', 'dsh_query_catalog', 'dsh_query_mine', 'dsh_query_event', 'dsh_query_ui', 'dsh_query_inventory', 'dsh_query_machine', 'dsh_query_fishing', 'dsh_query_husbandry', 'dsh_query_npc', 'dsh_query_quests', 'dsh_query_dialogue', 'dsh_query_quest_ui', 'dsh_query_orders', 'dsh_query_food', 'dsh_query_crafting', 'dsh_query_storage', 'dsh_query_shop', 'dsh_query_shipping', 'dsh_query_night'];
-export const EXTRA_WRITE: readonly string[] = ['dsh_ui_action', 'dsh_input', 'dsh_fish', 'dsh_combat', 'dsh_animal', 'dsh_split_stack', 'dsh_machine', 'dsh_fishing_gear', 'dsh_husbandry', 'dsh_npc_action', 'dsh_dialogue', 'dsh_quest_ui', 'dsh_consume', 'dsh_craft', 'dsh_storage_ui', 'dsh_shop_ui', 'dsh_shipping', 'dsh_mine_travel'];
+export const EXTRA_READ: readonly string[] = ['dsh_get_identity', 'dsh_query_progress', 'dsh_query_social', 'dsh_query_farm', 'dsh_query_catalog', 'dsh_query_mine', 'dsh_query_event', 'dsh_query_ui', 'dsh_query_inventory', 'dsh_query_machine', 'dsh_query_fishing', 'dsh_query_husbandry', 'dsh_query_npc', 'dsh_query_quests', 'dsh_query_dialogue', 'dsh_query_quest_ui', 'dsh_query_orders', 'dsh_query_food', 'dsh_query_crafting', 'dsh_query_storage', 'dsh_query_shop', 'dsh_query_shipping', 'dsh_query_night', 'dsh_query_slingshot', 'dsh_query_construction'];
+export const EXTRA_WRITE: readonly string[] = ['dsh_ui_action', 'dsh_input', 'dsh_fish', 'dsh_combat', 'dsh_animal', 'dsh_split_stack', 'dsh_machine', 'dsh_fishing_gear', 'dsh_husbandry', 'dsh_npc_action', 'dsh_dialogue', 'dsh_quest_ui', 'dsh_consume', 'dsh_craft', 'dsh_storage_ui', 'dsh_shop_ui', 'dsh_shipping', 'dsh_mine_travel', 'dsh_melee', 'dsh_slingshot_ammo', 'dsh_slingshot_shot', 'dsh_construction', 'dsh_construction_entry', 'dsh_construction_move', 'dsh_construction_paint', 'dsh_construction_skin'];
 const PROTOCOL = 'dsh.stardew.extension.v1';
 
 export class StardewBridge {
